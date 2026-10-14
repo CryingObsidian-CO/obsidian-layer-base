@@ -55,7 +55,14 @@ export type CellValue =
 
 export interface Record_ {
 	id: string;
-	created: number;
+	/**
+	 * Creation time as an ISO 8601 string, e.g. `2024-10-28T02:13:20.000Z`.
+	 *
+	 * Stored as text rather than an epoch number so that both a person and an AI
+	 * reading the raw file can tell what the value means without consulting the
+	 * schema. A number is not accepted: there is no older format to convert from.
+	 */
+	created: string;
 	cells: Record<string, CellValue>;
 }
 
@@ -118,7 +125,13 @@ export interface KanbanView extends BaseView {
 
 export type View = GridView | KanbanView;
 
-/** The whole `.layer` file: one database, several views over the same data. */
+/**
+ * The whole `.layer` file: one database, several views over the same data.
+ *
+ * Every record here is content the user owns. The file stays plain JSON so that
+ * it can be diffed, synced, recovered and edited by an AI agent; nothing about
+ * it depends on the plugin being installed.
+ */
 export interface LayerDoc {
 	version: number;
 	name: string;

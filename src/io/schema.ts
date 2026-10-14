@@ -218,12 +218,21 @@ function parseRecord(
 		}
 	}
 
-	const created =
-		typeof raw.created === 'number' && Number.isFinite(raw.created)
-			? raw.created
-			: Date.now();
+	return {id, created: normalizeTimestamp(raw.created), cells};
+}
 
-	return {id, created, cells};
+export function normalizeTimestamp(raw: unknown): string {
+	if (typeof raw === 'string') {
+		const parsed = new Date(raw);
+		if (!Number.isNaN(parsed.getTime())) {
+			return raw;
+		}
+	}
+	return nowIso();
+}
+
+function nowIso(): string {
+	return new Date().toISOString();
 }
 
 function parseSorts(raw: unknown, fieldIds: Set<string>): Sort[] {
@@ -497,7 +506,28 @@ export function parseLayerDoc(text: string): ParseResult {
 	};
 }
 
+/**
+ * Header written at the top of every `.layer` file.
+ *
+ * It documents the conventions a reader cannot infer from the data alone —
+ * crucially that `created` is an ISO 8601 string and that `cells` and `select`
+ * values are keyed by id rather than by display name. Keeping it in the file
+ * means the schema is discoverable from the file itself, which is what an AI
+ * agent (or a person) actually reads.
+ *
+ * The key is prefixed with `_` because it is metadata, not data, and the parser
+ * ignores it.
+ */
+const FILE_HEADER = {
+	_format: 'obsidian-layer-base',
+	_note: [
+		'Self-contained board. Safe to edit as JSON; the plugin tolerates and repairs minor issues.',
+		'cells and select values are keyed by id, not by display name, so renaming never orphans data.',
+		'records[].created is an ISO 8601 string.',
+	],
+} as const;
+
 /** Serializes back to the on-disk shape. Pretty-printed so the file stays hand-editable. */
 export function serializeLayerDoc(doc: LayerDoc): string {
-	return `${JSON.stringify(doc, null, '\t')}\n`;
+	return `${JSON.stringify({...FILE_HEADER, ...doc}, null, '\t')}\n`;
 }
