@@ -13,6 +13,8 @@ export default defineConfig(
 		'package.json',
 		'package-lock.json',
 		'tsconfig.json',
+		// Local maintenance scripts; not part of the plugin bundle.
+		'scripts',
 	]),
 	{
 		languageOptions: {

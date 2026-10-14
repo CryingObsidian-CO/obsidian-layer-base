@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"id": "obsidian-layer-base",
+	"name": "Layer Base",
+	"version": "0.1.0",
+	"minAppVersion": "1.8.7",
+	"description": "Multi-dimensional board and table views stored in self-contained .layer files.",
+	"author": "CryingObsidian-CO",
 	"isDesktopOnly": false
 }

@@ -1,8 +1,32 @@
 /*
+ * Styles for obsidian-layer-base.
+ *
+ * The CSS variables used here (--size-4-4, --radius-m, --background-secondary,
+ * --font-ui-smaller, ...) are injected by Obsidian at runtime and declared on
+ * `body` in Obsidian's app.css. They are not defined in this file, so editors
+ * that validate `var()` without knowledge of the host app flag them as
+ * unresolved. That warning is a false positive — the plugin's CSS is correct.
+ *
+ * Do NOT "fix" it by redeclaring these on `:root`. Obsidian and user themes
+ * set the real values on `body`, and a plugin redefining them there would
+ * override the theme, break light/dark switching, and ignore theme colours.
+ *
+ * To confirm a variable name against the installed Obsidian build:
+ *   node scripts/verify-css-vars.mjs
+ */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+/* M0 placeholder shown until the real grid and board views land in M2/M3. */
+.layer-base-preview {
+	padding: var(--size-4-6);
+	overflow: auto;
+	height: 100%;
+}
 
-If your plugin does not need CSS, delete this file.
-
-*/
+.layer-base-preview pre {
+	padding: var(--size-4-4);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+	overflow: auto;
+	font-size: var(--font-ui-smaller);
+	user-select: text;
+}

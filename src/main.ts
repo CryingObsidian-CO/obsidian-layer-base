@@ -1,114 +1,167 @@
+import { Notice, Plugin, TFile, TFolder } from 'obsidian';
 import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
+	COMMAND_CREATE_FILE,
+	LAYER_EXTENSION,
+	VIEW_TYPE_LAYER,
+} from './constants';
+import { seedLabels, t } from './i18n';
+import { createEmptyDoc, serializeLayerDoc } from './io/schema';
 import {
 	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
+	LayerBaseSettingTab,
+	type LayerBaseSettings,
 } from './settings';
+import { createLayerView } from './views/layer-view';
 
-// Remember to rename these classes and interfaces!
+/** Upper bound on retries when a name collision keeps coming back. */
+const MAX_CREATE_ATTEMPTS = 50;
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
+export default class LayerBasePlugin extends Plugin {
+	settings!: LayerBaseSettings;
 
-	async onload() {
+	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.registerView(VIEW_TYPE_LAYER, (leaf) => createLayerView(leaf, this));
+		// Routes `.layer` files to the view above. Without this line Obsidian
+		// would open them as plain text.
+		this.registerExtensions([LAYER_EXTENSION], VIEW_TYPE_LAYER);
+
+		this.addRibbonIcon('layout-grid', t().ribbonNewBoard, () => {
+			void this.createLayerFile();
 		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
+			id: COMMAND_CREATE_FILE,
+			name: t().commandCreateFile,
 			callback: () => {
-				new SampleModal(this.app).open();
-			},
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
+				void this.createLayerFile();
 			},
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
-		);
+		this.addSettingTab(new LayerBaseSettingTab(this.app, this));
 	}
 
-	onunload() {}
+	onunload(): void {
+		// Views, listeners and the setting tab registered above are removed by
+		// Obsidian through the register* helpers.
+	}
 
-	async loadSettings() {
+	async loadSettings(): Promise<void> {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
+			(await this.loadData()) as Partial<LayerBaseSettings>,
 		);
 	}
 
-	async saveSettings() {
+	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 	}
-}
 
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
+	/** Creates a `.layer` file in the configured folder and opens it. */
+	async createLayerFile(): Promise<void> {
+		const folderPath = this.settings.defaultFolder.trim();
+		const folder = folderPath ? this.resolveFolder(folderPath) : null;
+		if (folderPath && !folder) {
+			new Notice(t().noticeFolderMissing(folderPath));
+			console.warn(
+				`[obsidian-layer-base] Configured folder does not exist: ${folderPath}`,
+			);
+			return;
+		}
+
+		const base = this.settings.defaultFileName.trim() || t().placeholderBoard;
+
+		try {
+			const file = await this.createWithFreeName(folder, base);
+			const leaf = this.app.workspace.getLeaf('tab');
+			await leaf.openFile(file);
+			new Notice(t().noticeCreated(file.basename));
+		} catch (error) {
+			new Notice(t().noticeCreateFailed);
+			console.error('[obsidian-layer-base] Failed to create board:', error);
+		}
 	}
 
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+	/**
+	 * Creates `<folder>/<base>.layer`, appending a counter until the path is free.
+	 *
+	 * The pre-check only inspects the target folder, because that is the only
+	 * scope where a collision would make `vault.create` fail. The retry loop is
+	 * what actually guarantees correctness: between the check and the write,
+	 * another window can create the same name, so a failed create must be
+	 * treated as "try the next name" rather than as an error.
+	 */
+	private async createWithFreeName(
+		folder: TFolder | null,
+		base: string,
+	): Promise<TFile> {
+		const taken = this.takenNamesIn(folder);
+		let name = base;
+		for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
+			if (attempt > 1) {
+				name = `${base} ${attempt}`;
+			}
+			// Skip names already known to be taken before attempting the write.
+			if (taken.has(name) && attempt > 1) {
+				continue;
+			}
+
+			const path = folder
+				? `${folder.path}/${name}.${LAYER_EXTENSION}`
+				: `${name}.${LAYER_EXTENSION}`;
+
+			try {
+				await this.app.vault.create(
+					path,
+					serializeLayerDoc(createEmptyDoc(name, seedLabels())),
+				);
+			} catch (error) {
+				// Lost a race with another writer, or the folder disappeared.
+				taken.add(name);
+				console.warn(
+					`[obsidian-layer-base] "${path}" is taken, trying the next name:`,
+					error,
+				);
+				continue;
+			}
+
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFile) {
+				return file;
+			}
+			throw new Error(`Created file is not retrievable: ${path}`);
+		}
+		throw new Error(
+			`Could not find a free name after ${MAX_CREATE_ATTEMPTS} attempts`,
+		);
+	}
+
+	/** Names already used by `.layer` files directly inside one folder. */
+	private takenNamesIn(folder: TFolder | null): Set<string> {
+		const taken = new Set<string>();
+		if (folder) {
+			for (const child of folder.children) {
+				if (child instanceof TFile && child.extension === LAYER_EXTENSION) {
+					taken.add(child.basename);
+				}
+			}
+			return taken;
+		}
+		// The vault root is also a folder, so it takes the same path.
+		const root = this.app.vault.getRoot();
+		for (const child of root.children) {
+			if (child instanceof TFile && child.extension === LAYER_EXTENSION) {
+				taken.add(child.basename);
+			}
+		}
+		return taken;
+	}
+
+	/** Resolves a configured folder path, returning null when it is absent. */
+	private resolveFolder(path: string): TFolder | null {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		return file instanceof TFolder ? file : null;
 	}
 }
