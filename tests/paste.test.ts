@@ -24,8 +24,6 @@ const STATUS: Field = {
 function newDoc(): LayerDoc {
 	const doc = createEmptyDoc('Board');
 	doc.fields = [{ ...TITLE }, { ...STATUS, options: STATUS.options?.map((o) => ({ ...o })) }];
-	// Views are left as the seed produced them; removing them would make the
-	// parser add defaults and warn, which has nothing to do with pasting.
 	return doc;
 }
 
@@ -38,12 +36,10 @@ describe('parseGrid', () => {
 	});
 
 	it('treats a single value as a 1x1 grid', () => {
-		// "Copy one value" and "copy a range" must not be separate code paths.
 		expect(parseGrid('hello')).toEqual([['hello']]);
 	});
 
 	it('ignores a trailing newline instead of inventing an empty row', () => {
-		// A trailing newline is how a text file ends.
 		expect(parseGrid('a\tb\n')).toEqual([['a', 'b']]);
 	});
 
@@ -86,8 +82,6 @@ describe('gridShape and cellAt', () => {
 	});
 
 	it('treats a short row as empty rather than absent', () => {
-		// A spreadsheet omits trailing empty cells; the missing ones must paste
-		// as blanks instead of pulling the next row's contents up.
 		const ragged = [['a', 'b'], ['c']];
 		expect(cellAt(ragged, 1, 1)).toBe('');
 		expect(cellAt(ragged, 5, 0)).toBe('');
@@ -112,7 +106,6 @@ describe('pasteCells', () => {
 
 		expect(report).toEqual({ written: 4, refused: 0 });
 		expect(r1.cells.f_title).toBe('First');
-		// The destination's type decides how the text is read.
 		expect(r1.cells.f_status).toBe('o_1');
 		expect(r2.cells.f_status).toBe('o_2');
 	});
@@ -148,8 +141,6 @@ describe('pasteCells', () => {
 	});
 
 	it('leaves the rest alone when the block is smaller', () => {
-		// A narrower source must not clear the cells it does not reach, which is
-		// what a spreadsheet does.
 		const doc = newDoc();
 		const r1 = addRecord(doc);
 		const r2 = addRecord(doc);
@@ -173,7 +164,6 @@ describe('pasteCells', () => {
 });
 
 describe('pasteFormatted', () => {
-	/** A copied cell, whose displayed text defaults to its value. */
 	const copied = (type: 'text' | 'select', value: string, text = value) => ({
 		type,
 		value,
@@ -194,9 +184,6 @@ describe('pasteFormatted', () => {
 	});
 
 	it('refuses a select pasted into a text column', () => {
-		// The case this whole mode exists for: a select holds an option id, and
-		// storing it in a text column would put an id on screen as if it were
-		// content. Refusing is the honest outcome.
 		const doc = newDoc();
 		const r1 = addRecord(doc);
 
@@ -221,8 +208,6 @@ describe('pasteFormatted', () => {
 	});
 
 	it('resolves a select by name when the destination has its own options', () => {
-		// Option ids belong to a field. Pasting into another select column must
-		// use *that* column's option, or the cell would hold a dangling id.
 		const doc = newDoc();
 		const other: Field = {
 			id: 'f_other',
@@ -301,7 +286,6 @@ describe('pasteFormatted', () => {
 });
 
 describe('paste fills from the corner, extending outward', () => {
-	/** Mirrors what the grid does before calling pasteCells. */
 	function grow(
 		selectedRows: string[],
 		selectedFields: Field[],
@@ -328,8 +312,6 @@ describe('paste fills from the corner, extending outward', () => {
 	}
 
 	it('fills a 2x2 block pasted into a single selected cell', () => {
-		// The bug this guards: clipping the content to the selection wrote one
-		// cell and silently dropped three.
 		const doc = newDoc();
 		const r1 = addRecord(doc);
 		const r2 = addRecord(doc);
@@ -373,7 +355,6 @@ describe('paste fills from the corner, extending outward', () => {
 	});
 
 	it('refuses a block that runs past the end of the table', () => {
-		// Refusing beats pasting part of a block the user did not ask to split.
 		const doc = newDoc();
 		const r1 = addRecord(doc);
 		const order = { recordIds: [r1.id], fields: [TITLE, STATUS] };
@@ -383,7 +364,6 @@ describe('paste fills from the corner, extending outward', () => {
 	});
 
 	it('extends into rendered rows only', () => {
-		// A filter hides rows; the block must not spill into them.
 		const doc = newDoc();
 		const r1 = addRecord(doc);
 		const hidden = addRecord(doc);

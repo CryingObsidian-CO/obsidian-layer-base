@@ -96,7 +96,6 @@ describe('removeField', () => {
 
 		const after = doc.views.find((v) => v.id === board?.id);
 		expect(after?.type).toBe('grid');
-		// A demoted view must not keep board-only keys behind.
 		expect(after === undefined ? true : !('groupByFieldId' in after)).toBe(true);
 	});
 
@@ -188,8 +187,6 @@ describe('changeFieldType', () => {
 		setCellValue(doc, record.id, doc.fields[0]!, '42');
 		setCellValue(doc, record.id, doc.fields[1]!, 'o_1');
 
-		// No conversion exists between free text and option ids, so the only
-		// honest outcome is to clear and report.
 		const dropped = changeFieldType(doc, 'f_title', 'select');
 
 		expect(dropped).toBe(1);
@@ -208,7 +205,6 @@ describe('changeFieldType', () => {
 		const doc = newDoc();
 		changeFieldType(doc, 'f_status', 'text');
 
-		// Leaving ids in the file that nothing renders would be dead weight.
 		expect(doc.fields[1]?.options).toBeUndefined();
 	});
 

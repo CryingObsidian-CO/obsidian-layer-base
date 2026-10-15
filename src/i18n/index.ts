@@ -1,17 +1,6 @@
 import { getLanguage } from 'obsidian';
 import type { SeedLabels } from '../io/schema';
 
-/**
- * User-facing strings, keyed so a translation can be added without touching
- * call sites.
- *
- * Scope note: this is deliberately a single-file catalogue rather than a full
- * i18n framework. Obsidian renders plugin UI through its own CSS variables, but
- * string data still has to be chosen somewhere; keeping it in one typed map
- * makes the later step (adding `locales/zh.ts` and a lookup) mechanical instead
- * of a find-and-replace across every module.
- */
-
 /** The locale Obsidian is running in, e.g. `zh`, `zh-TW`, `en`. */
 export type Locale = 'zh' | 'zh-TW' | 'en';
 
@@ -296,14 +285,7 @@ const zhTW = {
 	typeSelect: '單選',
 } as const;
 
-/**
- * Shape every catalogue must satisfy.
- *
- * `en` is declared `as const`, so its properties carry literal types like
- * `"New board"`. Translations are different strings and would not be assignable
- * to those literals, so primitives are widened back to `string` while function
- * signatures are kept intact.
- */
+/** Shape every catalogue must satisfy. */
 type Widen<T> = {
 	-readonly [K in keyof T]: T[K] extends string
 		? string
@@ -316,18 +298,11 @@ export type Strings = Widen<typeof en>;
 
 const catalogues: Record<Locale, Strings> = { en, zh, 'zh-TW': zhTW };
 
-/**
- * Picks the closest catalogue for the running app.
- *
- * Obsidian reports `zh-CN` for Simplified Chinese and `zh` for Traditional in
- * some builds, so the region suffix is checked rather than matched exactly.
- */
 function resolveLocale(): Locale {
 	let raw = 'en';
 	try {
 		raw = getLanguage();
 	} catch {
-		// getLanguage() exists since 1.8.7; older apps fall back to English.
 		return 'en';
 	}
 	const lang = raw.toLowerCase();
@@ -342,14 +317,7 @@ function resolveLocale(): Locale {
 
 let active: Strings = catalogues[resolveLocale()];
 
-/**
- * Default field, option and view names for a newly created board.
- *
- * These differ from UI strings in one important way: they are written into the
- * user's `.layer` file once and then belong to the user, who can rename them
- * freely. They are seeded in the app language at creation time and are not
- * retranslated afterwards.
- */
+/** Default field, option and view names for a newly created board. */
 export function seedLabels(): SeedLabels {
 	return {
 		untitledBoard: active.placeholderBoard,

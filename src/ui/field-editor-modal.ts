@@ -4,29 +4,16 @@ import { FIELD_TYPES, usesOptions } from '../model/fields';
 import type { Field, FieldType, SelectOption } from '../types';
 import { generateId } from '../utils/id';
 
-/**
- * Add or edit one field: its name, its type, and the options of an option-based
- * type.
- *
- * The modal edits a *draft* and only calls `onSubmit` when the user saves, so
- * cancelling leaves the document untouched. Type changes are applied by the
- * caller through `changeFieldType`, where value conversion and its data-loss
- * accounting live.
- */
-
 export interface FieldEditorResult {
 	name: string;
 	type: FieldType;
 	options: SelectOption[];
-	/** True when an existing field's type was changed. */
 	typeChanged: boolean;
 }
 
 export interface FieldEditorOptions {
 	app: App;
-	/** Field being edited, or null to create a new one. */
 	field: Field | null;
-	/** Applies the edit. */
 	onSubmit: (result: FieldEditorResult) => void;
 }
 
@@ -155,8 +142,6 @@ export class FieldEditorModal extends Modal {
 		this.config.onSubmit({
 			name,
 			type: this.type,
-			// An unnamed option would render as a blank choice, so it is dropped
-			// rather than stored.
 			options: this.draftOptions.filter((o) => o.name.trim() !== ''),
 			typeChanged: this.originalType !== null && this.originalType !== this.type,
 		});
@@ -179,11 +164,6 @@ function typeLabel(type: FieldType): string {
 	}
 }
 
-/**
- * Option colours are stored as theme colour names, but a colour input only
- * accepts hex. A non-hex value keeps a neutral fallback so the input always has
- * something valid to show.
- */
 function toHexColor(color: string): string {
 	return /^#[0-9a-f]{6}$/i.test(color) ? color : '#888888';
 }

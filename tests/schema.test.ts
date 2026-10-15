@@ -194,9 +194,6 @@ describe('parseLayerDoc', () => {
 		raw.version = 99;
 		const { doc, warnings } = parseLayerDoc(JSON.stringify(raw));
 
-		// The guard's whole purpose: a file from another format must never be
-		// reinterpreted silently. The mismatch is reported and the document is
-		// stamped with the version actually applied to it.
 		expect(doc.version).toBe(LAYER_FORMAT_VERSION);
 		expect(warnings.some((w) => w.includes('File version'))).toBe(true);
 	});
@@ -222,7 +219,6 @@ describe('parseLayerDoc', () => {
 
 			expect(parsed._format).toBe('obsidian-layer-base');
 			expect(Array.isArray(parsed._note)).toBe(true);
-			// The header must state the two conventions a reader cannot infer.
 			const notes = (parsed._note as string[]).join(' ');
 			expect(notes).toMatch(/ISO 8601/);
 			expect(notes).toMatch(/keyed by id/);
@@ -265,8 +261,6 @@ describe('parseLayerDoc', () => {
 			(raw.records as Record<string, unknown>[])[0]!.created = 1730000000000;
 			const { doc } = parseLayerDoc(JSON.stringify(raw));
 
-			// No converter is carried for a format that never shipped, so the
-			// value falls back to the current time.
 			expect(doc.records[0]?.created).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 			expect(doc.records[0]?.created).not.toBe('2024-10-27T03:33:20.000Z');
 		});
@@ -288,8 +282,6 @@ describe('normalizeCellValue', () => {
 	});
 
 	it('turns numbers and booleans into text', () => {
-		// They arrive from hand-edited JSON and from other tools; keeping the
-		// cell as text beats discarding it.
 		expect(normalizeCellValue(7)).toBe('7');
 		expect(normalizeCellValue(true)).toBe('true');
 	});
@@ -326,7 +318,6 @@ describe('createEmptyDoc', () => {
 	});
 
 	it('writes the supplied seed labels into the file', () => {
-		// Seeds become the user's content, so they are parameterised by locale.
 		const doc = createEmptyDoc('board', {
 			untitledBoard: 'untitled',
 			titleField: '标题',

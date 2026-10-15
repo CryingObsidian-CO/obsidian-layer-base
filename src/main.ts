@@ -22,8 +22,6 @@ export default class LayerBasePlugin extends Plugin {
 		this.store = new LayerStore(this.app);
 
 		this.registerView(VIEW_TYPE_LAYER, (leaf) => createLayerView(leaf, this));
-		// Routes `.layer` files to the view above. Without this line Obsidian
-		// would open them as plain text.
 		this.registerExtensions([LAYER_EXTENSION], VIEW_TYPE_LAYER);
 
 		this.addRibbonIcon('layout-grid', t().ribbonNewBoard, () => {
@@ -41,10 +39,7 @@ export default class LayerBasePlugin extends Plugin {
 		this.addSettingTab(new LayerBaseSettingTab(this.app, this));
 	}
 
-	onunload(): void {
-		// Views, listeners and the setting tab registered above are removed by
-		// Obsidian through the register* helpers.
-	}
+	onunload(): void {}
 
 	async loadSettings(): Promise<void> {
 		this.settings = Object.assign(

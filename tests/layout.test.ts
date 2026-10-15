@@ -40,8 +40,6 @@ describe('clamping', () => {
 	});
 
 	it('rounds to whole pixels', () => {
-		// A fractional width would be written into the file as a float and read
-		// back the same way, which is noise nobody asked for.
 		expect(clampColumnWidth(200.6)).toBe(201);
 	});
 
@@ -78,7 +76,6 @@ describe('setColumnWidth', () => {
 		setColumnWidth(view, 'f_a', 260);
 		setColumnWidth(view, 'f_a', DEFAULT_COLUMN_WIDTH);
 
-		// Storing the default would leave an entry that says nothing.
 		expect('f_a' in view.columnWidths).toBe(false);
 	});
 
@@ -116,8 +113,6 @@ describe('sizes follow their field and record', () => {
 
 		removeField(doc, fieldId);
 
-		// Unreachable but permanent otherwise, and it would apply again if the
-		// id were ever reused.
 		expect(fieldId in view.columnWidths).toBe(false);
 	});
 
@@ -160,7 +155,6 @@ describe('sizes survive a save and reload', () => {
 		const { doc } = parseLayerDoc(JSON.stringify(raw));
 		const reloaded = doc.views.find((v) => v.type === 'grid');
 
-		// A size keyed by something that no longer exists is unreachable.
 		expect(reloaded?.type === 'grid' ? reloaded.columnWidths : null).toEqual({});
 		expect(reloaded?.type === 'grid' ? reloaded.rowHeights : null).toEqual({});
 	});

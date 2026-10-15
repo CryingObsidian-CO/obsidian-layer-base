@@ -1,12 +1,6 @@
 import { Modal, type App } from 'obsidian';
 import { t } from '../i18n';
 
-/**
- * A yes/no confirmation before a destructive action.
- *
- * Kept separate from the action itself so the irreversible step is always behind
- * one explicit click, and so the wording lives with the other UI strings.
- */
 export interface ConfirmOptions {
 	title: string;
 	message: string;
@@ -40,13 +34,10 @@ export class ConfirmModal extends Modal {
 			text: this.config.confirmText,
 		});
 		confirm.addEventListener('click', () => {
-			// Close first: the callback may replace the view this modal is
-			// floating above, and closing a modal whose owner is gone is messy.
 			this.close();
 			this.config.onConfirm();
 		});
 
-		// Enter confirms, Escape cancels, matching Obsidian's other dialogs.
 		this.scope.register([], 'Enter', (event) => {
 			event.preventDefault();
 			this.close();

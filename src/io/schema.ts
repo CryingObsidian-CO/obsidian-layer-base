@@ -19,8 +19,7 @@ import {migrate} from './migrate';
 
 /**
  * Types this parser accepts, taken from the field registry rather than repeated
- * here. A second copy of the list is exactly how a removed type keeps being
- * accepted long after it stops being supported.
+ * here.
  */
 const KNOWN_FIELD_TYPES: ReadonlySet<string> = new Set(FIELD_TYPES);
 
@@ -57,8 +56,7 @@ function asString(value: unknown, fallback = ''): string {
 }
 
 /**
- * Ids in the file are trusted only when they are usable: a missing or duplicate
- * id would break the `cells` keying invariant, so those get regenerated.
+ * Ids in the file are trusted only when they are usable.
  */
 function normalizeId(
 	value: unknown,
@@ -72,8 +70,7 @@ function normalizeId(
 		return candidate;
 	}
 
-	// A regenerated id means any cell keyed by the old one is unreachable, so
-	// this has to be reported rather than applied silently.
+	// A regenerated id means any cell keyed by the old one is unreachable.
 	warnings?.push(
 		`Identifier "${candidate || '(empty)'}" is missing or duplicated and was regenerated; cells keyed by it may have been lost.`,
 	);
@@ -136,15 +133,6 @@ function parseField(
 
 /**
  * Coerces a stored cell into the shape the format uses, which is text.
- *
- * Numbers and booleans still arrive from JSON that was edited by hand or produced
- * by another tool, and turning them into their text form keeps the cell rather
- * than discarding it. Anything else — an object, an array, null — becomes empty,
- * because there is no honest text representation of it.
- *
- * The field's type is not consulted: both supported types store a string, so the
- * coercion is the same for each. A type that stores something else will need this
- * to branch again, which is the point at which the parameter comes back.
  */
 export function normalizeCellValue(raw: unknown): CellValue {
 	if (typeof raw === 'string') {
@@ -167,8 +155,6 @@ function parseRecord(
 	if (!isRecordObject(raw)) {
 		return null;
 	}
-	// `cells` is required. A record without it carries no data and accepting it
-	// would put an empty row on every board the user opens.
 	if (!isRecordObject(raw.cells)) {
 		return null;
 	}
@@ -178,9 +164,7 @@ function parseRecord(
 	const cellsSource = raw.cells;
 	const cells: Record<string, CellValue> = {};
 
-	// Only known fields are kept, so a key from a deleted column cannot
-	// reappear later as stale data. Empty values are left out entirely so
-	// "blank" has exactly one representation in the file.
+	// Only known fields are kept, and empty values are left out entirely.
 	for (const field of fields) {
 		if (!(field.id in cellsSource)) {
 			continue;
@@ -291,8 +275,7 @@ function parseView(
 	if (raw.type === 'kanban') {
 		const groupByFieldId = asString(raw.groupByFieldId);
 		const groupField = fields.find((f) => f.id === groupByFieldId);
-		// A board is meaningless without a select field to group by; fall back to
-		// the grid view rather than rendering an empty board.
+		// A board is meaningless without a select field to group by.
 		if (!groupField || groupField.type !== 'select') {
 			return {...base, type: 'grid', columnWidths: {}, rowHeights: {}};
 		}
@@ -310,9 +293,6 @@ function parseView(
 	const view: GridView = {
 		...base,
 		type: 'grid',
-		// Only keys that still point at something are kept, for the same reason
-		// cells are filtered: a size for a deleted column is unreachable but
-		// permanent, and would apply again if that id were ever reused.
 		columnWidths: parseSizes(raw.columnWidths, fieldIds),
 		rowHeights: parseSizes(raw.rowHeights, recordIds),
 	};
@@ -321,11 +301,6 @@ function parseView(
 
 /**
  * Reads a map of id to pixel size.
- *
- * Rejects anything that is not a positive finite number, and drops keys whose id
- * is no longer in the document. Bounds are deliberately not enforced here: the
- * clamp belongs to resizing, and applying it on read would silently rewrite a
- * file that a person had edited by hand.
  */
 function parseSizes(raw: unknown, knownIds: ReadonlySet<string>): Record<string, number> {
 	const sizes: Record<string, number> = {};
@@ -343,16 +318,7 @@ function parseSizes(raw: unknown, knownIds: ReadonlySet<string>): Record<string,
 	return sizes;
 }
 
-/**
- * A brand-new, valid document. Used for a new file and as the fallback when a
- /**
- * Default names for a freshly created board.
- *
- * These are *content*, not chrome: they are written into the user's file once
- * and are theirs to edit afterwards. They are passed in rather than imported
- * from the i18n module so this file stays free of any Obsidian dependency and
- * remains a pure function that unit tests can exercise directly.
- */
+/** Default names for a freshly created board. */
 export interface SeedLabels {
 	untitledBoard: string;
 	titleField: string;
@@ -409,8 +375,6 @@ export function createEmptyDoc(
 				filter: {conjunction: 'and', conditions: []},
 				sorts: [],
 				hiddenFieldIds: [],
-				// Empty: every column and row starts at the default size, and only
-				// the ones actually resized get an entry.
 				columnWidths: {},
 				rowHeights: {},
 			},
@@ -430,10 +394,6 @@ export function createEmptyDoc(
 
 /**
  * Turns raw file text into a valid `LayerDoc`, never throwing.
- *
- * Every section is validated independently: a broken record is dropped while
- * the rest of the file survives, and each loss is reported as a warning so the
- * view can tell the user instead of silently rewriting their data.
  */
 export function parseLayerDoc(text: string): ParseResult {
 	const warnings: string[] = [];
@@ -465,7 +425,7 @@ export function parseLayerDoc(text: string): ParseResult {
 		}
 	}
 
-	// Exactly one primary field is required, because records are displayed by it.
+	// Exactly one primary field is required.
 	const primaries = fields.filter((f) => f.primary);
 	if (primaries.length === 0 && fields.length > 0) {
 		const [first] = fields;
@@ -519,15 +479,6 @@ export function parseLayerDoc(text: string): ParseResult {
 
 /**
  * Header written at the top of every `.layer` file.
- *
- * It documents the conventions a reader cannot infer from the data alone —
- * crucially that `created` is an ISO 8601 string and that `cells` and `select`
- * values are keyed by id rather than by display name. Keeping it in the file
- * means the schema is discoverable from the file itself, which is what an AI
- * agent (or a person) actually reads.
- *
- * The key is prefixed with `_` because it is metadata, not data, and the parser
- * ignores it.
  */
 const FILE_HEADER = {
 	_format: 'obsidian-layer-base',
@@ -539,6 +490,5 @@ const FILE_HEADER = {
 } as const;
 
 /** Serializes back to the on-disk shape. Pretty-printed so the file stays hand-editable. */
-export function serializeLayerDoc(doc: LayerDoc): string {
-	return `${JSON.stringify({...FILE_HEADER, ...doc}, null, '\t')}\n`;
+export function serializeLayerDoc(doc: LayerDoc): string {	return `${JSON.stringify({...FILE_HEADER, ...doc}, null, '\t')}\n`;
 }

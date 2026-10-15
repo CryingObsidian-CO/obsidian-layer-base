@@ -30,8 +30,6 @@ const statusField: Field = {
 
 describe('field types', () => {
 	it('supports exactly text and select', () => {
-		// Deliberately short: a type is added with its spec, its editor and its
-		// tests, never with a half-finished entry in this list.
 		expect([...FIELD_TYPES]).toEqual(['text', 'select']);
 	});
 
@@ -61,13 +59,10 @@ describe('formatCell', () => {
 	});
 
 	it('resolves a select id to its option name', () => {
-		// The file stores option ids, so the display must go through the options.
 		expect(formatCell(statusField, 'o_2')).toBe('Done');
 	});
 
 	it('keeps a dangling select id visible', () => {
-		// Hiding it would make the column look merely empty, concealing the
-		// broken reference.
 		expect(formatCell(statusField, 'o_gone')).toBe('o_gone');
 	});
 
@@ -79,8 +74,6 @@ describe('formatCell', () => {
 
 describe('clipboard round trip', () => {
 	it('copies a select as its option name, not its id', () => {
-		// An id such as "o_2" is meaningless outside this file, so the clipboard
-		// carries what a person actually sees.
 		expect(cellToText(statusField, 'o_2')).toBe('Done');
 	});
 
@@ -99,8 +92,6 @@ describe('clipboard round trip', () => {
 	});
 
 	it('refuses a name that matches no option', () => {
-		// Refusing is distinct from clearing: the column keeps its value and the
-		// user is told the paste did not fit.
 		expect(cellFromText(statusField, 'Archived')).toEqual({ ok: false });
 	});
 

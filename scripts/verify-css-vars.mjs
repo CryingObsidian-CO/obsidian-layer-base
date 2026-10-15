@@ -1,11 +1,5 @@
 // Checks that every Obsidian CSS variable used in styles.css actually exists
-// in the installed Obsidian build.
-//
-// Editors cannot resolve `var(--size-4-4)` because the obsidian npm package
-// ships only type definitions, so the warning is expected. This script settles
-// whether a variable name is real by reading Obsidian's own app.css straight
-// out of obsidian.asar, which also avoids depending on a specific Obsidian
-// version's documentation.
+// in the installed Obsidian build, by reading app.css out of obsidian.asar.
 //
 // Usage: node scripts/verify-css-vars.mjs [path-to-obsidian.asar]
 
@@ -76,11 +70,6 @@ const referenced = [
 
 /**
  * Variables the plugin declares itself.
- *
- * Only Obsidian's own variables can be checked against app.css; a
- * plugin-defined one would always be reported missing. They are split out and
- * validated against the stylesheet instead, so a typo in a `var()` reference to
- * a local variable is still caught.
  */
 const declaredLocally = new Set(
 	[...sheet.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),

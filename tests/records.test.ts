@@ -17,11 +17,6 @@ import {
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import type { Field, GridView, LayerDoc } from '../src/types';
 
-/**
- * Field ids are referenced explicitly because `cells` is keyed by id. Using a
- * made-up id here would let `setCellValue` write a cell that the parser then
- * discards, and the test would be measuring nothing.
- */
 const TITLE: Field = { id: 'f_title', name: 'Title', type: 'text', primary: true };
 const STATUS: Field = {
 	id: 'f_status',
@@ -44,7 +39,6 @@ const GRID: GridView = {
 	rowHeights: {},
 };
 
-/** A board whose fields are the ones this suite edits. */
 function newDoc(): LayerDoc {
 	const doc = createEmptyDoc('Board');
 	doc.fields = [{ ...TITLE }, { ...STATUS, options: STATUS.options?.map((o) => ({ ...o })) }];
@@ -70,8 +64,6 @@ describe('setCellValue', () => {
 		setCellValue(doc, recordId, TITLE, 'Hello');
 		setCellValue(doc, recordId, TITLE, '');
 
-		// Not `''`: the parser drops blank cells on read, so keeping the key
-		// would make the file change shape across a save/reload cycle.
 		expect('f_title' in (findRecord(doc, recordId)?.cells ?? {})).toBe(false);
 	});
 
@@ -103,7 +95,6 @@ describe('setCellFromText', () => {
 		setCellValue(doc, recordId, STATUS, 'o_1');
 
 		expect(setCellFromText(doc, recordId, STATUS, 'Archived')).toBe(false);
-		// The existing value must survive a paste that did not fit.
 		expect(findRecord(doc, recordId)?.cells.f_status).toBe('o_1');
 	});
 });
@@ -135,7 +126,6 @@ describe('insertRecordAfter', () => {
 
 		const inserted = insertRecordAfter(doc, first.id);
 
-		// "Insert below" must land where the user is looking, not at the end.
 		expect(doc.records.map((r) => r.id)).toEqual([
 			first.id,
 			inserted.id,
@@ -180,7 +170,6 @@ describe('duplicateRecord', () => {
 
 		expect(copy?.cells).toEqual({ f_title: 'Original' });
 		expect(copy?.id).not.toBe(recordId);
-		// Inserted directly after its source, not appended.
 		expect(doc.records.map((r) => r.id)).toEqual([
 			recordId,
 			copy?.id,
@@ -197,7 +186,6 @@ describe('duplicateRecord', () => {
 
 		const copy = duplicateRecord(doc, recordId);
 
-		// Copying the timestamp would claim the new row is older than it is.
 		expect(copy?.created).not.toBe('2020-01-01T00:00:00.000Z');
 		expect(copy?.created).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 	});
@@ -207,9 +195,6 @@ describe('duplicateRecord', () => {
 		setCellValue(doc, recordId, TITLE, 'Original');
 		const copy = duplicateRecord(doc, recordId);
 
-		// Values are strings, which are immutable, so a shallow copy of the
-		// cells object is safe. A future array-valued type would need a real
-		// clone here.
 		if (copy) {
 			setCellValue(doc, copy.id, TITLE, 'Changed');
 		}
@@ -261,8 +246,6 @@ describe('duplicateField', () => {
 
 		const copy = duplicateField(doc, TITLE.id);
 
-		// Duplicating a column starts a new, empty one; carrying values over
-		// would produce two identical columns to clear by hand.
 		expect(copy).not.toBeNull();
 		expect(findRecord(doc, recordId)?.cells[TITLE.id]).toBe('Value');
 		expect(findRecord(doc, recordId)?.cells[copy?.id ?? '']).toBeUndefined();
@@ -288,7 +271,6 @@ describe('duplicateField', () => {
 
 		const copy = duplicateField(doc, primary?.id ?? '');
 
-		// Two primary fields would make the record title ambiguous.
 		expect(copy?.primary).toBeUndefined();
 		expect(doc.fields.filter((f) => f.primary)).toHaveLength(1);
 	});
@@ -316,8 +298,6 @@ describe('moveFieldBefore', () => {
 	});
 
 	it('leaves the hidden columns in place', () => {
-		// The point of anchoring on a field id: a visible column dragged next to
-		// another visible one must not push the hidden ones to the end.
 		const doc = newDoc();
 		const hidden: Field = { id: 'f_hidden', name: 'Hidden', type: 'text' };
 		doc.fields.splice(1, 0, hidden);
@@ -339,7 +319,6 @@ describe('moveFieldBefore', () => {
 		expect(moveFieldBefore(doc, 'f_missing', TITLE.id)).toBe(false);
 		expect(moveFieldBefore(doc, TITLE.id, 'f_missing')).toBe(false);
 
-		// A failed move must not drop the field it was asked to move.
 		expect(doc.fields.map((f) => f.id)).toEqual(before);
 	});
 
@@ -379,9 +358,6 @@ describe('moveFieldBefore', () => {
 
 describe('batch row operations', () => {
 	it('inserts as many blank rows as were asked for', () => {
-		// A three-row selection asks for three rows. Inserting one and leaving the
-		// rest of the selection alone answers a question nobody asked — which is
-		// exactly what the range menu used to do.
 		const { doc, recordId } = docWithRecord();
 
 		const inserted = insertRecordsAfter(doc, recordId, 3);
@@ -389,14 +365,12 @@ describe('batch row operations', () => {
 		expect(inserted).toHaveLength(3);
 		expect(doc.records).toHaveLength(4);
 		expect(doc.records[0]?.id).toBe(recordId);
-		// Directly below the anchor, in the order they were made.
 		expect(doc.records.slice(1).map((r) => r.id)).toEqual(
 			inserted.map((r) => r.id),
 		);
 	});
 
 	it('deletes every row it is given', () => {
-		// `docWithRecord` already made one row; it must survive.
 		const { doc, recordId } = docWithRecord();
 		const doomed = [addRecord(doc).id, addRecord(doc).id, addRecord(doc).id];
 		const keep = addRecord(doc).id;
@@ -413,7 +387,6 @@ describe('batch row operations', () => {
 	});
 
 	it('duplicates every row, each copy below its source', () => {
-		// Rows: the one `docWithRecord` made, then a, then b.
 		const { doc } = docWithRecord();
 		const a = addRecord(doc);
 		const b = addRecord(doc);
@@ -423,7 +396,6 @@ describe('batch row operations', () => {
 		expect(duplicateRecords(doc, [a.id, b.id])).toBe(2);
 
 		expect(doc.records).toHaveLength(5);
-		// Each copy sits under its own source, so the pairs stay together.
 		expect(doc.records[1]?.id).toBe(a.id);
 		expect(doc.records[2]?.cells.f_title).toBe('first');
 		expect(doc.records[3]?.id).toBe(b.id);
@@ -469,9 +441,6 @@ describe('edits survive a save and reload', () => {
 	});
 
 	it('drops a cell whose field id is not in the document', () => {
-		// Guards the id-keying invariant from the other side: a cell written
-		// against an unknown field must not survive, or it would reappear as
-		// stale data after the column is gone.
 		const { doc, recordId } = docWithRecord();
 		setCellValue(doc, recordId, { id: 'f_ghost', name: 'Ghost', type: 'text' }, 'boo');
 
