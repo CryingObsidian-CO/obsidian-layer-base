@@ -639,6 +639,7 @@ export class GridRenderer {
 			onDuplicateRecords: (ids) => this.handlers.onDuplicateRecords(ids),
 			onDeleteRecords: (ids) => this.handlers.onDeleteRecords(ids),
 			onSelect: (selection) => this.setSelection(selection),
+			onClearRecord: (recordId) => this.handlers.onClearRecord(recordId),
 			onClearCells: (recordIds, fields) =>
 				this.handlers.onClearCells(recordIds, fields),
 			onCopyRange: (recordIds, fields) =>

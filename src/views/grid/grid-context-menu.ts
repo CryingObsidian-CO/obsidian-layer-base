@@ -22,6 +22,7 @@ export interface ContextMenuActions {
 	onDuplicateRecords(recordIds: string[]): void;
 	onDeleteRecords(recordIds: string[]): void;
 	onSelect(selection: GridSelection): void;
+	onClearRecord(recordId: string): void;
 	onClearCells(recordIds: string[], fields: Field[]): void;
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 	onPasteInto(recordIds: string[], fields: Field[]): void;
@@ -163,7 +164,7 @@ function buildRowMenu(
 	target: Extract<ContextTarget, { kind: 'row' }>,
 	actions: ContextMenuActions,
 ): void {
-	const { recordId, index, fields } = target;
+	const { recordId, index } = target;
 
 	menu.addItem((item) =>
 		item.setTitle(t().menuRowLabel(index + 1)).setIsLabel(true),
@@ -186,7 +187,7 @@ function buildRowMenu(
 		item
 			.setTitle(t().menuClearRow)
 			.setIcon('eraser')
-			.onClick(() => actions.onClearCells([recordId], fields)),
+			.onClick(() => actions.onClearRecord(recordId)),
 	);
 	menu.addSeparator();
 	menu.addItem((item) =>

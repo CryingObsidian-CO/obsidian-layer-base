@@ -42,7 +42,6 @@ import {GridRenderer} from './grid/grid-view';
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
 	private pendingSelfWrite = false;
-	private selfWriteText: string | null = null;
 	private activeViewId: string | null = null;
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
@@ -71,7 +70,6 @@ export class LayerView extends TextFileView {
 
 	async onLoadFile(file: TFile): Promise<void> {
 		this.pendingSelfWrite = false;
-		this.selfWriteText = null;
 		await super.onLoadFile(file);
 	}
 
@@ -83,13 +81,10 @@ export class LayerView extends TextFileView {
 	}
 
 	setViewData(data: string, _clear: boolean): void {
-		if (this.pendingSelfWrite && data === this.selfWriteText) {
+		if (this.pendingSelfWrite) {
 			this.pendingSelfWrite = false;
-			this.selfWriteText = null;
 			return;
 		}
-		this.pendingSelfWrite = false;
-		this.selfWriteText = null;
 
 		const {doc, warnings} = parseLayerDoc(data);
 		this.doc = doc;
@@ -108,13 +103,7 @@ export class LayerView extends TextFileView {
 	clear(): void {
 		this.doc = null;
 		this.pendingSelfWrite = false;
-		this.selfWriteText = null;
 		this.contentEl.empty();
-	}
-
-	async onUnloadFile(file: TFile): Promise<void> {
-		this.requestSave();
-		await super.onUnloadFile(file);
 	}
 
 	markDirty(): void {
@@ -122,17 +111,11 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		this.pendingSelfWrite = true;
-		this.selfWriteText = this.getViewData();
 		this.requestSave();
 	}
 
 	getDocument(): LayerDoc | null {
 		return this.doc;
-	}
-
-	setDocument(doc: LayerDoc): void {
-		this.doc = doc;
-		this.render();
 	}
 
 	private render(): void {

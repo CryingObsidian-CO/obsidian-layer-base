@@ -1,35 +1,23 @@
 /*
- * Styles for obsidian-layer-base.
+ * The CSS variables used here come from Obsidian's own app.css, where they are
+ * declared on `body`. Editors that validate var() without knowing about the
+ * host app will flag them as unresolved; ignore that.
  *
- * The CSS variables used here (--size-4-4, --radius-m, --background-secondary,
- * --font-ui-smaller, ...) are injected by Obsidian at runtime and declared on
- * `body` in Obsidian's app.css. They are not defined in this file, so editors
- * that validate `var()` without knowledge of the host app flag them as
- * unresolved. That warning is a false positive — the plugin's CSS is correct.
+ * Do not redeclare them on `:root` to silence it — themes set the real values on
+ * `body`, so a plugin overriding them there overrides the theme.
  *
- * Do NOT "fix" it by redeclaring these on `:root`. Obsidian and user themes
- * set the real values on `body`, and a plugin redefining them there would
- * override the theme, break light/dark switching, and ignore theme colours.
- *
- * To confirm a variable name against the installed Obsidian build:
+ * To check a name against the installed Obsidian build:
  *   node scripts/verify-css-vars.mjs
  */
 
-/* Root container for a `.layer` file view, inside Obsidian's content area. */
+/* Root container for a `.layer` file view. */
 .layer-base-container {
 	/*
-	 * Single source of truth for the horizontal inset. Every band (action row,
-	 * view tabs, status row) and the first table cell use it, so their left
-	 * edges line up. Hard-coding per-band padding is what made them ragged.
+	 * Shared by every band and by the table, so their left edges line up.
+	 * Column and row sizes are not here: the renderer sets those as inline
+	 * widths from `model/layout.ts`.
 	 */
 	--layer-inset: var(--size-4-3);
-
-	/*
-	 * Column and row sizes are declared in TypeScript (`model/layout.ts`) and set
-	 * as inline widths on the `<col>` elements, including this gutter's. Keeping
-	 * a copy here would be a second source for the same number, and the drag math
-	 * would have to reconcile the two.
-	 */
 
 	padding: 0;
 	overflow: hidden;
@@ -64,32 +52,19 @@
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow: auto;
-	/*
-	 * Same inset as the bands above and below, so the table — row numbers
-	 * included — starts on one shared left edge.
-	 */
 	padding-left: var(--layer-inset);
 }
 
 /*
- * The block whose definite pixel width the table fills.
+ * The block whose definite pixel width the table fills; the renderer sets that
+ * width to the sum of the columns it declared. A block cannot be stretched by
+ * the table sizing rules the way a table with an `auto` width can.
  *
- * A table's own width is an unreliable way to say "exactly this wide": an `auto`
- * or `max-content` width is still stretched to the container by the table sizing
- * rules, and the slack is then handed out among the columns — which silently
- * resizes the row-number gutter along with everything else. A block with an
- * explicit width has no such rule. The renderer sets this width to the sum of
- * the columns it declared, and the table simply fills it.
- *
- * `position: relative` is what makes it the containing block for the range
- * marquee. Without it that absolutely positioned overlay resolves against the
- * nearest positioned ancestor instead — some element outside this view — and is
- * drawn at completely different coordinates. The renderer measures the marquee
- * against this element's rectangle, so the two must agree on the origin.
+ * Also the containing block for the range marquee — the renderer measures the
+ * marquee against this element, so the two have to agree on the origin.
  */
 .layer-grid-fit {
 	position: relative;
-	/* An explicit inline width is set by the renderer. */
 	display: block;
 }
 
@@ -101,11 +76,7 @@
 	font-size: var(--font-ui-smaller);
 }
 
-/*
- * `position: sticky` does double duty: it pins the header while scrolling, and
- * being a positioned element it anchors the resize handle to the cell's right
- * edge, so the handle needs no wrapper.
- */
+/* Also the anchor for the resize handle, so it needs no wrapper of its own. */
 .layer-grid-th {
 	position: sticky;
 	top: 0;
@@ -119,16 +90,14 @@
 	border-right: 1px solid var(--background-modifier-border);
 	white-space: nowrap;
 	overflow: hidden;
-	/* Centres the name and icon while the header row keeps its fixed height. */
 	vertical-align: middle;
 }
 
 /* ---------- Resize handles ---------- */
 
 /*
- * A thin strip inside the cell's trailing edge. Deliberately wider than the
- * visible line: a 1px target is unhittable, so the strip is ~7px with the
- * pointer cursor, and only the 1px next to the border is drawn.
+ * A thin strip inside the cell's trailing edge, deliberately wider than the
+ * line it draws: a 1px target is unhittable.
  */
 .layer-grid-resizer {
 	position: absolute;
@@ -158,11 +127,7 @@
 	background: var(--interactive-accent);
 }
 
-/*
- * While dragging, the whole window keeps the cursor. Without this the pointer
- * reverts to a text caret as soon as it leaves the 7px strip, even though the
- * drag is still live.
- */
+/* Keep the cursor for the whole drag, not just over the handle. */
 body.layer-grid-resizing.is-col-resize,
 body.layer-grid-resizing.is-col-resize * {
 	cursor: col-resize !important;
@@ -203,11 +168,8 @@ body.layer-grid-resizing.is-row-resize * {
 	padding: var(--size-4-1) var(--size-4-3);
 	border-bottom: 1px solid var(--background-modifier-border);
 	border-right: 1px solid var(--background-modifier-border);
-	/*
-	 * No max-width: with fixed layout the column width already decides how much
-	 * room a cell has, and a cap here would make a deliberately widened column
-	 * clip its content anyway.
-	 */
+	/* No max-width: under fixed layout the column width already decides how much
+	 * room a cell has, and a cap would clip a deliberately widened column. */
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -219,6 +181,12 @@ body.layer-grid-resizing.is-row-resize * {
 
 .layer-grid-placeholder {
 	color: var(--text-faint);
+}
+
+.layer-grid-value {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .layer-grid-empty-cell {
@@ -377,13 +345,9 @@ body.layer-grid-resizing.is-row-resize * {
 /* ---------- Row number column ---------- */
 
 /*
- * The leftmost column. It carries no data, so it is narrow, muted and
- * non-interactive — a positional marker rather than a field.
- *
- * Its width comes from the `<col>` the renderer declares, so there are no width
- * rules here: a second source for a column width is how the two drift apart. The
- * clamps that used to live here were there to stop the *auto* layout stretching
- * the gutter, which fixed layout has now made impossible.
+ * The leftmost column: a positional marker rather than a field. Its width
+ * comes from the `<col>` the renderer declares, so there are no width rules
+ * here.
  */
 .layer-grid-rownum {
 	padding: 0;
@@ -404,12 +368,7 @@ body.layer-grid-resizing.is-row-resize * {
 	color: var(--text-muted);
 }
 
-/*
- * The row number itself.
- *
- * No fixed height: the row's height is now explicit and draggable, and a
- * minimum here would refuse to shrink below the gutter's own size.
- */
+/* The row number itself. No fixed height, so the row's explicit height wins. */
 .layer-grid-rownum-label {
 	display: flex;
 	align-items: center;
@@ -419,19 +378,8 @@ body.layer-grid-resizing.is-row-resize * {
 
 /* ---------- Selection ---------- */
 
-/*
- * What gets highlighted is decided in `SelectionTracker.resolve`; which class it
- * receives is decided by the selection's kind. The rules below only say what a
- * highlighted element looks like.
- *
- * Row and column selections use the same visual language — a background tint,
- * nothing else. An earlier version tinted rows but outlined columns, so the two
- * meant to be equivalent states looked unrelated; and because every cell of the
- * column shared one class, the outline was drawn per cell and the column came
- * apart into separate boxes.
- */
+/* What gets highlighted is decided in `SelectionTracker.resolve`. */
 
-/* Row and column selections: the tint, and nothing but the tint. */
 .layer-grid-row.is-sel-row > .layer-grid-td,
 .layer-grid-td.is-sel-col,
 .layer-grid-th.is-sel-col {
@@ -446,24 +394,16 @@ body.layer-grid-resizing.is-row-resize * {
 
 /* ---------- Range selection ---------- */
 
-/*
- * Every cell of a range is tinted...
- */
 .layer-grid-td.is-sel-range {
 	background: var(--background-modifier-active-hover);
 }
 
 /*
- * ...but the border is drawn by one overlay element covering the whole
- * rectangle, never by the cells themselves.
+ * One overlay draws the border for the whole rectangle, rather than each cell
+ * drawing its own four sides, which would put internal borders inside the run.
  *
- * Outlining each cell is what once turned a selected column into a stack of
- * separate boxes: every cell draws its own four sides, so the run acquires
- * internal borders. A single floating box around the rectangle cannot have that
- * problem, and it is how spreadsheets mark a selection.
- *
- * The overlay sits above the cells, so it must not swallow their clicks:
- * `pointer-events: none`.
+ * Sits above the cells, so `pointer-events: none` keeps it from swallowing their
+ * clicks.
  */
 .layer-grid-marquee {
 	position: absolute;
@@ -529,39 +469,23 @@ body.layer-grid-dragging-range * {
 	color: var(--text-normal);
 }
 
-/*
- * Trailing add-column cell: square with the header row, and never part of the
- * data row. Its width comes from the `<col>` the renderer declares, and its
- * height from the header row — both the same constant, so the two agree.
- */
+/* Trailing add-column cell: square with the header row, never a data cell. */
 .layer-grid-add-field {
-	/*
-	 * Restated from the header rule so the dependency is visible: `sticky` is a
-	 * positioned value, which is what makes this cell the containing block for
-	 * the absolutely positioned button below.
-	 */
+	/* Restated from the header rule: being positioned is what makes this cell the
+	 * containing block for the button below. */
 	position: sticky;
 	padding: 0;
 	text-align: center;
 	vertical-align: middle;
 	border-right: none;
-	/*
-	 * Overrides the header's clipping. The button is meant to fill this cell, so
-	 * clipping at its edges would cut the button rather than the text a header
-	 * normally needs to truncate.
-	 */
+	/* The button fills this cell, so clipping here would cut the button. */
 	overflow: visible;
 }
 
 /*
- * Fills its square cell, so the whole cell is the hit target.
- *
- * Positioned absolutely rather than with `width/height: 100%`. A percentage
- * height needs its containing block to have a definite height, and a table
- * cell's height is derived from its row, so `height: 100%` collapses to the
- * content height — which is exactly what left a flat strip sitting in a square
- * cell. An absolutely positioned box with all four offsets at zero is measured
- * against the cell's actual box and fills it.
+ * All four offsets at zero rather than `width/height: 100%`: a percentage
+ * height needs a definite containing-block height, and a cell's height comes
+ * from its row.
  */
 .layer-grid-add-field-button {
 	position: absolute;
@@ -588,21 +512,28 @@ body.layer-grid-dragging-range * {
 	background: var(--background-modifier-hover);
 }
 
-/*
- * `flex: none` is the fix for a squeezed icon.
- *
- * An SVG inside a flex container is a flex item, and flex items shrink by
- * default. In a cell only a little wider than the icon, that shrinkage wins over
- * the declared size and the glyph collapses to a sliver. Refusing to shrink
- * keeps it square, and the container centres it instead.
- */
+/* `flex: none` keeps the icon from shrinking in a narrow cell. */
 .layer-grid-add-field-button svg {
 	flex: none;
 	width: 16px;
 	height: 16px;
 }
 
+/*
+ * The empty-state row selects nothing, so it must not pick up the row hover
+ * tint that marks a selectable row.
+ */
+.layer-grid-row.is-empty,
+.layer-grid-row.is-empty:hover {
+	background: transparent;
+}
+
 /* ---------- Field editor ---------- */
+
+.layer-field-options {
+	display: flex;
+	flex-direction: column;
+}
 
 .layer-field-editor h3 {
 	margin: var(--size-4-4) 0 var(--size-4-2);
@@ -641,6 +572,12 @@ body.layer-grid-dragging-range * {
 	color: var(--text-error);
 }
 
+/* Left-aligned and quiet: it adds a row to the list above it. */
+.layer-field-add-option {
+	align-self: flex-start;
+	margin-top: var(--size-4-1);
+}
+
 .layer-field-error {
 	color: var(--text-error);
 	font-size: var(--font-ui-smaller);
@@ -656,6 +593,11 @@ body.layer-grid-dragging-range * {
 
 /* ---------- Confirmation dialog ---------- */
 
+.layer-confirm p {
+	margin-top: 0;
+	color: var(--text-muted);
+}
+
 .layer-confirm-actions {
 	display: flex;
 	justify-content: flex-end;
@@ -665,10 +607,7 @@ body.layer-grid-dragging-range * {
 
 /* ---------- Column reordering ---------- */
 
-/*
- * The header body is the drag target. `grab` advertises that without competing
- * with the resize strip, which sets its own cursor on top of it.
- */
+/* `grab` advertises the drag; the resize strip sets its own cursor on top. */
 .layer-grid-th.is-draggable-column {
 	cursor: grab;
 }
@@ -684,11 +623,8 @@ body.layer-grid-dragging-column * {
 	opacity: 0.5;
 }
 
-/*
- * Where the drop would land, drawn as a line on the leading edge of the column
- * it will be inserted before — the same affordance as an insertion caret, so the
- * result is visible before the mouse is released.
- */
+/* Where the drop would land: a line on the leading edge of the column it would
+ * be inserted before, visible before the mouse is released. */
 .layer-grid-th.is-drop-before {
 	box-shadow: inset 3px 0 0 0 var(--interactive-accent);
 	color: var(--text-normal);

@@ -1,12 +1,11 @@
 import {
-	LAYER_FORMAT_VERSION,
 	type CellValue,
 	type Field,
 	type Filter,
 	type FilterCondition,
 	type FilterOperator,
 	type GridView,
-	type KanbanView,
+	LAYER_FORMAT_VERSION,
 	type LayerDoc,
 	type LayerRecord,
 	type SelectOption,
@@ -125,7 +124,7 @@ function parseField(
 	if (typeof raw.frontmatterKey === 'string' && raw.frontmatterKey.trim()) {
 		field.frontmatterKey = raw.frontmatterKey.trim();
 	}
-	if (type === 'select' || type === 'multiSelect') {
+	if (type === 'select') {
 		field.options = parseOptions(raw.options, seen, warnings);
 	}
 	return field;
@@ -279,7 +278,7 @@ function parseView(
 		if (!groupField || groupField.type !== 'select') {
 			return {...base, type: 'grid', columnWidths: {}, rowHeights: {}};
 		}
-		const view: KanbanView = {
+		return {
 			...base,
 			type: 'kanban',
 			groupByFieldId,
@@ -287,16 +286,14 @@ function parseView(
 			.map((v) => asString(v))
 			.filter((v) => fieldIds.has(v)),
 		};
-		return view;
 	}
 
-	const view: GridView = {
+	return {
 		...base,
 		type: 'grid',
 		columnWidths: parseSizes(raw.columnWidths, fieldIds),
 		rowHeights: parseSizes(raw.rowHeights, recordIds),
 	};
-	return view;
 }
 
 /**

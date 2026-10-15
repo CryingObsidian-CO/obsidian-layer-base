@@ -31,7 +31,6 @@ const en = {
 	gridNoRecordsHint: 'Records will appear here once the table has rows.',
 	gridNotImplemented: 'This view type is not available yet.',
 	cellEmptyOption: 'None',
-	cellNoOptions: 'No options defined for this field yet.',
 	addRecord: 'New row',
 	deleteRecord: 'Delete row',
 	selectionRow: (index: number) => `Row ${index} selected`,
@@ -40,9 +39,6 @@ const en = {
 		`Row ${index}, column "${name}"`,
 	selectionRange: (rows: number, columns: number) =>
 		`${rows} × ${columns} selected`,
-	menuCopyCell: 'Copy',
-	menuPasteCell: 'Paste',
-	menuClearCell: 'Clear',
 	menuCellLabel: 'Cell',
 	menuRangeLabel: (rows: number, columns: number) =>
 		`${rows} × ${columns} cells`,
@@ -124,7 +120,6 @@ const zh = {
 	gridNoRecordsHint: '新建记录后会显示在这里。',
 	gridNotImplemented: '该视图类型尚未支持。',
 	cellEmptyOption: '无',
-	cellNoOptions: '该字段还没有定义选项。',
 	addRecord: '新增行',
 	deleteRecord: '删除行',
 	selectionRow: (index: number) => `已选中第 ${index} 行`,
@@ -133,9 +128,6 @@ const zh = {
 		`第 ${index} 行，「${name}」列`,
 	selectionRange: (rows: number, columns: number) =>
 		`已框选 ${rows} × ${columns}`,
-	menuCopyCell: '复制',
-	menuPasteCell: '粘贴',
-	menuClearCell: '清空',
 	menuCellLabel: '单元格',
 	menuRangeLabel: (rows: number, columns: number) =>
 		`${rows} × ${columns} 个单元格`,
@@ -145,7 +137,6 @@ const zh = {
 	menuClearRange: '清空',
 	menuRowLabel: (index: number) => `第 ${index} 行`,
 	menuColumnLabel: (name: string) => `「${name}」列`,
-	menuCopyRow: '复制整行',
 	menuInsertRowBelow: '在下方插入行',
 	menuInsertRowsBelow: (count: number) => `在下方插入 ${count} 行`,
 	menuDuplicateRow: '创建副本',
@@ -218,7 +209,6 @@ const zhTW = {
 	gridNoRecordsHint: '新增記錄後會顯示在這裡。',
 	gridNotImplemented: '該檢視類型尚未支援。',
 	cellEmptyOption: '無',
-	cellNoOptions: '該欄位還沒有定義選項。',
 	addRecord: '新增行',
 	deleteRecord: '刪除列',
 	selectionRow: (index: number) => `已選取第 ${index} 列`,
@@ -227,9 +217,6 @@ const zhTW = {
 		`第 ${index} 列，「${name}」欄`,
 	selectionRange: (rows: number, columns: number) =>
 		`已框選 ${rows} × ${columns}`,
-	menuCopyCell: '複製',
-	menuPasteCell: '貼上',
-	menuClearCell: '清空',
 	menuCellLabel: '儲存格',
 	menuRangeLabel: (rows: number, columns: number) =>
 		`${rows} × ${columns} 個儲存格`,
@@ -239,7 +226,6 @@ const zhTW = {
 	menuClearRange: '清空',
 	menuRowLabel: (index: number) => `第 ${index} 列`,
 	menuColumnLabel: (name: string) => `「${name}」欄`,
-	menuCopyRow: '複製整列',
 	menuInsertRowBelow: '在下方插入列',
 	menuInsertRowsBelow: (count: number) => `在下方插入 ${count} 列`,
 	menuDuplicateRow: '建立副本',
