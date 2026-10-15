@@ -13,17 +13,17 @@
 /** Current file format version. Bump when the on-disk shape changes. */
 export const LAYER_FORMAT_VERSION = 1;
 
-export type FieldType =
-	| 'text'
-	| 'number'
-	| 'select'
-	| 'multiSelect'
-	| 'date'
-	| 'checkbox'
-	| 'note'
-	| 'url';
+/**
+ * The field types a board can hold.
+ *
+ * Deliberately short. Types are added one at a time, each with its own spec in
+ * `model/fields.ts` and its own editor, so that a half-finished type cannot sit
+ * in the codebase looking supported. Everything else (numbers, dates,
+ * checkboxes, links, note references, multi-select) is still to come.
+ */
+export type FieldType = 'text' | 'select';
 
-/** A single choice of a `select` / `multiSelect` field. */
+/** A single choice of a `select` field. */
 export interface SelectOption {
 	id: string;
 	name: string;
@@ -41,17 +41,19 @@ export interface Field {
 	 * note. Defaults to `name` when absent.
 	 */
 	frontmatterKey?: string;
-	/** `select` / `multiSelect` only. */
+	/** `select` only. */
 	options?: SelectOption[];
 }
 
-/** Value stored for one field on one record. Type depends on `Field.type`. */
-export type CellValue =
-	| string
-	| number
-	| boolean
-	| null
-	| string[];
+/**
+ * Value stored for one field on one record.
+ *
+ * A string, because both current types store one: `text` holds the text as
+ * written, and `select` holds an option id. Narrowing this is what lets the
+ * model stop carrying branches for arrays, numbers and booleans that no type can
+ * produce. A type needing another shape widens this again when it is added.
+ */
+export type CellValue = string;
 
 export interface Record_ {
 	id: string;
@@ -112,6 +114,19 @@ export interface BaseView {
 /** Table view: rows are records, columns are fields. */
 export interface GridView extends BaseView {
 	type: 'grid';
+	/**
+	 * Column widths in pixels, keyed by field id.
+	 *
+	 * A view property rather than a field property, for the same reason
+	 * `hiddenFieldIds` is: how wide a column should be is a question about this
+	 * way of looking at the data, and another view may answer it differently.
+	 *
+	 * A missing key means "use the default width", so a board only stores the
+	 * columns someone actually resized instead of freezing every width.
+	 */
+	columnWidths: Record<string, number>;
+	/** Row heights in pixels, keyed by record id. Missing means the default. */
+	rowHeights: Record<string, number>;
 }
 
 /** Board view: columns are the options of `groupByFieldId`. */

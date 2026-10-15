@@ -14,18 +14,15 @@ import {
 	type View,
 } from '../types';
 import {generateId} from '../utils/id';
+import {FIELD_TYPES, isEmptyCell} from '../model/fields';
 import {migrate} from './migrate';
 
-const FIELD_TYPES: ReadonlySet<string> = new Set([
-	'text',
-	'number',
-	'select',
-	'multiSelect',
-	'date',
-	'checkbox',
-	'note',
-	'url',
-]);
+/**
+ * Types this parser accepts, taken from the field registry rather than repeated
+ * here. A second copy of the list is exactly how a removed type keeps being
+ * accepted long after it stops being supported.
+ */
+const KNOWN_FIELD_TYPES: ReadonlySet<string> = new Set(FIELD_TYPES);
 
 const OPERATORS: ReadonlySet<string> = new Set([
 	'is',
@@ -117,7 +114,7 @@ function parseField(
 		return null;
 	}
 	const type = asString(raw.type);
-	if (!FIELD_TYPES.has(type)) {
+	if (!KNOWN_FIELD_TYPES.has(type)) {
 		return null;
 	}
 	const field: Field = {
@@ -138,48 +135,28 @@ function parseField(
 }
 
 /**
- * Coerces a stored cell into the value shape its field type expects. Values that
- * cannot be read as the expected type become empty rather than propagating a
- * wrong type into comparisons and rendering.
+ * Coerces a stored cell into the shape the format uses, which is text.
+ *
+ * Numbers and booleans still arrive from JSON that was edited by hand or produced
+ * by another tool, and turning them into their text form keeps the cell rather
+ * than discarding it. Anything else — an object, an array, null — becomes empty,
+ * because there is no honest text representation of it.
+ *
+ * The field's type is not consulted: both supported types store a string, so the
+ * coercion is the same for each. A type that stores something else will need this
+ * to branch again, which is the point at which the parameter comes back.
  */
-export function normalizeCellValue(
-	type: Field['type'],
-	raw: unknown,
-): CellValue {
-	switch (type) {
-		case 'number': {
-			if (typeof raw === 'number' && Number.isFinite(raw)) {
-				return raw;
-			}
-			if (typeof raw === 'string' && raw.trim()) {
-				const parsed = Number(raw);
-				return Number.isFinite(parsed) ? parsed : null;
-			}
-			return null;
-		}
-		case 'checkbox':
-			return raw === true;
-		case 'multiSelect':
-			return asArray(raw).filter((v): v is string => typeof v === 'string');
-		case 'text':
-		case 'date':
-		case 'note':
-		case 'url':
-			// Numbers and booleans arrive from hand-edited JSON and from
-			// spreadsheets; keep them rather than discarding the cell.
-			if (typeof raw === 'string') {
-				return raw;
-			}
-			if (typeof raw === 'number' && Number.isFinite(raw)) {
-				return String(raw);
-			}
-			if (typeof raw === 'boolean') {
-				return String(raw);
-			}
-			return '';
-		case 'select':
-			return typeof raw === 'string' ? raw : '';
+export function normalizeCellValue(raw: unknown): CellValue {
+	if (typeof raw === 'string') {
+		return raw;
 	}
+	if (typeof raw === 'number' && Number.isFinite(raw)) {
+		return String(raw);
+	}
+	if (typeof raw === 'boolean') {
+		return String(raw);
+	}
+	return '';
 }
 
 function parseRecord(
@@ -208,12 +185,8 @@ function parseRecord(
 		if (!(field.id in cellsSource)) {
 			continue;
 		}
-		const value = normalizeCellValue(field.type, cellsSource[field.id]);
-		const isEmpty =
-			value === '' ||
-			value === null ||
-			(Array.isArray(value) && value.length === 0);
-		if (!isEmpty) {
+		const value = normalizeCellValue(cellsSource[field.id]);
+		if (!isEmptyCell(value)) {
 			cells[field.id] = value;
 		}
 	}
@@ -295,6 +268,7 @@ function parseView(
 	raw: unknown,
 	index: number,
 	fields: Field[],
+	recordIds: ReadonlySet<string>,
 	warnings?: string[],
 ): View | null {
 	if (!isRecordObject(raw)) {
@@ -320,7 +294,7 @@ function parseView(
 		// A board is meaningless without a select field to group by; fall back to
 		// the grid view rather than rendering an empty board.
 		if (!groupField || groupField.type !== 'select') {
-			return {...base, type: 'grid'};
+			return {...base, type: 'grid', columnWidths: {}, rowHeights: {}};
 		}
 		const view: KanbanView = {
 			...base,
@@ -333,8 +307,40 @@ function parseView(
 		return view;
 	}
 
-	const view: GridView = {...base, type: 'grid'};
+	const view: GridView = {
+		...base,
+		type: 'grid',
+		// Only keys that still point at something are kept, for the same reason
+		// cells are filtered: a size for a deleted column is unreachable but
+		// permanent, and would apply again if that id were ever reused.
+		columnWidths: parseSizes(raw.columnWidths, fieldIds),
+		rowHeights: parseSizes(raw.rowHeights, recordIds),
+	};
 	return view;
+}
+
+/**
+ * Reads a map of id to pixel size.
+ *
+ * Rejects anything that is not a positive finite number, and drops keys whose id
+ * is no longer in the document. Bounds are deliberately not enforced here: the
+ * clamp belongs to resizing, and applying it on read would silently rewrite a
+ * file that a person had edited by hand.
+ */
+function parseSizes(raw: unknown, knownIds: ReadonlySet<string>): Record<string, number> {
+	const sizes: Record<string, number> = {};
+	if (!isRecordObject(raw)) {
+		return sizes;
+	}
+	for (const [id, value] of Object.entries(raw)) {
+		if (!knownIds.has(id)) {
+			continue;
+		}
+		if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+			sizes[id] = value;
+		}
+	}
+	return sizes;
 }
 
 /**
@@ -403,6 +409,10 @@ export function createEmptyDoc(
 				filter: {conjunction: 'and', conditions: []},
 				sorts: [],
 				hiddenFieldIds: [],
+				// Empty: every column and row starts at the default size, and only
+				// the ones actually resized get an entry.
+				columnWidths: {},
+				rowHeights: {},
 			},
 			{
 				id: generateId('v'),
@@ -481,8 +491,9 @@ export function parseLayerDoc(text: string): ParseResult {
 	}
 
 	const views: View[] = [];
+	const recordIds = new Set(records.map((r) => r.id));
 	for (const [index, raw] of asArray(migrated.views).entries()) {
-		const view = parseView(raw, index, fields, warnings);
+		const view = parseView(raw, index, fields, recordIds, warnings);
 		if (view) {
 			views.push(view);
 		} else {

@@ -15,18 +15,721 @@
  *   node scripts/verify-css-vars.mjs
  */
 
-/* M0 placeholder shown until the real grid and board views land in M2/M3. */
-.layer-base-preview {
-	padding: var(--size-4-6);
-	overflow: auto;
+/* Root container for a `.layer` file view, inside Obsidian's content area. */
+.layer-base-container {
+	/*
+	 * Single source of truth for the horizontal inset. Every band (action row,
+	 * view tabs, status row) and the first table cell use it, so their left
+	 * edges line up. Hard-coding per-band padding is what made them ragged.
+	 */
+	--layer-inset: var(--size-4-3);
+
+	/*
+	 * Column and row sizes are declared in TypeScript (`model/layout.ts`) and set
+	 * as inline widths on the `<col>` elements, including this gutter's. Keeping
+	 * a copy here would be a second source for the same number, and the drag math
+	 * would have to reconcile the two.
+	 */
+
+	padding: 0;
+	overflow: hidden;
 	height: 100%;
+	display: flex;
+	flex-direction: column;
 }
 
-.layer-base-preview pre {
-	padding: var(--size-4-4);
-	border-radius: var(--radius-m);
-	background: var(--background-secondary);
+.layer-base-view {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Shown when a file holds no renderable view yet. */
+.layer-base-message {
+	padding: var(--size-4-6);
+	color: var(--text-muted);
+}
+
+/* ---------- Grid ---------- */
+
+.layer-grid {
+	flex: 1 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.layer-grid-scroll {
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow: auto;
+	/*
+	 * Same inset as the bands above and below, so the table — row numbers
+	 * included — starts on one shared left edge.
+	 */
+	padding-left: var(--layer-inset);
+}
+
+/*
+ * The block whose definite pixel width the table fills.
+ *
+ * A table's own width is an unreliable way to say "exactly this wide": an `auto`
+ * or `max-content` width is still stretched to the container by the table sizing
+ * rules, and the slack is then handed out among the columns — which silently
+ * resizes the row-number gutter along with everything else. A block with an
+ * explicit width has no such rule. The renderer sets this width to the sum of
+ * the columns it declared, and the table simply fills it.
+ *
+ * `position: relative` is what makes it the containing block for the range
+ * marquee. Without it that absolutely positioned overlay resolves against the
+ * nearest positioned ancestor instead — some element outside this view — and is
+ * drawn at completely different coordinates. The renderer measures the marquee
+ * against this element's rectangle, so the two must agree on the origin.
+ */
+.layer-grid-fit {
+	position: relative;
+	/* An explicit inline width is set by the renderer. */
+	display: block;
+}
+
+.layer-grid-table {
+	border-collapse: separate;
+	border-spacing: 0;
+	table-layout: fixed;
+	width: 100%;
 	font-size: var(--font-ui-smaller);
-	user-select: text;
+}
+
+/*
+ * `position: sticky` does double duty: it pins the header while scrolling, and
+ * being a positioned element it anchors the resize handle to the cell's right
+ * edge, so the handle needs no wrapper.
+ */
+.layer-grid-th {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding: var(--size-4-1) var(--size-4-3);
+	text-align: left;
+	font-weight: var(--font-medium);
+	color: var(--text-muted);
+	background: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-right: 1px solid var(--background-modifier-border);
+	white-space: nowrap;
+	overflow: hidden;
+	/* Centres the name and icon while the header row keeps its fixed height. */
+	vertical-align: middle;
+}
+
+/* ---------- Resize handles ---------- */
+
+/*
+ * A thin strip inside the cell's trailing edge. Deliberately wider than the
+ * visible line: a 1px target is unhittable, so the strip is ~7px with the
+ * pointer cursor, and only the 1px next to the border is drawn.
+ */
+.layer-grid-resizer {
+	position: absolute;
+	z-index: 2;
+	background: transparent;
+}
+
+.layer-grid-resizer.is-col-resize {
+	top: 0;
+	right: 0;
+	width: 7px;
+	height: 100%;
+	cursor: col-resize;
+}
+
+.layer-grid-resizer.is-row-resize {
+	left: 0;
+	bottom: 0;
+	width: 100%;
+	height: 5px;
+	cursor: row-resize;
+}
+
+/* Feedback on hover, so the handle is discoverable before it is grabbed. */
+.layer-grid-resizer.is-col-resize:hover,
+.layer-grid-resizer.is-row-resize:hover {
+	background: var(--interactive-accent);
+}
+
+/*
+ * While dragging, the whole window keeps the cursor. Without this the pointer
+ * reverts to a text caret as soon as it leaves the 7px strip, even though the
+ * drag is still live.
+ */
+body.layer-grid-resizing.is-col-resize,
+body.layer-grid-resizing.is-col-resize * {
+	cursor: col-resize !important;
+	user-select: none;
+}
+
+body.layer-grid-resizing.is-row-resize,
+body.layer-grid-resizing.is-row-resize * {
+	cursor: row-resize !important;
+	user-select: none;
+}
+
+.layer-grid-th.is-primary {
+	color: var(--text-normal);
+}
+
+.layer-grid-type-icon {
+	display: inline-flex;
+	vertical-align: middle;
+	margin-right: var(--size-4-1);
+	color: var(--text-faint);
+}
+
+.layer-grid-type-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.layer-grid-th-name {
+	vertical-align: middle;
+}
+
+.layer-grid-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.layer-grid-td {
+	padding: var(--size-4-1) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-right: 1px solid var(--background-modifier-border);
+	/*
+	 * No max-width: with fixed layout the column width already decides how much
+	 * room a cell has, and a cap here would make a deliberately widened column
+	 * clip its content anyway.
+	 */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.layer-grid-td.is-primary {
+	font-weight: var(--font-medium);
+}
+
+.layer-grid-placeholder {
+	color: var(--text-faint);
+}
+
+.layer-grid-empty-cell {
+	text-align: center;
+}
+
+.layer-grid-empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-8) var(--size-4-4);
+	color: var(--text-muted);
+}
+
+.layer-grid-empty-icon {
+	color: var(--text-faint);
+}
+
+.layer-grid-empty-title {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}
+
+.layer-grid-empty-hint {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.layer-grid-footer {
+	flex: 0 0 auto;
+	padding: var(--size-4-1) var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ---------- Board shell: action row ---------- */
+
+.layer-shell-toolbar {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--layer-inset);
+}
+
+/* ---------- Board shell: view tabs ---------- */
+
+.layer-shell-tabs {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: stretch;
+	gap: var(--size-4-1);
+	padding-left: var(--layer-inset);
+	padding-right: var(--layer-inset);
+	overflow-x: auto;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.layer-shell-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-3);
+	border: none;
+	border-bottom: 2px solid transparent;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+}
+
+.layer-shell-tab:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.layer-shell-tab.is-active {
+	color: var(--text-normal);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.layer-shell-tab-icon {
+	display: inline-flex;
+}
+
+.layer-shell-tab-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* ---------- Board shell: status row ---------- */
+
+.layer-shell-status {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-3);
+	padding: var(--size-4-1) var(--layer-inset);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.layer-shell-spacer {
+	flex: 1 1 auto;
+}
+
+.layer-shell-button {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--interactive-normal);
+	color: var(--text-normal);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-shell-button:hover {
+	background: var(--interactive-hover);
+}
+
+.layer-shell-button.is-primary {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.layer-shell-button.is-primary:hover {
+	background: var(--interactive-accent-hover);
+}
+
+.layer-shell-button-icon {
+	display: inline-flex;
+}
+
+.layer-shell-button-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.layer-shell-count {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-shell-selection {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* ---------- Row number column ---------- */
+
+/*
+ * The leftmost column. It carries no data, so it is narrow, muted and
+ * non-interactive — a positional marker rather than a field.
+ *
+ * Its width comes from the `<col>` the renderer declares, so there are no width
+ * rules here: a second source for a column width is how the two drift apart. The
+ * clamps that used to live here were there to stop the *auto* layout stretching
+ * the gutter, which fixed layout has now made impossible.
+ */
+.layer-grid-rownum {
+	padding: 0;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+	user-select: none;
+	background: var(--background-secondary);
+	/* Anchors the row's resize handle to the cell's bottom edge. */
+	position: relative;
+}
+
+.layer-grid-td.layer-grid-rownum {
+	background: transparent;
+}
+
+.layer-grid-row:hover .layer-grid-rownum {
+	color: var(--text-muted);
+}
+
+/*
+ * The row number itself.
+ *
+ * No fixed height: the row's height is now explicit and draggable, and a
+ * minimum here would refuse to shrink below the gutter's own size.
+ */
+.layer-grid-rownum-label {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Selection ---------- */
+
+/*
+ * What gets highlighted is decided in `SelectionTracker.resolve`; which class it
+ * receives is decided by the selection's kind. The rules below only say what a
+ * highlighted element looks like.
+ *
+ * Row and column selections use the same visual language — a background tint,
+ * nothing else. An earlier version tinted rows but outlined columns, so the two
+ * meant to be equivalent states looked unrelated; and because every cell of the
+ * column shared one class, the outline was drawn per cell and the column came
+ * apart into separate boxes.
+ */
+
+/* Row and column selections: the tint, and nothing but the tint. */
+.layer-grid-row.is-sel-row > .layer-grid-td,
+.layer-grid-td.is-sel-col,
+.layer-grid-th.is-sel-col {
+	background: var(--background-modifier-active-hover);
+}
+
+.layer-grid-row.is-sel-row .layer-grid-rownum-label,
+.layer-grid-th.is-sel-col {
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+}
+
+/* ---------- Range selection ---------- */
+
+/*
+ * Every cell of a range is tinted...
+ */
+.layer-grid-td.is-sel-range {
+	background: var(--background-modifier-active-hover);
+}
+
+/*
+ * ...but the border is drawn by one overlay element covering the whole
+ * rectangle, never by the cells themselves.
+ *
+ * Outlining each cell is what once turned a selected column into a stack of
+ * separate boxes: every cell draws its own four sides, so the run acquires
+ * internal borders. A single floating box around the rectangle cannot have that
+ * problem, and it is how spreadsheets mark a selection.
+ *
+ * The overlay sits above the cells, so it must not swallow their clicks:
+ * `pointer-events: none`.
+ */
+.layer-grid-marquee {
+	position: absolute;
+	z-index: 3;
+	pointer-events: none;
+	/* Hidden until it has a rectangle, so it cannot flash at the origin. */
+	display: none;
+	border: 2px solid var(--interactive-accent);
+}
+
+.layer-grid-marquee.is-visible {
+	display: block;
+}
+
+/* A live rectangle drag keeps the pointer as a cell cursor, not a text caret. */
+body.layer-grid-dragging-range,
+body.layer-grid-dragging-range * {
+	cursor: cell !important;
+	user-select: none;
+}
+
+/* ---------- Row action ---------- */
+
+/* The trailing cell: narrow, and the only place a row's action appears. */
+.layer-grid-tail {
+	width: 1%;
+	padding: 0 var(--size-4-1);
+	text-align: center;
+	border-right: none;
+}
+
+.layer-grid-row-action {
+	display: none;
+	align-items: center;
+	justify-content: center;
+	padding: 0 var(--size-4-1);
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.layer-grid-row:hover .layer-grid-row-action {
+	display: inline-flex;
+}
+
+.layer-grid-row-action:hover {
+	color: var(--text-error);
+}
+
+.layer-grid-row-action svg {
+	width: 14px;
+	height: 14px;
+}
+
+.layer-grid-th.is-clickable {
+	cursor: pointer;
+}
+
+.layer-grid-th.is-clickable:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+/*
+ * Trailing add-column cell: square with the header row, and never part of the
+ * data row. Its width comes from the `<col>` the renderer declares, and its
+ * height from the header row — both the same constant, so the two agree.
+ */
+.layer-grid-add-field {
+	/*
+	 * Restated from the header rule so the dependency is visible: `sticky` is a
+	 * positioned value, which is what makes this cell the containing block for
+	 * the absolutely positioned button below.
+	 */
+	position: sticky;
+	padding: 0;
+	text-align: center;
+	vertical-align: middle;
+	border-right: none;
+	/*
+	 * Overrides the header's clipping. The button is meant to fill this cell, so
+	 * clipping at its edges would cut the button rather than the text a header
+	 * normally needs to truncate.
+	 */
+	overflow: visible;
+}
+
+/*
+ * Fills its square cell, so the whole cell is the hit target.
+ *
+ * Positioned absolutely rather than with `width/height: 100%`. A percentage
+ * height needs its containing block to have a definite height, and a table
+ * cell's height is derived from its row, so `height: 100%` collapses to the
+ * content height — which is exactly what left a flat strip sitting in a square
+ * cell. An absolutely positioned box with all four offsets at zero is measured
+ * against the cell's actual box and fills it.
+ */
+.layer-grid-add-field-button {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: pointer;
+	line-height: 1;
+}
+
+.layer-grid-add-field-button:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/*
+ * `flex: none` is the fix for a squeezed icon.
+ *
+ * An SVG inside a flex container is a flex item, and flex items shrink by
+ * default. In a cell only a little wider than the icon, that shrinkage wins over
+ * the declared size and the glyph collapses to a sliver. Refusing to shrink
+ * keeps it square, and the container centres it instead.
+ */
+.layer-grid-add-field-button svg {
+	flex: none;
+	width: 16px;
+	height: 16px;
+}
+
+/* ---------- Field editor ---------- */
+
+.layer-field-editor h3 {
+	margin: var(--size-4-4) 0 var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.layer-field-option-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-1);
+}
+
+.layer-field-option-input {
+	flex: 1 1 auto;
+}
+
+.layer-field-option-color {
+	flex: 0 0 auto;
+	width: 32px;
+	padding: 0;
+}
+
+.layer-field-option-remove {
+	flex: 0 0 auto;
+	padding: 0 var(--size-4-2);
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.layer-field-option-remove:hover {
+	color: var(--text-error);
+}
+
+.layer-field-error {
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+	min-height: 1.2em;
+}
+
+.layer-field-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+
+/* ---------- Confirmation dialog ---------- */
+
+.layer-confirm-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+
+/* ---------- Column reordering ---------- */
+
+/*
+ * The header body is the drag target. `grab` advertises that without competing
+ * with the resize strip, which sets its own cursor on top of it.
+ */
+.layer-grid-th.is-draggable-column {
+	cursor: grab;
+}
+
+body.layer-grid-dragging-column,
+body.layer-grid-dragging-column * {
+	cursor: grabbing !important;
+	user-select: none;
+}
+
+/* The column being moved stays visible but reads as lifted out. */
+.layer-grid-th.is-dragging-column {
+	opacity: 0.5;
+}
+
+/*
+ * Where the drop would land, drawn as a line on the leading edge of the column
+ * it will be inserted before — the same affordance as an insertion caret, so the
+ * result is visible before the mouse is released.
+ */
+.layer-grid-th.is-drop-before {
+	box-shadow: inset 3px 0 0 0 var(--interactive-accent);
+	color: var(--text-normal);
+}
+
+/* The add-column cell doubles as the "move to the end" target. */
+.layer-grid-th.layer-grid-add-field.is-drop-before {
+	box-shadow: inset 3px 0 0 0 var(--interactive-accent);
+}
+
+/* ---------- Cell editing ---------- */
+
+.layer-grid-td {
+	cursor: default;
+}
+
+.layer-grid-td:hover {
+	background: var(--background-modifier-hover);
+}
+
+.layer-grid-td.is-editing {
+	padding: 0;
+	background: var(--background-primary);
+	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+
+/* Inputs fill the cell so the editor does not shift the row height. */
+.layer-grid-input,
+.layer-grid-select {
+	width: 100%;
+	min-width: 8ch;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	padding: var(--size-4-1) var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+}
+
+.layer-grid-input:focus,
+.layer-grid-select:focus {
+	box-shadow: none;
+	outline: none;
 }

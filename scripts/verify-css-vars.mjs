@@ -70,7 +70,23 @@ try {
 	console.error(`Cannot read ${STYLESHEET}; run this from the plugin root.`);
 	process.exit(1);
 }
-const used = [...new Set([...sheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]))].sort();
+const referenced = [
+	...new Set([...sheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1])),
+].sort();
+
+/**
+ * Variables the plugin declares itself.
+ *
+ * Only Obsidian's own variables can be checked against app.css; a
+ * plugin-defined one would always be reported missing. They are split out and
+ * validated against the stylesheet instead, so a typo in a `var()` reference to
+ * a local variable is still caught.
+ */
+const declaredLocally = new Set(
+	[...sheet.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+);
+const used = referenced.filter((v) => !declaredLocally.has(v));
+const local = referenced.filter((v) => declaredLocally.has(v));
 
 const asarPath = findObsidianAsar();
 if (!asarPath) {
@@ -108,5 +124,14 @@ for (const v of used) {
 	}
 }
 
-console.log(bad === 0 ? '\nAll variables exist in this Obsidian build.' : `\n${bad} variable(s) do not exist.`);
+for (const v of local) {
+	console.log(`local    ${v}  (declared in this stylesheet)`);
+}
+
+console.log(
+	bad === 0
+		? `\nAll ${used.length} Obsidian variables exist in this build` +
+				(local.length > 0 ? `, and ${local.length} local variable(s) resolve.` : '.')
+		: `\n${bad} variable(s) do not exist.`,
+);
 process.exit(bad === 0 ? 0 : 1);
