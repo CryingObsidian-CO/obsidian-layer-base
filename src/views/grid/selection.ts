@@ -55,6 +55,36 @@ export function rangeSize(bounds: RangeBounds): RangeSize {
 	};
 }
 
+/**
+ * The range spanning every rendered row and column, ready to select.
+ *
+ * Returns null for an empty grid: with no rows or no fields there is no cell
+ * for the range to start from, and inventing one would anchor the selection to
+ * something that is not rendered.
+ */
+export function wholeTableCorners(
+	rowIds: readonly string[],
+	fieldIds: readonly string[],
+): Extract<GridSelection, { kind: 'range' }> | null {
+	const firstRow = rowIds[0];
+	const lastRow = rowIds[rowIds.length - 1];
+	const firstField = fieldIds[0];
+	const lastField = fieldIds[fieldIds.length - 1];
+
+	if (firstRow === undefined || lastRow === undefined) {
+		return null;
+	}
+	if (firstField === undefined || lastField === undefined) {
+		return null;
+	}
+
+	return {
+		kind: 'range',
+		anchor: {recordId: firstRow, fieldId: firstField},
+		focus: {recordId: lastRow, fieldId: lastField},
+	};
+}
+
 const SELECTION_CLASS: Record<GridSelection['kind'], string> = {
 	range: 'is-sel-range',
 	row: 'is-sel-row',

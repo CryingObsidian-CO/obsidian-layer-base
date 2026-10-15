@@ -21,6 +21,7 @@ import {
 	SelectionTracker,
 	rangeBounds,
 	rangeSize,
+	wholeTableCorners,
 	type GridSelection,
 	type RangeBounds,
 	type RangeSize,
@@ -129,7 +130,7 @@ export class GridRenderer {
 		});
 
 		this.renderColgroup(table, fields, view);
-		this.renderHead(table, fields, view);
+		this.renderHead(table, doc, fields, view);
 		this.renderBody(table, doc, fields, view);
 
 		this.marquee = fit.createDiv({cls: 'layer-grid-marquee'});
@@ -175,13 +176,14 @@ export class GridRenderer {
 
 	private renderHead(
 		table: HTMLTableElement,
+		doc: LayerDoc,
 		fields: Field[],
 		view: GridView,
 	): void {
 		const row = table.createTHead().insertRow();
 		row.style.height = `${HEADER_HEIGHT}px`;
 
-		row.insertCell().addClass('layer-grid-th', 'layer-grid-rownum');
+		this.renderHeadSelectAll(row.insertCell(), doc.records.length > 0);
 
 		for (const field of fields) {
 			const th = row.insertCell();
@@ -232,19 +234,68 @@ export class GridRenderer {
 		});
 	}
 
+	/**
+	 * The corner cell: selects everything.
+	 *
+	 * The same range the mouse would draw from the first cell to the last, so
+	 * what gets highlighted afterwards is exactly what a drag over the table
+	 * would highlight — the status row, the marquee and the context menu then all
+	 * read from it without special-casing a "select all" selection.
+	 */
+	private renderHeadSelectAll(
+		cell: HTMLTableCellElement,
+		enabled: boolean,
+	): void {
+		cell.addClass('layer-grid-th', 'layer-grid-rownum', 'layer-grid-corner');
+
+		const button = cell.createEl('button', {cls: 'layer-grid-select-all'});
+		button.setAttribute('aria-label', t().selectAll);
+		setIcon(button, 'move-diagonal');
+		// Nothing to select on an empty board, and a button that answers the
+		// click by doing nothing is worse than one that says it is unavailable.
+		button.toggleClass('is-disabled', !enabled);
+		button.disabled = !enabled;
+		button.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			this.selectAll();
+		});
+	}
+
+	private selectAll(): void {
+		const whole = wholeTableCorners(
+			[...this.rowIndex.keys()],
+			[...this.columnIndex.keys()],
+		);
+		if (!whole) {
+			return;
+		}
+		this.setSelection(whole);
+	}
+
 	private attachColumnResizer(
 		th: HTMLElement,
 		field: Field,
 		view: GridView,
 	): void {
 		const handle = th.createSpan({cls: 'layer-grid-resizer'});
-		attachColumnResize(handle, columnWidthOf(view, field.id), {
+		attachColumnResize(handle, {
+			onStart: () => {
+				const col = this.cols.get(field.id);
+				// The inline width is what the last drag left on screen, which is
+				// the size this gesture has to continue from. The document is only
+				// the fallback for a column that has not been dragged yet.
+				return col?.style.width
+					? Number.parseFloat(col.style.width)
+					: columnWidthOf(view, field.id);
+			},
 			onPreview: (pixels) => {
 				const col = this.cols.get(field.id);
 				if (col) {
 					col.style.width = `${pixels}px`;
 				}
 				this.applyTableWidth();
+				this.paintMarquee(this.selection.get());
 			},
 			onCommit: (pixels) => this.handlers.onColumnResize(field.id, pixels),
 		});
@@ -300,11 +351,11 @@ export class GridRenderer {
 	private showDropTarget(draggedId: string, clientX: number): void {
 		this.clearDropTarget();
 		const anchor = this.dropAnchorAt(draggedId, clientX);
-		if (anchor === null) {
-			this.tailHead?.addClass('is-drop-before');
-			return;
-		}
-		this.headers.get(anchor)?.addClass('is-drop-before');
+		// At most one header carries the class at a time: the drop is one gap, and
+		// two bars in the same gap read as two separate insertion points.
+		const target =
+			anchor === null ? this.tailHead : this.headers.get(anchor);
+		target?.addClass('is-drop-before');
 	}
 
 	private clearDropTarget(): void {
@@ -321,6 +372,8 @@ export class GridRenderer {
 		view: GridView,
 	): void {
 		const body = table.createTBody();
+		// Row numbers, one per field, and the header's trailing add-column cell,
+		// which spans the body too.
 		const columnCount = fields.length + 2;
 
 		if (doc.records.length === 0) {
@@ -354,22 +407,7 @@ export class GridRenderer {
 				this.cells.set(cellKey(record.id, field.id), cell);
 				this.paintCell(cell, field, record.id, record.cells[field.id] ?? '');
 			}
-
-			const tail = row.insertCell();
-			tail.addClass('layer-grid-td', 'layer-grid-tail');
-			this.renderRowAction(tail, record.id);
 		}
-	}
-
-	private renderRowAction(cell: HTMLElement, recordId: string): void {
-		const button = cell.createEl('button', {cls: 'layer-grid-row-action'});
-		button.setAttribute('aria-label', t().deleteRecord);
-		setIcon(button, 'x');
-		button.addEventListener('click', (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			this.handlers.onDeleteRecords([recordId]);
-		});
 	}
 
 	private renderRowNumber(
@@ -386,9 +424,11 @@ export class GridRenderer {
 		});
 
 		const handle = cell.createSpan({cls: 'layer-grid-resizer'});
-		attachRowResize(handle, rowHeightOf(view, recordId), {
+		attachRowResize(handle, {
+			onStart: () => Number.parseFloat(row.style.height) || rowHeightOf(view, recordId),
 			onPreview: (pixels) => {
 				row.style.height = `${pixels}px`;
+				this.paintMarquee(this.selection.get());
 			},
 			onCommit: (pixels) => this.handlers.onRowResize(recordId, pixels),
 		});

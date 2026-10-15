@@ -46,6 +46,11 @@ export function addRecord(doc: LayerDoc): LayerRecord {
 	return insertRecordAt(doc, doc.records.length);
 }
 
+/** Inserts at the top of the board, above everything already there. */
+export function addRecordAtTop(doc: LayerDoc): LayerRecord {
+	return insertRecordAt(doc, 0);
+}
+
 function forgetRecordSizeFromViews(doc: LayerDoc, recordId: string): void {
 	for (const view of doc.views) {
 		if (view.type === 'grid') {

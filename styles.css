@@ -72,7 +72,12 @@
 	border-collapse: separate;
 	border-spacing: 0;
 	table-layout: fixed;
-	width: 100%;
+	/*
+	 * Not `100%`: the width is set inline on `.layer-grid-fit` as the sum of the
+	 * columns, and under fixed layout a percentage width would make the table
+	 * fill its container instead, overriding the per-column widths.
+	 */
+	width: auto;
 	font-size: var(--font-ui-smaller);
 }
 
@@ -227,6 +232,15 @@ body.layer-grid-resizing.is-row-resize * {
 /* ---------- Board shell: action row ---------- */
 
 .layer-shell-toolbar {
+	/* One height for every control in the action row, so a button with a label
+	 * and one with only an icon still read as a pair.
+	 *
+	 * The radius is past what Obsidian's scale offers — `--radius-l` is 12px and
+	 * the next step up is a full pill — so it is set literally here and kept in
+	 * one place rather than repeated per rule. */
+	--shell-control-height: var(--size-4-8);
+	--shell-control-radius: 8px;
+
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
@@ -299,14 +313,22 @@ body.layer-grid-resizing.is-row-resize * {
 .layer-shell-button {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
 	gap: var(--size-4-1);
-	padding: var(--size-4-1) var(--size-4-3);
+	padding: 0 var(--size-4-3);
 	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
+	border-radius: var(--shell-control-radius);
 	background: var(--interactive-normal);
 	color: var(--text-normal);
 	cursor: pointer;
 	font-size: var(--font-ui-smaller);
+	/*
+	 * A fixed height, because a label and a bare icon do not settle on the same
+	 * one from padding alone — the icon button came out shorter, and two controls
+	 * meant to read as one control should not disagree on their height.
+	 */
+	height: var(--shell-control-height);
+	box-sizing: border-box;
 }
 
 .layer-shell-button:hover {
@@ -321,6 +343,47 @@ body.layer-grid-resizing.is-row-resize * {
 
 .layer-shell-button.is-primary:hover {
 	background: var(--interactive-accent-hover);
+}
+
+/* A label button and its menu trigger, joined into one control. */
+.layer-shell-split {
+	display: inline-flex;
+	align-items: stretch;
+}
+
+/* Square off the touching corners and overlap the borders between them, so the
+ * pair reads as one button that happens to have two parts.
+ *
+ * The trigger also carries less horizontal padding: it holds only an arrow, and
+ * the label button's padding would leave it looking like a second action rather
+ * than part of the same one. */
+.layer-shell-split > .layer-shell-button:first-child {
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.layer-shell-split > .layer-shell-button + .layer-shell-button {
+	margin-left: -1px;
+	padding: 0 var(--size-4-2);
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
+}
+
+/*
+ * The squared corners have to be restated on hover, because the rule above is
+ * keyed to the element's position and hover does not change that position —
+ * only which element matches. Stating it for "any hovered child" would clear
+ * the outer corners too, so the button would square up while the pointer is on
+ * it and round again when it leaves.
+ */
+.layer-shell-split > .layer-shell-button:first-child:hover {
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.layer-shell-split > .layer-shell-button + .layer-shell-button:hover {
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
 }
 
 .layer-shell-button-icon {
@@ -425,41 +488,6 @@ body.layer-grid-dragging-range * {
 	user-select: none;
 }
 
-/* ---------- Row action ---------- */
-
-/* The trailing cell: narrow, and the only place a row's action appears. */
-.layer-grid-tail {
-	width: 1%;
-	padding: 0 var(--size-4-1);
-	text-align: center;
-	border-right: none;
-}
-
-.layer-grid-row-action {
-	display: none;
-	align-items: center;
-	justify-content: center;
-	padding: 0 var(--size-4-1);
-	background: transparent;
-	border: none;
-	box-shadow: none;
-	color: var(--text-faint);
-	cursor: pointer;
-}
-
-.layer-grid-row:hover .layer-grid-row-action {
-	display: inline-flex;
-}
-
-.layer-grid-row-action:hover {
-	color: var(--text-error);
-}
-
-.layer-grid-row-action svg {
-	width: 14px;
-	height: 14px;
-}
-
 .layer-grid-th.is-clickable {
 	cursor: pointer;
 }
@@ -467,6 +495,55 @@ body.layer-grid-dragging-range * {
 .layer-grid-th.is-clickable:hover {
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
+}
+
+/*
+ * The corner cell. It keeps the row-number column's muted background, so the
+ * button is laid out from `position: relative` rather than the absolute box the
+ * add-column cell uses.
+ */
+.layer-grid-corner {
+	position: relative;
+}
+
+/* Fills the corner, so the whole cell is the hit target. */
+.layer-grid-select-all {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: pointer;
+	line-height: 1;
+}
+
+.layer-grid-select-all:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.layer-grid-select-all.is-disabled,
+.layer-grid-select-all.is-disabled:hover {
+	color: var(--text-faint);
+	background: transparent;
+	cursor: default;
+}
+
+/* Keeps the icon from shrinking in a narrow gutter. */
+.layer-grid-select-all svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
 }
 
 /* Trailing add-column cell: square with the header row, never a data cell. */
@@ -618,21 +695,52 @@ body.layer-grid-dragging-column * {
 	user-select: none;
 }
 
+/*
+ * The resize strip's hover tint is suppressed for the duration of a reorder.
+ * The pointer crosses the header to get there, so it always rests on some
+ * handle — and that handle's highlight is the same accent colour as the drop
+ * indicator, which reads as a second bar in a gap that already has one.
+ */
+body.layer-grid-dragging-column .layer-grid-resizer:hover {
+	background: transparent;
+}
+
 /* The column being moved stays visible but reads as lifted out. */
 .layer-grid-th.is-dragging-column {
 	opacity: 0.5;
 }
 
-/* Where the drop would land: a line on the leading edge of the column it would
- * be inserted before, visible before the mouse is released. */
+/*
+ * Where the drop would land: one bar on the leading edge of the column the
+ * dragged one would be inserted before.
+ *
+ * Drawn as a pseudo-element rather than an inset shadow because the gap between
+ * two columns already carries the front column's `border-right`, and an inset
+ * shadow starts inside the padding box — beside that border rather than over
+ * it, which reads as two marks in one gap. Starting at -1px sits on the border
+ * itself, and the header is `position: sticky`, so it is already a containing
+ * block here.
+ */
 .layer-grid-th.is-drop-before {
-	box-shadow: inset 3px 0 0 0 var(--interactive-accent);
 	color: var(--text-normal);
+}
+
+.layer-grid-th.is-drop-before::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -1px;
+	width: 3px;
+	background: var(--interactive-accent);
+	pointer-events: none;
+	/* Above the resize strip, which is z-index 2 inside the same header. */
+	z-index: 3;
 }
 
 /* The add-column cell doubles as the "move to the end" target. */
 .layer-grid-th.layer-grid-add-field.is-drop-before {
-	box-shadow: inset 3px 0 0 0 var(--interactive-accent);
+	color: var(--text-normal);
 }
 
 /* ---------- Cell editing ---------- */

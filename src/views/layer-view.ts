@@ -6,6 +6,7 @@ import type LayerBasePlugin from '../main';
 import {
 	addField,
 	addRecord,
+	addRecordAtTop,
 	changeFieldType,
 	clearRecord,
 	clearCells,
@@ -140,6 +141,9 @@ export class LayerView extends TextFileView {
 			},
 			onAddRecord: () => {
 				this.handleAddRecord();
+			},
+			onAddRecordAtTop: () => {
+				this.handleAddRecordAtTop();
 			},
 		});
 		// Top to bottom: actions on the data, then the projection of it, then a
@@ -289,6 +293,16 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		addRecord(this.doc);
+		this.markDirty();
+		this.render();
+	}
+
+	/** Inserts a row above everything else. */
+	private handleAddRecordAtTop(): void {
+		if (!this.doc) {
+			return;
+		}
+		addRecordAtTop(this.doc);
 		this.markDirty();
 		this.render();
 	}

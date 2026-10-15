@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addRecord,
+	addRecordAtTop,
 	clearRecord,
 	duplicateField,
 	duplicateRecord,
@@ -115,6 +116,36 @@ describe('addRecord', () => {
 		const ids = [addRecord(doc).id, addRecord(doc).id, addRecord(doc).id];
 
 		expect(new Set(ids).size).toBe(3);
+	});
+});
+
+describe('addRecordAtTop', () => {
+	it('goes above every record already there', () => {
+		const doc = newDoc();
+		const first = addRecord(doc);
+		const second = addRecord(doc);
+
+		const top = addRecordAtTop(doc);
+
+		expect(doc.records.map((r) => r.id)).toEqual([top.id, first.id, second.id]);
+	});
+
+	it('is the only record on an empty board', () => {
+		const doc = newDoc();
+		const only = addRecordAtTop(doc);
+
+		expect(doc.records).toEqual([only]);
+	});
+
+	it('starts each insertion above the last one', () => {
+		// Repeated use should stack upwards, the way the toolbar action reads.
+		const doc = newDoc();
+		const existing = addRecord(doc);
+
+		const first = addRecordAtTop(doc);
+		const second = addRecordAtTop(doc);
+
+		expect(doc.records.map((r) => r.id)).toEqual([second.id, first.id, existing.id]);
 	});
 });
 
