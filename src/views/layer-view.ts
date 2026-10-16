@@ -35,6 +35,7 @@ import {
 import type {CellValue, Field, LayerDoc, View} from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
+import type { Anchor } from '../ui/anchored-popover';
 import {FieldEditorModal, type FieldEditorResult} from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell} from './board-shell';
@@ -168,11 +169,19 @@ export class LayerView extends TextFileView {
 				onDuplicateRecords: (recordIds) => {
 					this.handleDuplicateRecords(recordIds);
 				},
-				onEditField: (field) => {
-					this.openFieldEditor(field);
+				onEditField: (field, at) => {
+					// Keyboard activation gives no coordinates; the column header
+					// stands in as the anchor.
+					const el = this.grid?.headerFor(field.id) ?? null;
+					const anchor: Anchor | null = at
+						? { kind: 'point', x: at.x, y: at.y }
+						: el
+							? { kind: 'element', el }
+							: null;
+					this.openFieldEditor(field, undefined, anchor);
 				},
-				onAddField: (after) => {
-					this.openFieldEditor(null, after);
+				onAddField: (after, anchor) => {
+					this.openFieldEditor(null, after, anchor ? { kind: 'element', el: anchor } : null);
 				},
 				onDuplicateField: (field) => {
 					this.handleDuplicateField(field);
@@ -307,13 +316,18 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	private openFieldEditor(field: Field | null, after?: Field): void {
+	private openFieldEditor(
+		field: Field | null,
+		after?: Field,
+		anchor?: Anchor | null,
+	): void {
 		if (!this.doc) {
 			return;
 		}
 		new FieldEditorModal({
 			app: this.app,
 			field,
+			anchor: anchor ?? null,
 			onSubmit: (result) => {
 				this.applyFieldEdit(field, result, after);
 			},

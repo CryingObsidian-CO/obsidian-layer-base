@@ -1,8 +1,10 @@
-import { Modal, Setting, type App } from 'obsidian';
+import { setIcon, type App } from 'obsidian';
 import { t } from '../i18n';
-import { FIELD_TYPES, usesOptions } from '../model/fields';
+import { specFor, usesOptions } from '../model/fields';
 import type { Field, FieldType, SelectOption } from '../types';
 import { generateId } from '../utils/id';
+import { AnchoredPopover, type Anchor } from './anchored-popover';
+import { FieldTypeDropdown } from './field-type-picker';
 
 export interface FieldEditorResult {
 	name: string;
@@ -14,10 +16,15 @@ export interface FieldEditorResult {
 export interface FieldEditorOptions {
 	app: App;
 	field: Field | null;
+	/** What the panel opens next to; null centres it. */
+	anchor?: Anchor | null;
 	onSubmit: (result: FieldEditorResult) => void;
 }
 
-export class FieldEditorModal extends Modal {
+/** Width of the panel, applied inline — see the note on `AnchoredPopover.setWidth`. */
+const FIELD_EDITOR_WIDTH = '17rem';
+
+export class FieldEditorModal extends AnchoredPopover {
 	private name: string;
 	private type: FieldType;
 	private draftOptions: SelectOption[];
@@ -25,9 +32,11 @@ export class FieldEditorModal extends Modal {
 
 	private optionsEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
+	private typeButton: HTMLButtonElement | null = null;
+	private typeDropdown: FieldTypeDropdown | null = null;
 
 	constructor(private readonly config: FieldEditorOptions) {
-		super(config.app);
+		super(config.app, config.anchor ?? null, FIELD_EDITOR_WIDTH);
 		this.name = config.field?.name ?? '';
 		this.type = config.field?.type ?? 'text';
 		this.draftOptions = (config.field?.options ?? []).map((o) => ({ ...o }));
@@ -35,32 +44,38 @@ export class FieldEditorModal extends Modal {
 	}
 
 	onOpen(): void {
+		super.onOpen();
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass('layer-field-editor');
-		contentEl.createEl('h2', {
-			text: this.config.field === null ? t().fieldNewTitle : t().fieldEditTitle,
+
+		const grid = contentEl.createDiv({ cls: 'layer-field-grid' });
+		grid.createDiv({ cls: 'layer-field-label', text: t().fieldNameLabel });
+		const nameInput = grid.createEl('input', {
+			cls: 'layer-field-name',
+			type: 'text',
+		});
+		nameInput.placeholder = t().fieldNamePlaceholder;
+		nameInput.value = this.name;
+		nameInput.addEventListener('input', () => {
+			this.name = nameInput.value;
 		});
 
-		new Setting(contentEl).setName(t().fieldNameLabel).addText((text) =>
-			text
-				.setPlaceholder(t().fieldNamePlaceholder)
-				.setValue(this.name)
-				.onChange((value) => {
-					this.name = value;
-				}),
-		);
-
-		new Setting(contentEl).setName(t().fieldTypeLabel).addDropdown((dropdown) => {
-			for (const type of FIELD_TYPES) {
-				dropdown.addOption(type, typeLabel(type));
-			}
-			dropdown.setValue(this.type);
-			dropdown.onChange((value) => {
-				this.type = value as FieldType;
-				this.renderOptions();
-			});
+		grid.createDiv({ cls: 'layer-field-label', text: t().fieldTypeLabel });
+		this.typeButton = grid.createEl('button', {
+			cls: 'layer-field-type',
 		});
+		this.typeButton.type = 'button';
+		// Kept from taking focus: a click would otherwise claim it after the
+		// dropdown has put the caret in its search box.
+		this.typeButton.addEventListener('mousedown', (event) => {
+			event.preventDefault();
+		});
+		this.typeButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			this.openTypePicker();
+		});
+		this.paintTypeButton();
 
 		this.optionsEl = contentEl.createDiv({ cls: 'layer-field-options' });
 		this.renderOptions();
@@ -72,6 +87,44 @@ export class FieldEditorModal extends Modal {
 		cancel.addEventListener('click', () => this.close());
 		const save = actions.createEl('button', { cls: 'mod-cta', text: t().save });
 		save.addEventListener('click', () => this.submit());
+
+		window.setTimeout(() => {
+			// Laid out first, so the panel's height is known before it is placed.
+			this.position();
+			nameInput.focus();
+		}, 0);
+	}
+
+	private openTypePicker(): void {
+		const button = this.typeButton;
+		if (!button) {
+			return;
+		}
+		// One at a time: a second click on the button should not stack a list.
+		this.typeDropdown?.close();
+		this.typeDropdown = new FieldTypeDropdown(button, this.type, (type) => {
+			this.type = type;
+			this.paintTypeButton();
+			this.renderOptions();
+		});
+	}
+
+	/** Shows the chosen type on the button that opens the picker. */
+	private paintTypeButton(): void {
+		const button = this.typeButton;
+		if (!button) {
+			return;
+		}
+		button.empty();
+		setIcon(
+			button.createSpan({ cls: 'layer-field-type-icon' }),
+			specFor(this.type).icon,
+		);
+		button.createSpan({
+			cls: 'layer-field-type-name',
+			text: this.type === 'text' ? t().typeText : t().typeSelect,
+		});
+		button.createSpan({ cls: 'layer-field-type-chevron' });
 	}
 
 	/** Options only apply to a type that stores them. */
@@ -148,19 +201,17 @@ export class FieldEditorModal extends Modal {
 		this.close();
 	}
 
-	onClose(): void {
-		this.contentEl.empty();
+	/** Lets the open type list take the first Escape. */
+	protected override handlesEscape(): boolean {
+		return this.typeDropdown?.isOpen() ?? false;
 	}
-}
 
-/** The localised name of a field type. */
-function typeLabel(type: FieldType): string {
-	const s = t();
-	switch (type) {
-		case 'text':
-			return s.typeText;
-		case 'select':
-			return s.typeSelect;
+	onClose(): void {
+		super.onClose();
+		// Torn down before the container goes: the list is parented to it.
+		this.typeDropdown?.close();
+		this.typeDropdown = null;
+		this.contentEl.empty();
 	}
 }
 

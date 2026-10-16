@@ -33,8 +33,8 @@ export interface GridHandlers {
 	onDuplicateRecords(recordIds: string[]): void;
 	onDeleteRecords(recordIds: string[]): void;
 	onClearRecord(recordId: string): void;
-	onEditField(field: Field): void;
-	onAddField(after?: Field): void;
+	onEditField(field: Field, at: { x: number; y: number } | null): void;
+	onAddField(after?: Field, anchor?: HTMLElement | null): void;
 	onDuplicateField(field: Field): void;
 	onDeleteField(field: Field): void;
 	onClearCells(recordIds: string[], fields: Field[]): void;
@@ -142,6 +142,11 @@ export class GridRenderer {
 		return {recordIds: [...this.recordOrder], fields: [...this.visible]};
 	}
 
+	/** A column's header element, for anchoring a panel to it. */
+	headerFor(fieldId: string): HTMLElement | null {
+		return this.headers.get(fieldId) ?? null;
+	}
+
 	private renderColgroup(
 		table: HTMLTableElement,
 		fields: Field[],
@@ -208,7 +213,10 @@ export class GridRenderer {
 			});
 			th.addEventListener('dblclick', (event) => {
 				event.preventDefault();
-				this.handlers.onEditField(field);
+				this.handlers.onEditField(field, {
+					x: event.clientX,
+					y: event.clientY,
+				});
 			});
 			th.addEventListener('contextmenu', (event) => {
 				event.preventDefault();
@@ -230,7 +238,7 @@ export class GridRenderer {
 		setIcon(button, 'plus');
 		button.addEventListener('click', (event) => {
 			event.preventDefault();
-			this.handlers.onAddField();
+			this.handlers.onAddField(undefined, button);
 		});
 	}
 
@@ -670,7 +678,7 @@ export class GridRenderer {
 
 	private showMenu(event: MouseEvent, target: ContextTarget): void {
 		showGridContextMenu(event, target, {
-			onEditField: (field) => this.handlers.onEditField(field),
+			onEditField: (field, at) => this.handlers.onEditField(field, at),
 			onDuplicateField: (field) => this.handlers.onDuplicateField(field),
 			onDeleteField: (field) => this.handlers.onDeleteField(field),
 			onInsertField: (after) => this.handlers.onAddField(after),

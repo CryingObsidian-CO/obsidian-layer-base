@@ -14,7 +14,7 @@ export type ContextTarget =
 	| { kind: 'column'; field: Field; isOnlyField: boolean };
 
 export interface ContextMenuActions {
-	onEditField(field: Field): void;
+	onEditField(field: Field, at: { x: number; y: number } | null): void;
 	onDuplicateField(field: Field): void;
 	onDeleteField(field: Field): void;
 	onInsertField(after: Field): void;
@@ -215,7 +215,14 @@ function buildColumnMenu(
 		item
 			.setTitle(t().menuEditField)
 			.setIcon('pencil')
-			.onClick(() => actions.onEditField(field)),
+			.onClick((evt) => {
+				// No coordinates when the menu is activated from the keyboard.
+				const at =
+					evt instanceof MouseEvent
+						? { x: evt.clientX, y: evt.clientY }
+						: null;
+				actions.onEditField(field, at);
+			}),
 	);
 	menu.addItem((item) =>
 		item

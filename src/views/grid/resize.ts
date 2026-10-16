@@ -3,23 +3,15 @@ import { clampColumnWidth, clampRowHeight } from '../../model/layout';
 const DRAG_THRESHOLD_PX = 2;
 
 export interface ResizeHandlers {
-	/** The size right now, before this gesture starts. */
+	/** The size when the gesture starts. */
 	onStart(): number;
-	/** Called continuously while dragging. `pixels` is already clamped. */
+	/** Called continuously while dragging, with a clamped size. */
 	onPreview(pixels: number): void;
 	/** Called once on release with the final size. */
 	onCommit(pixels: number): void;
 }
 
-/**
- * The size a drag has arrived at, or null while it is still too small to count.
- *
- * Separate from the event handling so the rule is testable on its own, and so
- * that the one thing this must never do — measure from a size other than the
- * one read at the start of *this* gesture — is visible in the signature: the
- * caller supplies `startSize` per gesture and there is nowhere to keep a stale
- * copy.
- */
+/** The size a drag has arrived at, or null while it is still below the threshold. */
 export function resizeSizeAt(
 	startSize: number,
 	startPointer: number,
@@ -64,14 +56,8 @@ function attachResize(
 		event.preventDefault();
 		event.stopPropagation();
 
-		/*
-		 * Read the size as the pointer goes down, not when the handle was
-		 * attached. A resize writes the document and leaves the column where the
-		 * drag put it, so a value captured at attach time goes stale after the
-		 * first resize, and every later gesture is computed from the width the
-		 * column had when the table was last built. The column snaps back to that
-		 * width before it follows the pointer.
-		 */
+		// Read per gesture, not at attach time: a committed resize leaves the
+		// column at the new width, so a captured value is stale by the next drag.
 		const startSize = handlers.onStart();
 
 		const startPointer = axis === 'col-resize' ? event.clientX : event.clientY;

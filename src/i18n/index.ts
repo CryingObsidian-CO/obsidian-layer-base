@@ -72,12 +72,9 @@ const en = {
 	noticePastePartial: (written: number, refused: number) =>
 		`Pasted ${written} cell(s); ${refused} did not fit their column.`,
 	addField: 'New column',
-	fieldNewTitle: 'New field',
-	fieldEditTitle: 'Edit field',
 	fieldNameLabel: 'Name',
 	fieldNamePlaceholder: 'Field name',
 	fieldTypeLabel: 'Type',
-	fieldPrimaryLabel: 'Use as the record title',
 	fieldOptionsLabel: 'Options',
 	fieldAddOption: 'Add option',
 	fieldOptionPlaceholder: 'Option name',
@@ -94,6 +91,10 @@ const en = {
 	cancel: 'Cancel',
 	typeText: 'Text',
 	typeSelect: 'Select',
+	typeTextHint: 'Free text',
+	typeSelectHint: 'One value from a list',
+	fieldTypeSearch: 'Search field types',
+	fieldTypeSearchNoMatch: 'No matching type',
 } as const;
 
 const zh = {
@@ -164,12 +165,9 @@ const zh = {
 	noticePastePartial: (written: number, refused: number) =>
 		`已粘贴 ${written} 个单元格；${refused} 个因类型不匹配被跳过。`,
 	addField: '新增列',
-	fieldNewTitle: '新建字段',
-	fieldEditTitle: '编辑字段',
 	fieldNameLabel: '名称',
 	fieldNamePlaceholder: '字段名称',
 	fieldTypeLabel: '类型',
-	fieldPrimaryLabel: '用作记录标题',
 	fieldOptionsLabel: '选项',
 	fieldAddOption: '添加选项',
 	fieldOptionPlaceholder: '选项名称',
@@ -186,6 +184,10 @@ const zh = {
 	cancel: '取消',
 	typeText: '文本',
 	typeSelect: '单选',
+	typeTextHint: '单行文本',
+	typeSelectHint: '从列表中选择一项',
+	fieldTypeSearch: '搜索字段类型',
+	fieldTypeSearchNoMatch: '没有匹配的类型',
 } as const;
 
 const zhTW = {
@@ -256,12 +258,9 @@ const zhTW = {
 	noticePastePartial: (written: number, refused: number) =>
 		`已貼上 ${written} 個儲存格；${refused} 個因類型不相符被略過。`,
 	addField: '新增欄',
-	fieldNewTitle: '新增欄位',
-	fieldEditTitle: '編輯欄位',
 	fieldNameLabel: '名稱',
 	fieldNamePlaceholder: '欄位名稱',
 	fieldTypeLabel: '類型',
-	fieldPrimaryLabel: '用作記錄標題',
 	fieldOptionsLabel: '選項',
 	fieldAddOption: '新增選項',
 	fieldOptionPlaceholder: '選項名稱',
@@ -278,6 +277,10 @@ const zhTW = {
 	cancel: '取消',
 	typeText: '文字',
 	typeSelect: '單選',
+	typeTextHint: '單行文字',
+	typeSelectHint: '從列表中選擇一項',
+	fieldTypeSearch: '搜尋欄位類型',
+	fieldTypeSearchNoMatch: '沒有符合的類型',
 } as const;
 
 /** Shape every catalogue must satisfy. */
