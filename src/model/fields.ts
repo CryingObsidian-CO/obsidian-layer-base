@@ -59,6 +59,18 @@ export function isEmptyCell(value: CellValue): boolean {
 	return value === '';
 }
 
+/**
+ * A required field whose cell holds nothing: the state the grid warns about.
+ *
+ * Lives here rather than in the grid because it is a statement about the field
+ * and its value, not about how a cell is drawn — and because the grid module
+ * imports `obsidian`, which ships types only, so nothing in it can be unit
+ * tested.
+ */
+export function isMissingRequired(field: Field, value: CellValue): boolean {
+	return field.required === true && isEmptyCell(value);
+}
+
 export function cellToText(field: Field, value: CellValue): string {
 	return SPECS[field.type].toText(field, value);
 }

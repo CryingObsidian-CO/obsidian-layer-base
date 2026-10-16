@@ -14,6 +14,11 @@ export interface Field {
 	name: string;
 	type: FieldType;
 	primary?: boolean;
+	/**
+	 * Cells in this field must not be left empty. A missing flag and `false` mean
+	 * the same thing, so the flag is only written when it is true.
+	 */
+	required?: boolean;
 	frontmatterKey?: string;
 	options?: SelectOption[];
 }

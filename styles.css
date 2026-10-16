@@ -73,11 +73,18 @@
 	border-spacing: 0;
 	table-layout: fixed;
 	/*
-	 * Not `100%`: the width is set inline on `.layer-grid-fit` as the sum of the
-	 * columns, and under fixed layout a percentage width would make the table
-	 * fill its container instead, overriding the per-column widths.
+	 * `100%` of `.layer-grid-fit`, which the renderer gives an explicit pixel
+	 * width equal to the sum of the columns — so the table resolves to exactly
+	 * that sum and the `<col>` widths are honoured as written.
+	 *
+	 * This has to be a specified width, and it has to be on the TABLE: the fixed
+	 * algorithm is only used when the table's own `width` is explicit, and with
+	 * `auto` the browser silently falls back to the automatic algorithm, where a
+	 * column's declared width is a starting point that cell content may grow.
+	 * That made a narrowed column spring back open around its content. A width on
+	 * the parent block does not count — it is not the table's own width.
 	 */
-	width: auto;
+	width: 100%;
 	font-size: var(--font-ui-smaller);
 }
 
@@ -183,6 +190,28 @@ body.layer-grid-resizing.is-row-resize * {
 
 .layer-grid-td.is-primary {
 	font-weight: var(--font-medium);
+}
+
+/*
+ * A required field whose cell is empty.
+ *
+ * An `outline` with a negative offset, not an inset `box-shadow` — the two draw
+ * different rectangles. An inset shadow is clipped to the PADDING box (MDN), and
+ * a cell carries a right and a bottom border but no left or top one, so a shadow
+ * is pushed in on two sides only and the ring sits visibly off-centre. An
+ * outline is drawn on the border edge, so at -2px it rings the outermost 2px of
+ * the border box on all four sides — the same rectangle the range marquee
+ * traces. A selected empty required cell therefore shows ONE band, not two
+ * nearly-overlapping ones.
+ *
+ * The outline is also what `.is-editing` uses, which is why the two can hand
+ * over cleanly: same property, equal specificity, so the later declaration wins.
+ * Sharing the property is the point — with a shadow here and an outline there
+ * both would paint at once.
+ */
+.layer-grid-td.is-missing-required {
+	outline: 2px solid var(--text-error);
+	outline-offset: -2px;
 }
 
 .layer-grid-placeholder {
@@ -480,6 +509,16 @@ body.layer-grid-resizing.is-row-resize * {
 	/* Hidden until it has a rectangle, so it cannot flash at the origin. */
 	display: none;
 	border: 2px solid var(--interactive-accent);
+	/*
+	 * The renderer sizes this from the cells' own rectangles, so the border must
+	 * be INSIDE that size. Without this the default `content-box` adds the 2px
+	 * border on top of the width, and the band hangs outside the selection on the
+	 * right and bottom only. With it, the band rings the outermost 2px of the
+	 * selection on all four sides — the same band a cell's own outline draws, so
+	 * the selection ring and a required-empty warning coincide instead of
+	 * stepping against each other.
+	 */
+	box-sizing: border-box;
 }
 
 .layer-grid-marquee.is-visible {
@@ -613,6 +652,71 @@ body.layer-grid-dragging-range * {
 	background: transparent;
 }
 
+/* ---------- Select option pill ---------- */
+
+/*
+ * One chip, used twice: as the value in a select cell and as the label of an
+ * option row in the dropdown. It carries no margin and no fill of its own, so
+ * the two places that host it only have to align it.
+ */
+.layer-select-pill {
+	/*
+	 * Declared here so `has-color` below has something to fall back to, and so
+	 * the checker can see that this name is the plugin's own rather than
+	 * Obsidian's. The colouring rule overrides it inline per option.
+	 */
+	--layer-pill-color: var(--text-muted);
+
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	height: 21px;
+	padding: 0 9px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: var(--background-modifier-hover);
+	color: var(--text-muted);
+	font-size: 12px;
+	font-weight: 500;
+	line-height: 1;
+	white-space: nowrap;
+	/* Clips the label to the rounded border; the ellipsis belongs to the child. */
+	overflow: hidden;
+}
+
+/*
+ * The label is the box that owns the text, and so the only box that can signal
+ * truncation. The pill above is a flex container, which wraps bare text in an
+ * anonymous flex item that inherits neither `overflow` nor `text-overflow`; a
+ * declaration on the pill therefore never reached the name, which was just cut
+ * off at the edge. As a real flex item this span can shrink — `min-width: 0`
+ * because the automatic minimum size of a flex item is its content width — and
+ * its own overflow then trims the name with an ellipsis.
+ */
+.layer-select-pill-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/*
+ * Tinted from the option's own colour rather than filled with it, so a light
+ * colour on a light theme (and a dark one on a dark theme) still leaves the
+ * label readable. `color-mix` keeps the accent relationship for any colour the
+ * user has picked, including ones pulled from the theme.
+ */
+.layer-select-pill.has-color {
+	border-color: color-mix(in srgb, var(--layer-pill-color) 28%, transparent);
+	background: color-mix(in srgb, var(--layer-pill-color) 15%, transparent);
+	color: color-mix(in srgb, var(--layer-pill-color) 72%, var(--text-normal));
+}
+
+/* As an inline-flex box inside a cell it is baseline-aligned unless told otherwise. */
+.layer-grid-td .layer-select-pill {
+	vertical-align: middle;
+}
+
 /* The panel is fixed, so `position()` writes viewport coordinates; the container stops centring. */
 .modal-container:has(> .modal.layer-popover) {
 	display: block;
@@ -634,8 +738,16 @@ body.layer-grid-dragging-range * {
 	backdrop-filter: none;
 }
 
-/* Hung off the button that opens it; parented to the container so `.modal` cannot clip it. */
-.layer-type-dropdown {
+/*
+ * Hung off the button that opens it; parented to the container so `.modal`
+ * cannot clip it.
+ *
+ * The type picker and the option dropdown are the same panel with different
+ * rows, so every shared part below carries both selectors rather than a second
+ * copy of the same geometry. Only the rows differ, further down.
+ */
+.layer-type-dropdown,
+.layer-option-dropdown {
 	position: fixed;
 	z-index: var(--layer-menu);
 	display: none;
@@ -649,17 +761,21 @@ body.layer-grid-dragging-range * {
 }
 
 .layer-type-dropdown.is-open,
-.layer-type-dropdown.is-measuring {
+.layer-type-dropdown.is-measuring,
+.layer-option-dropdown.is-open,
+.layer-option-dropdown.is-measuring {
 	display: flex;
 }
 
 /* Laid out off-screen, so its height can be measured without a flash. */
-.layer-type-dropdown.is-measuring {
+.layer-type-dropdown.is-measuring,
+.layer-option-dropdown.is-measuring {
 	top: -100vh;
 	left: -100vw;
 }
 
-.layer-type-dropdown-input {
+.layer-type-dropdown-input,
+.layer-option-dropdown-input {
 	width: 100%;
 	border: none;
 	border-bottom: 1px solid var(--background-modifier-border);
@@ -668,26 +784,132 @@ body.layer-grid-dragging-range * {
 	box-shadow: none;
 }
 
-.layer-type-dropdown-list {
+.layer-type-dropdown-list,
+.layer-option-dropdown-list {
 	max-height: 16rem;
 	overflow-y: auto;
 	padding: var(--size-4-1);
 }
 
-.layer-type-dropdown-empty {
+.layer-type-dropdown-empty,
+.layer-option-dropdown-empty {
 	padding: var(--size-4-3);
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 	text-align: center;
 }
 
+/* ---------- Option dropdown rows ---------- */
+
+/* One option: an icon slot, then its pill — or, for create and clear, plain text. */
+.layer-option-dropdown-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 5px 7px;
+	border-radius: var(--radius-s);
+	background: transparent;
+	cursor: pointer;
+	text-align: left;
+}
+
+.layer-option-dropdown-row:hover,
+.layer-option-dropdown-row.is-active {
+	background: var(--background-modifier-hover);
+}
+
+/* The current value, tinted rather than filled, so the pill inside still reads. */
+.layer-option-dropdown-row.is-selected {
+	background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+}
+
+/*
+ * A fixed slot, so rows whose command has no icon still line up with the ones
+ * that do; the icon is drawn smaller than the slot to leave it breathing room.
+ */
+.layer-option-dropdown-row-icon {
+	flex: 0 0 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+
+.layer-option-dropdown-row-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* The tick on the current value is the accent's, not the muted command grey. */
+.layer-option-dropdown-row.is-selected .layer-option-dropdown-row-icon {
+	color: var(--interactive-accent);
+}
+
+/* Takes the room the icon slot left, and is the part that may shrink. */
+.layer-option-dropdown-row-label {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+/* The pill is the row's decoration: clicks have to reach the row underneath. */
+.layer-option-dropdown-row .layer-select-pill {
+	pointer-events: none;
+}
+
+/* Neither of these is an option, so neither wears an option's emphasis. */
+.layer-option-dropdown-row.is-create .layer-option-dropdown-row-label,
+.layer-option-dropdown-row.is-clear .layer-option-dropdown-row-label {
+	color: var(--text-muted);
+	font-size: 12.5px;
+}
+
 /* ---------- Field editor ---------- */
+
+/*
+ * The panel's own heading. Sized between the modal's usual title and a form
+ * label: it names what the panel is for without competing with the controls.
+ */
+.layer-field-editor-title {
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
 
 /* One column: the label sits above its field rather than in a gutter. */
 .layer-field-grid {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	gap: var(--size-4-1);
+}
+
+/*
+ * The required toggle: the checkbox and its label on one line, with the
+ * explanation tucked underneath so the two read as one control.
+ */
+.layer-field-required {
+	margin-top: var(--size-4-3);
+}
+
+.layer-field-required-label {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	cursor: pointer;
+}
+
+/* Not the UA default: it centres against the label text rather than riding high. */
+.layer-field-required-box {
+	margin: 0;
+	flex: 0 0 auto;
+}
+
+.layer-field-required-hint {
+	margin-top: var(--size-4-1);
+	/* Indented to the label text, clear of the checkbox column. */
+	margin-left: calc(1em + var(--size-4-2));
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
 }
 
 .layer-field-label {
@@ -799,8 +1021,34 @@ body.layer-grid-dragging-range * {
 	margin-bottom: var(--size-4-1);
 }
 
+/*
+ * A bare text input carries the UA's `size=20` intrinsic width — around the
+ * whole row budget on its own — and `min-width: auto` promotes that to a floor
+ * the flex layout may not shrink past. Left at that floor the input holds its
+ * width whatever the name is, the row has no room to give, and all the preview
+ * gets is whatever is left over. The floor below is the same `8ch` the grid
+ * inputs use: enough to keep the field readable, small enough that it can never
+ * be what makes the row overflow.
+ */
 .layer-field-option-input {
 	flex: 1 1 auto;
+	min-width: 8ch;
+}
+
+/*
+ * The pill cuts its label off, but it cannot get the width to cut it down to:
+ * `nowrap` makes its min-content the whole name, so with the initial
+ * `min-width: auto` this span's own automatic minimum is that same full width.
+ * The row then refuses to shrink, it outgrows the panel, and a long name is
+ * never trimmed at all. That floor belongs to the flex item rather than to the
+ * pill the grid cells share, so the host is where it has to be lifted. The cap
+ * below hands the input the larger share of the row instead of whatever width a
+ * long name can claim.
+ */
+.layer-field-option-preview {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 30%;
 }
 
 .layer-field-option-color {
@@ -926,14 +1174,22 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-grid-td.is-editing {
 	padding: 0;
 	background: var(--background-primary);
-	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+	/*
+	 * Same property and offset as the missing-required ring, so this declaration
+	 * REPLACES that warning rather than stacking on top of it: an empty required
+	 * cell being edited shows the accent ring only. Equal specificity, and this
+	 * rule comes later, so it wins. Margins are not a factor — the table is
+	 * `border-collapse: separate` and an outline is not part of the box model, so
+	 * nothing reflows when the warning appears or clears.
+	 */
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
 	/* The cell is being typed into, so it is no longer a drag handle. */
 	cursor: text;
 }
 
-/* Inputs fill the cell so the editor does not shift the row height. */
-.layer-grid-input,
-.layer-grid-select {
+/* The text input fills the cell so the editor does not shift the row height. */
+.layer-grid-input {
 	width: 100%;
 	min-width: 8ch;
 	border: none;
@@ -946,8 +1202,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	cursor: text;
 }
 
-.layer-grid-input:focus,
-.layer-grid-select:focus {
+.layer-grid-input:focus {
 	box-shadow: none;
 	outline: none;
 }

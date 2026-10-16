@@ -266,6 +266,9 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.options) {
 		copy.options = source.options.map((o) => ({ ...o, id: generateId('o') }));
 	}
+	if (source.required) {
+		copy.required = true;
+	}
 	if (source.frontmatterKey) {
 		copy.frontmatterKey = source.frontmatterKey;
 	}

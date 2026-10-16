@@ -1,15 +1,18 @@
 import { setIcon, type App } from 'obsidian';
 import { t } from '../i18n';
 import { specFor, usesOptions } from '../model/fields';
+import { optionColorHex } from '../model/select-options';
 import type { Field, FieldType, SelectOption } from '../types';
 import { generateId } from '../utils/id';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 import { FieldTypeDropdown } from './field-type-picker';
+import { renderOptionPill } from './option-pill';
 
 export interface FieldEditorResult {
 	name: string;
 	type: FieldType;
 	options: SelectOption[];
+	required: boolean;
 	typeChanged: boolean;
 }
 
@@ -21,14 +24,16 @@ export interface FieldEditorOptions {
 	onSubmit: (result: FieldEditorResult) => void;
 }
 
-/** Width of the panel, applied inline — see the note on `AnchoredPopover.setWidth`. */
+/** How wide the panel is; `AnchoredPopover` applies it inline, since a modal's own width can only be moved with `!important`. */
 const FIELD_EDITOR_WIDTH = '17rem';
 
 export class FieldEditorModal extends AnchoredPopover {
 	private name: string;
 	private type: FieldType;
+	private required: boolean;
 	private draftOptions: SelectOption[];
 	private readonly originalType: FieldType | null;
+	private readonly isEditing: boolean;
 
 	private optionsEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
@@ -37,8 +42,10 @@ export class FieldEditorModal extends AnchoredPopover {
 
 	constructor(private readonly config: FieldEditorOptions) {
 		super(config.app, config.anchor ?? null, FIELD_EDITOR_WIDTH);
+		this.isEditing = config.field !== null;
 		this.name = config.field?.name ?? '';
 		this.type = config.field?.type ?? 'text';
+		this.required = config.field?.required === true;
 		this.draftOptions = (config.field?.options ?? []).map((o) => ({ ...o }));
 		this.originalType = config.field?.type ?? null;
 	}
@@ -48,6 +55,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		const { contentEl } = this;
 		contentEl.empty();
 		contentEl.addClass('layer-field-editor');
+
+		this.renderTitle();
 
 		const grid = contentEl.createDiv({ cls: 'layer-field-grid' });
 		grid.createDiv({ cls: 'layer-field-label', text: t().fieldNameLabel });
@@ -80,6 +89,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.optionsEl = contentEl.createDiv({ cls: 'layer-field-options' });
 		this.renderOptions();
 
+		this.renderRequiredToggle(contentEl);
+
 		this.errorEl = contentEl.createDiv({ cls: 'layer-field-error' });
 
 		const actions = contentEl.createDiv({ cls: 'layer-field-actions' });
@@ -93,6 +104,19 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.position();
 			nameInput.focus();
 		}, 0);
+	}
+
+	/**
+	 * The panel's own heading. Rendered here rather than through `Modal.setTitle`
+	 * because `AnchoredPopover` hides the modal's title element: this panel is
+	 * anchored to a control, so a centred title bar above it would be detached
+	 * from what it is about.
+	 */
+	private renderTitle(): void {
+		this.contentEl.createDiv({
+			cls: 'layer-field-editor-title',
+			text: this.isEditing ? t().fieldEditorEditTitle : t().fieldEditorAddTitle,
+		});
 	}
 
 	private openTypePicker(): void {
@@ -149,17 +173,37 @@ export class FieldEditorModal extends AnchoredPopover {
 				type: 'text',
 			});
 			input.value = option.name;
-			input.addEventListener('input', () => {
-				option.name = input.value;
-			});
+
+			const preview = row.createSpan({ cls: 'layer-field-option-preview' });
 
 			const color = row.createEl('input', {
 				cls: 'layer-field-option-color',
 				type: 'color',
 			});
-			color.value = toHexColor(option.color);
+			color.value = optionColorHex(option.color);
+
+			/*
+			 * Repainted in place: swapping the pill for a fresh one keeps the
+			 * update off the text input, whose caret and focus a re-render of
+			 * the whole list would take with it.
+			 */
+			const paintPreview = (): void => {
+				preview.empty();
+				renderOptionPill(
+					preview,
+					option.name.trim() || t().fieldOptionPlaceholder,
+					option.color,
+				);
+			};
+			paintPreview();
+
+			input.addEventListener('input', () => {
+				option.name = input.value;
+				paintPreview();
+			});
 			color.addEventListener('input', () => {
 				option.color = color.value;
+				paintPreview();
 			});
 
 			const remove = row.createEl('button', {
@@ -185,6 +229,31 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
+	/**
+	 * The required toggle, as a checkbox plus its explanation: "required" alone
+	 * does not say what it constrains, and the consequence is invisible until a
+	 * cell is left empty.
+	 */
+	private renderRequiredToggle(host: HTMLElement): void {
+		const wrap = host.createDiv({ cls: 'layer-field-required' });
+
+		const label = wrap.createEl('label', { cls: 'layer-field-required-label' });
+		const box = label.createEl('input', {
+			cls: 'layer-field-required-box',
+			type: 'checkbox',
+		});
+		box.checked = this.required;
+		label.createSpan({ text: t().fieldRequiredLabel });
+		box.addEventListener('change', () => {
+			this.required = box.checked;
+		});
+
+		wrap.createDiv({
+			cls: 'layer-field-required-hint',
+			text: t().fieldRequiredHint,
+		});
+	}
+
 	private submit(): void {
 		const name = this.name.trim();
 		if (!name) {
@@ -196,6 +265,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			name,
 			type: this.type,
 			options: this.draftOptions.filter((o) => o.name.trim() !== ''),
+			required: this.required,
 			typeChanged: this.originalType !== null && this.originalType !== this.type,
 		});
 		this.close();
@@ -213,8 +283,4 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.typeDropdown = null;
 		this.contentEl.empty();
 	}
-}
-
-function toHexColor(color: string): string {
-	return /^#[0-9a-f]{6}$/i.test(color) ? color : '#888888';
 }

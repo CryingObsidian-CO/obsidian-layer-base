@@ -1,11 +1,13 @@
-import { t } from '../../i18n';
-import type { CellValue, Field } from '../../types';
+import type { CellValue, Field, SelectOption } from '../../types';
+import { openOptionDropdown } from '../../ui/option-dropdown';
 
 export interface CellEditOptions {
 	field: Field;
 	value: CellValue;
 	commit: (value: CellValue) => void;
 	restore: () => void;
+	/** Creates the option a typed name asks for; `null` when it cannot. */
+	createOption: (name: string) => SelectOption | null;
 }
 
 export function beginCellEdit(
@@ -30,10 +32,23 @@ export function beginCellEdit(
 	};
 
 	if (field.type === 'select') {
-		attachSelect(cell, field, options.value, finish);
-	} else {
-		attachTextInput(cell, options.value, finish);
+		const dropdown = attachSelect(
+			cell,
+			field,
+			options.value,
+			options.createOption,
+			finish,
+		);
+		return () => {
+			// Closing reports the cancel by itself; the `finish` after it only
+			// covers a panel that had already closed on its own, and is
+			// swallowed by the guard when the close did report.
+			dropdown.close();
+			finish(undefined);
+		};
 	}
+
+	attachTextInput(cell, options.value, finish);
 
 	return () => finish(undefined);
 }
@@ -68,28 +83,28 @@ function attachTextInput(
 	});
 }
 
+/**
+ * Opens the option list on the cell and hands its outcome straight to `finish`.
+ *
+ * The panel owns the whole interaction — a pick, Escape, an outside click — and
+ * reports exactly one of the two outcomes, so nothing here listens for blur: the
+ * native `<select>` this replaced committed on both `change` and `blur`, which
+ * wrote the same value twice. The cell stays `is-editing` until `finish` runs,
+ * which is what keeps range drag from treating it as a drag handle meanwhile.
+ */
 function attachSelect(
 	cell: HTMLElement,
 	field: Field,
 	value: CellValue,
+	createOption: (name: string) => SelectOption | null,
 	finish: Finish,
-): void {
-	const select = cell.createEl('select', { cls: 'layer-grid-select' });
-
-	select.createEl('option', { text: t().cellEmptyOption, value: '' });
-	for (const option of field.options ?? []) {
-		select.createEl('option', { text: option.name, value: option.id });
-	}
-	select.value = value;
-
-	select.focus();
-	select.addEventListener('change', () => finish(select.value));
-	select.addEventListener('keydown', (event) => {
-		event.stopPropagation();
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			finish(undefined);
-		}
+): { close: () => void } {
+	return openOptionDropdown({
+		anchor: cell,
+		field,
+		selectedId: value,
+		onCreateOption: (name) => createOption(name),
+		onPick: (optionId) => finish(optionId),
+		onCancel: () => finish(undefined),
 	});
-	select.addEventListener('blur', () => finish(select.value));
 }

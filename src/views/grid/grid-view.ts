@@ -7,8 +7,9 @@ import {
 	columnWidthOf,
 	rowHeightOf,
 } from '../../model/layout';
-import {formatCell, isEmptyCell, specFor} from '../../model/fields';
-import type {CellValue, Field, GridView, LayerDoc, View} from '../../types';
+import {formatCell, isEmptyCell, isMissingRequired, specFor} from '../../model/fields';
+import type {CellValue, Field, GridView, LayerDoc, SelectOption, View} from '../../types';
+import {renderOptionPill} from '../../ui/option-pill';
 import {beginCellEdit} from './cell-editor';
 import {attachColumnDrag} from './column-drag';
 import {attachRangeDrag, type RangeDragHandle} from './range-drag';
@@ -38,6 +39,8 @@ export interface GridHandlers {
 	onDuplicateField(field: Field): void;
 	onDeleteField(field: Field): void;
 	onClearCells(recordIds: string[], fields: Field[]): void;
+	/** Creates an option on a select field for a name typed into a cell. */
+	onCreateOption(field: Field, name: string): SelectOption | null;
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 	onPasteInto(recordIds: string[], fields: Field[]): void;
 	onSelectionChange(
@@ -736,6 +739,7 @@ export class GridRenderer {
 			value,
 			commit: (next) => this.commit(cell, field, recordId, next),
 			restore: () => renderCellValue(cell, field, value),
+			createOption: (name) => this.handlers.onCreateOption(field, name),
 		});
 	}
 
@@ -765,11 +769,33 @@ export function renderCellValue(
 ): void {
 	cell.empty();
 	cell.removeClass('is-editing');
+	// Recomputed on every paint, including the restore after a cancelled edit, so
+	// the warning disappears the moment the cell stops being empty. Kept here
+	// rather than in `paintCell` because this function is also the restore path.
+	cell.toggleClass(
+		'is-missing-required',
+		isMissingRequired(field, value),
+	);
 	if (isEmptyCell(value)) {
 		cell.createSpan({cls: 'layer-grid-placeholder', text: '—'});
 		return;
 	}
+	// A select cell shows its option as a pill. A value that names no option is
+	// not an option any more — a stale id, a hand-edited file — so it falls
+	// through to the plain span below rather than vanishing from the grid.
+	if (field.type === 'select') {
+		const option = optionForId(field, value);
+		if (option) {
+			renderOptionPill(cell, option.name, option.color);
+			return;
+		}
+	}
 	cell.createSpan({cls: 'layer-grid-value', text: formatCell(field, value)});
+}
+
+/** The option a stored cell value refers to; ids are unique per field. */
+function optionForId(field: Field, value: CellValue): SelectOption | undefined {
+	return field.options?.find((option) => option.id === value);
 }
 
 function renderEmptyState(

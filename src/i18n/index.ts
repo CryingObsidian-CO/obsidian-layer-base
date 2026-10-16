@@ -30,7 +30,6 @@ const en = {
 	gridNoRecords: 'No records yet.',
 	gridNoRecordsHint: 'Records will appear here once the table has rows.',
 	gridNotImplemented: 'This view type is not available yet.',
-	cellEmptyOption: 'None',
 	addRecord: 'New row',
 	addRecordMenu: 'Add row options',
 	addRecordAtBottom: 'Add at the end',
@@ -79,6 +78,11 @@ const en = {
 	fieldAddOption: 'Add option',
 	fieldOptionPlaceholder: 'Option name',
 	fieldRemoveOption: 'Remove option',
+	optionSearchPlaceholder: 'Search or create an option',
+	optionSearchNoMatch: 'No matching option',
+	optionClearSelection: 'Clear selection',
+	optionEmptyHint: 'No options yet — type a name to create one',
+	optionCreate: (name: string) => `Create option "${name}"`,
 	fieldDelete: 'Delete column',
 	fieldDeleteConfirm: (name: string, affected: number) =>
 		affected === 0
@@ -87,6 +91,10 @@ const en = {
 	fieldConverted: (dropped: number) =>
 		`${dropped} value(s) were cleared because the new type cannot hold them.`,
 	fieldNameRequired: 'Enter a name for this field.',
+	fieldEditorAddTitle: 'Add field',
+	fieldEditorEditTitle: 'Edit field',
+	fieldRequiredLabel: 'Required',
+	fieldRequiredHint: 'Cells in this field must not be empty.',
 	save: 'Save',
 	cancel: 'Cancel',
 	typeText: 'Text',
@@ -123,7 +131,6 @@ const zh = {
 	gridNoRecords: '还没有记录。',
 	gridNoRecordsHint: '新建记录后会显示在这里。',
 	gridNotImplemented: '该视图类型尚未支持。',
-	cellEmptyOption: '无',
 	addRecord: '新增行',
 	addRecordMenu: '新增行选项',
 	addRecordAtBottom: '在底部新增',
@@ -172,6 +179,11 @@ const zh = {
 	fieldAddOption: '添加选项',
 	fieldOptionPlaceholder: '选项名称',
 	fieldRemoveOption: '删除选项',
+	optionSearchPlaceholder: '搜索或输入新选项',
+	optionSearchNoMatch: '没有匹配的选项',
+	optionClearSelection: '清除选择',
+	optionEmptyHint: '暂无选项，输入名称即可创建',
+	optionCreate: (name: string) => `创建选项「${name}」`,
 	fieldDelete: '删除列',
 	fieldDeleteConfirm: (name: string, affected: number) =>
 		affected === 0
@@ -180,6 +192,10 @@ const zh = {
 	fieldConverted: (dropped: number) =>
 		`有 ${dropped} 个值因新类型无法容纳而被清空。`,
 	fieldNameRequired: '请填写字段名称。',
+	fieldEditorAddTitle: '添加字段',
+	fieldEditorEditTitle: '编辑字段',
+	fieldRequiredLabel: '必填',
+	fieldRequiredHint: '该字段的单元格不能为空。',
 	save: '保存',
 	cancel: '取消',
 	typeText: '文本',
@@ -216,7 +232,6 @@ const zhTW = {
 	gridNoRecords: '還沒有記錄。',
 	gridNoRecordsHint: '新增記錄後會顯示在這裡。',
 	gridNotImplemented: '該檢視類型尚未支援。',
-	cellEmptyOption: '無',
 	addRecord: '新增行',
 	addRecordMenu: '新增列選項',
 	addRecordAtBottom: '在底部新增',
@@ -265,6 +280,11 @@ const zhTW = {
 	fieldAddOption: '新增選項',
 	fieldOptionPlaceholder: '選項名稱',
 	fieldRemoveOption: '刪除選項',
+	optionSearchPlaceholder: '搜尋或輸入新選項',
+	optionSearchNoMatch: '沒有符合的選項',
+	optionClearSelection: '清除選擇',
+	optionEmptyHint: '尚無選項，輸入名稱即可建立',
+	optionCreate: (name: string) => `建立選項「${name}」`,
 	fieldDelete: '刪除欄',
 	fieldDeleteConfirm: (name: string, affected: number) =>
 		affected === 0
@@ -273,6 +293,10 @@ const zhTW = {
 	fieldConverted: (dropped: number) =>
 		`有 ${dropped} 個值因新型別無法容納而被清空。`,
 	fieldNameRequired: '請填寫欄位名稱。',
+	fieldEditorAddTitle: '新增欄位',
+	fieldEditorEditTitle: '編輯欄位',
+	fieldRequiredLabel: '必填',
+	fieldRequiredHint: '該欄位的儲存格不能為空。',
 	save: '儲存',
 	cancel: '取消',
 	typeText: '文字',

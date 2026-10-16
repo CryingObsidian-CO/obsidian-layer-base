@@ -26,13 +26,14 @@ import {
 import {copyFormatted, readFormatted, readText} from '../model/clipboard';
 import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
+import {appendOption} from '../model/select-options';
 import {cellToText, usesOptions} from '../model/fields';
 import {
 	findGridView,
 	setColumnWidth,
 	setRowHeight,
 } from '../model/layout';
-import type {CellValue, Field, LayerDoc, View} from '../types';
+import type {CellValue, Field, LayerDoc, SelectOption, View} from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
 import type { Anchor } from '../ui/anchored-popover';
@@ -201,6 +202,8 @@ export class LayerView extends TextFileView {
 				onClearCells: (recordIds, fields) => {
 					this.handleClearCells(recordIds, fields);
 				},
+				onCreateOption: (field, name) =>
+					this.handleCreateOption(field, name),
 				onSelectionChange: (selection, range) => {
 					this.selection = selection;
 					this.rangeSize = range;
@@ -351,6 +354,9 @@ export class LayerView extends TextFileView {
 				type: result.type,
 				options: usesOptions(result.type) ? result.options : undefined,
 			};
+			if (result.required) {
+				created.required = true;
+			}
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
 			} else {
@@ -360,6 +366,13 @@ export class LayerView extends TextFileView {
 			field.name = result.name;
 			if (usesOptions(result.type)) {
 				field.options = result.options;
+			}
+			// Removed rather than set to false, so a cleared checkbox leaves no
+			// dead key behind in the file.
+			if (result.required) {
+				field.required = true;
+			} else {
+				delete field.required;
 			}
 			if (result.typeChanged) {
 				const dropped = changeFieldType(doc, field.id, result.type);
@@ -642,6 +655,33 @@ export class LayerView extends TextFileView {
 				}
 			},
 		}).open();
+	}
+
+	/**
+	 * Creates a select option from a name typed into a cell, and hands it back so
+	 * the cell can be set to it.
+	 *
+	 * Nothing else is written here on purpose: the cell editor drives the value
+	 * through the usual `onCellCommit` path after this returns, so the option
+	 * exists before the value that names it. `markDirty` only schedules a save —
+	 * it does not re-render — and the commit that follows edits the same
+	 * in-memory document. The name arrives already trimmed and non-empty; the
+	 * dropdown only offers to create when there is something to create.
+	 */
+	private handleCreateOption(field: Field, name: string): SelectOption | null {
+		const doc = this.doc;
+		if (!doc) {
+			return null;
+		}
+		// Re-resolved by id rather than trusted: the grid was built from an
+		// earlier render, and the caller's field may be a stale copy.
+		const target = doc.fields.find((candidate) => candidate.id === field.id);
+		if (!target) {
+			return null;
+		}
+		const option = appendOption(target, name);
+		this.markDirty();
+		return option;
 	}
 
 	/**

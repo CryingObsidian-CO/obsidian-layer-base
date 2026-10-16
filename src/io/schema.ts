@@ -121,6 +121,9 @@ function parseField(
 	if (raw.primary === true) {
 		field.primary = true;
 	}
+	if (raw.required === true) {
+		field.required = true;
+	}
 	if (typeof raw.frontmatterKey === 'string' && raw.frontmatterKey.trim()) {
 		field.frontmatterKey = raw.frontmatterKey.trim();
 	}
