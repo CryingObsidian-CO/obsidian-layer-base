@@ -1,4 +1,6 @@
 import type {CellValue, Field, FieldType, SelectOption} from '../types';
+import {displayDateTime, normaliseDate, normaliseDateTime} from './date';
+import {constrainNumber, formatNumber, parseNumber} from './number';
 
 export interface FieldTypeSpec {
 	readonly type: FieldType;
@@ -83,6 +85,52 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
+	number: {
+		type: 'number',
+		icon: 'hash',
+		// The display text, so a copied cell reads the way it looks.
+		toText: (field, value) =>
+			typeof value === 'number' ? formatNumber(value, field) : '',
+		fromText: (field, text) => {
+			const parsed = parseNumber(text);
+			return parsed === null ? REFUSED : accept(constrainNumber(parsed, field));
+		},
+		// A cell with no number holds `''`, like text. Zero is a value.
+		isEmpty: (value) => value === '',
+	},
+
+	date: {
+		type: 'date',
+		icon: 'calendar',
+		toText: (_field, value) => (typeof value === 'string' ? value : ''),
+		fromText: (_field, text) => {
+			if (text.trim() === '') {
+				return accept('');
+			}
+			const date = normaliseDate(text);
+			return date === null ? REFUSED : accept(date);
+		},
+		isEmpty: (value) => value === '',
+	},
+
+	datetime: {
+		type: 'datetime',
+		icon: 'calendar-clock',
+		// Shown with a space, which is how a date and a time read together.
+		toText: (_field, value) =>
+			typeof value === 'string' && value !== ''
+				? displayDateTime(value)
+				: '',
+		fromText: (_field, text) => {
+			if (text.trim() === '') {
+				return accept('');
+			}
+			const moment = normaliseDateTime(text);
+			return moment === null ? REFUSED : accept(moment);
+		},
+		isEmpty: (value) => value === '',
+	},
+
 	select: {
 		type: 'select',
 		icon: 'circle',
@@ -131,6 +179,9 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 export const FIELD_TYPES: readonly FieldType[] = [
 	'text',
 	'longtext',
+	'number',
+	'date',
+	'datetime',
 	'select',
 	'multiSelect',
 	'checkbox',
@@ -201,6 +252,12 @@ export function formatCell(field: Field, value: CellValue): string {
 	if (field.type === 'checkbox') {
 		return value === true ? 'true' : '';
 	}
+	if (field.type === 'number') {
+		return typeof value === 'number' ? formatNumber(value, field) : '';
+	}
+	if (field.type === 'datetime') {
+		return typeof value === 'string' ? displayDateTime(value) : '';
+	}
 	return typeof value === 'string' ? value : '';
 }
 
@@ -243,6 +300,10 @@ export function deserializeCellValue(raw: string, field: Field): CellValue {
 	}
 	if (field.type === 'checkbox') {
 		return raw === 'true';
+	}
+	if (field.type === 'number') {
+		const parsed = parseNumber(raw);
+		return parsed === null ? '' : parsed;
 	}
 	return raw;
 }

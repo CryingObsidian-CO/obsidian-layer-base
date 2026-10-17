@@ -11,6 +11,9 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 	const label: Record<FieldType, string> = {
 		text: s.typeText,
 		longtext: s.typeLongText,
+		number: s.typeNumber,
+		date: s.typeDate,
+		datetime: s.typeDateTime,
 		select: s.typeSelect,
 		multiSelect: s.typeMultiSelect,
 		checkbox: s.typeCheckbox,
@@ -18,6 +21,9 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 	const hint: Record<FieldType, string> = {
 		text: s.typeTextHint,
 		longtext: s.typeLongTextHint,
+		number: s.typeNumberHint,
+		date: s.typeDateHint,
+		datetime: s.typeDateTimeHint,
 		select: s.typeSelectHint,
 		multiSelect: s.typeMultiSelectHint,
 		checkbox: s.typeCheckboxHint,

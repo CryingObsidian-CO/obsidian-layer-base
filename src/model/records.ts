@@ -44,9 +44,14 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 			return Array.isArray(value);
 		case 'checkbox':
 			return typeof value === 'boolean';
+		case 'number':
+			// `''` is how an empty number cell is cleared.
+			return typeof value === 'number' || value === '';
 		case 'select':
 		case 'text':
 		case 'longtext':
+		case 'date':
+		case 'datetime':
 			return typeof value === 'string';
 	}
 }
@@ -313,6 +318,18 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.frontmatterKey) {
 		copy.frontmatterKey = source.frontmatterKey;
 	}
+	if (source.numberFormat) {
+		copy.numberFormat = source.numberFormat;
+	}
+	if (source.decimals !== undefined) {
+		copy.decimals = source.decimals;
+	}
+	if (source.min !== undefined) {
+		copy.min = source.min;
+	}
+	if (source.max !== undefined) {
+		copy.max = source.max;
+	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
@@ -452,6 +469,13 @@ export function changeFieldType(
 		field.options ??= [];
 	} else {
 		delete field.options;
+	}
+	// The number settings would be meaningless on another type, so they go with it.
+	if (nextType !== 'number') {
+		delete field.numberFormat;
+		delete field.decimals;
+		delete field.min;
+		delete field.max;
 	}
 
 	return dropped;

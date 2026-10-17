@@ -15,6 +15,8 @@ import {
 } from '../types';
 import {generateId} from '../utils/id';
 import {FIELD_TYPES, isEmptyCell, usesOptions} from '../model/fields';
+import {normaliseDate, normaliseDateTime} from '../model/date';
+import {normaliseDecimals, parseNumber} from '../model/number';
 import {migrate} from './migrate';
 
 /**
@@ -134,7 +136,29 @@ function parseField(
 	if (usesOptions(field.type)) {
 		field.options = parseOptions(raw.options, seen, warnings);
 	}
+	if (field.type === 'number') {
+		parseNumberSettings(raw, field);
+	}
 	return field;
+}
+
+/** The number settings, kept only where they differ from the plain defaults. */
+function parseNumberSettings(raw: Record<string, unknown>, field: Field): void {
+	if (raw.numberFormat === 'percent') {
+		field.numberFormat = 'percent';
+	}
+	const decimals = normaliseDecimals(
+		typeof raw.decimals === 'number' ? raw.decimals : undefined,
+	);
+	if (decimals !== null) {
+		field.decimals = decimals;
+	}
+	for (const key of ['min', 'max'] as const) {
+		const value = raw[key];
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			field[key] = value;
+		}
+	}
 }
 
 /**
@@ -175,6 +199,21 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 		}
 		case 'checkbox':
 			return raw === true;
+		case 'number': {
+			if (typeof raw === 'number' && Number.isFinite(raw)) {
+				return raw;
+			}
+			// A hand-edited file may hold the number as text; keep it if it parses.
+			return typeof raw === 'string' ? (parseNumber(raw) ?? '') : '';
+		}
+		case 'date': {
+			const text = typeof raw === 'string' ? normaliseDate(raw) : null;
+			return text ?? '';
+		}
+		case 'datetime': {
+			const text = typeof raw === 'string' ? normaliseDateTime(raw) : null;
+			return text ?? '';
+		}
 		default:
 			return normalizeCellValue(raw);
 	}

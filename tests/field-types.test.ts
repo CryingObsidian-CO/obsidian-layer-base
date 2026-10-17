@@ -38,10 +38,13 @@ function docWith(fields: Field[]): LayerDoc {
 }
 
 describe('field types', () => {
-	it('offers all five, text first', () => {
+	it('offers every type, text first', () => {
 		expect([...FIELD_TYPES]).toEqual([
 			'text',
 			'longtext',
+			'number',
+			'date',
+			'datetime',
 			'select',
 			'multiSelect',
 			'checkbox',

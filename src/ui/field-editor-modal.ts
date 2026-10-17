@@ -1,18 +1,37 @@
 import { setIcon, type App } from 'obsidian';
 import { t } from '../i18n';
 import { specFor, usesOptions } from '../model/fields';
+import {
+	MAX_DECIMALS,
+	normaliseDecimals,
+	normaliseFormat,
+	parseOptionalNumber,
+} from '../model/number';
 import { optionColorHex } from '../model/select-options';
-import type { Field, FieldType, SelectOption } from '../types';
+import type {
+	Field,
+	FieldType,
+	NumberFormat,
+	SelectOption,
+} from '../types';
 import { generateId } from '../utils/id';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 import { FieldTypeDropdown } from './field-type-picker';
 import { renderOptionPill } from './option-pill';
+
+export interface NumberSettings {
+	format: NumberFormat;
+	decimals: number | null;
+	min: number | null;
+	max: number | null;
+}
 
 export interface FieldEditorResult {
 	name: string;
 	type: FieldType;
 	options: SelectOption[];
 	required: boolean;
+	number: NumberSettings;
 	typeChanged: boolean;
 }
 
@@ -34,6 +53,9 @@ const FIELD_EDITOR_WIDTH = '17rem';
 const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	text: () => t().typeText,
 	longtext: () => t().typeLongText,
+	number: () => t().typeNumber,
+	date: () => t().typeDate,
+	datetime: () => t().typeDateTime,
 	select: () => t().typeSelect,
 	multiSelect: () => t().typeMultiSelect,
 	checkbox: () => t().typeCheckbox,
@@ -44,10 +66,15 @@ export class FieldEditorModal extends AnchoredPopover {
 	private type: FieldType;
 	private required: boolean;
 	private draftOptions: SelectOption[];
+	private numberFormat: NumberFormat;
+	private decimals: number | null;
+	private min: number | null;
+	private max: number | null;
 	private readonly originalType: FieldType | null;
 	private readonly isEditing: boolean;
 
 	private optionsEl: HTMLElement | null = null;
+	private numberEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
 	private typeButton: HTMLButtonElement | null = null;
 	private typeDropdown: FieldTypeDropdown | null = null;
@@ -59,6 +86,10 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.type = config.field?.type ?? 'text';
 		this.required = config.field?.required === true;
 		this.draftOptions = (config.field?.options ?? []).map((o) => ({ ...o }));
+		this.numberFormat = normaliseFormat(config.field?.numberFormat);
+		this.decimals = normaliseDecimals(config.field?.decimals);
+		this.min = config.field?.min ?? null;
+		this.max = config.field?.max ?? null;
 		this.originalType = config.field?.type ?? null;
 	}
 
@@ -101,6 +132,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.optionsEl = contentEl.createDiv({ cls: 'layer-field-options' });
 		this.renderOptions();
 
+		this.numberEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderNumberSettings();
+
 		this.renderRequiredToggle(contentEl);
 
 		this.errorEl = contentEl.createDiv({ cls: 'layer-field-error' });
@@ -142,6 +176,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.type = type;
 			this.paintTypeButton();
 			this.renderOptions();
+			this.renderNumberSettings();
 		});
 	}
 
@@ -266,10 +301,111 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
+	/**
+	 * Format, precision and bounds, which only a `number` field has.
+	 *
+	 * Every bound is optional, and an empty box means "no bound" rather than
+	 * zero — so a field with a minimum but no maximum is expressible.
+	 */
+	private renderNumberSettings(): void {
+		const host = this.numberEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+
+		if (this.type !== 'number') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().fieldNumberLabel });
+		const grid = host.createDiv({ cls: 'layer-field-grid' });
+
+		grid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldNumberFormatLabel,
+		});
+		const format = grid.createEl('select', { cls: 'layer-field-number-format' });
+		for (const value of ['plain', 'percent'] as const) {
+			const option = format.createEl('option', {
+				text:
+					value === 'percent'
+						? t().fieldNumberFormatPercent
+						: t().fieldNumberFormatPlain,
+			});
+			option.value = value;
+		}
+		format.value = this.numberFormat;
+		format.addEventListener('change', () => {
+			this.numberFormat = format.value === 'percent' ? 'percent' : 'plain';
+		});
+
+		grid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldNumberDecimalsLabel,
+		});
+		const decimals = grid.createEl('input', {
+			cls: 'layer-field-number-input',
+			type: 'number',
+		});
+		decimals.min = '0';
+		decimals.max = String(MAX_DECIMALS);
+		decimals.step = '1';
+		decimals.placeholder = t().fieldNumberDecimalsHint;
+		decimals.value = this.decimals === null ? '' : String(this.decimals);
+		decimals.addEventListener('input', () => {
+			const parsed = parseOptionalNumber(decimals.value);
+			this.decimals = parsed === null ? null : normaliseDecimals(parsed);
+		});
+
+		this.renderBoundInput(grid, t().fieldNumberMinLabel, 'min');
+		this.renderBoundInput(grid, t().fieldNumberMaxLabel, 'max');
+
+		host.createDiv({
+			cls: 'layer-field-number-hint',
+			text: t().fieldNumberHint,
+		});
+	}
+
+	/** One optional bound, written into the draft as it is typed. */
+	private renderBoundInput(
+		grid: HTMLElement,
+		label: string,
+		bound: 'min' | 'max',
+	): void {
+		grid.createDiv({ cls: 'layer-field-label', text: label });
+		const input = grid.createEl('input', {
+			cls: 'layer-field-number-input',
+			type: 'number',
+		});
+		input.placeholder = t().fieldNumberUnbounded;
+		const current = bound === 'min' ? this.min : this.max;
+		input.value = current === null ? '' : String(current);
+		input.addEventListener('input', () => {
+			const parsed = parseOptionalNumber(input.value);
+			if (bound === 'min') {
+				this.min = parsed;
+			} else {
+				this.max = parsed;
+			}
+		});
+	}
+
 	private submit(): void {
 		const name = this.name.trim();
 		if (!name) {
 			this.errorEl?.setText(t().fieldNameRequired);
+			return;
+		}
+		// A range that excludes everything would only produce clamped values, so it
+		// is refused while it can still be corrected.
+		if (
+			this.type === 'number' &&
+			this.min !== null &&
+			this.max !== null &&
+			this.min > this.max
+		) {
+			this.errorEl?.setText(t().fieldNumberRangeError);
 			return;
 		}
 
@@ -278,6 +414,12 @@ export class FieldEditorModal extends AnchoredPopover {
 			type: this.type,
 			options: this.draftOptions.filter((o) => o.name.trim() !== ''),
 			required: this.required,
+			number: {
+				format: this.numberFormat,
+				decimals: this.decimals,
+				min: this.min,
+				max: this.max,
+			},
 			typeChanged: this.originalType !== null && this.originalType !== this.type,
 		});
 		this.close();

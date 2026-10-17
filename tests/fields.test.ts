@@ -29,10 +29,13 @@ const statusField: Field = {
 };
 
 describe('field types', () => {
-	it('offers text, long text, select, multi-select and checkbox', () => {
+	it('offers every type, in a stable order', () => {
 		expect([...FIELD_TYPES]).toEqual([
 			'text',
 			'longtext',
+			'number',
+			'date',
+			'datetime',
 			'select',
 			'multiSelect',
 			'checkbox',

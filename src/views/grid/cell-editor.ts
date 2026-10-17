@@ -1,4 +1,9 @@
 import { serializeCellValue } from '../../model/fields';
+import {
+	constrainNumber,
+	parseNumber,
+	sanitizeNumericInput,
+} from '../../model/number';
 import type { CellValue, Field, SelectOption } from '../../types';
 import { openOptionDropdown } from '../../ui/option-dropdown';
 
@@ -105,6 +110,23 @@ export function beginCellEdit(
 		};
 	}
 
+	if (field.type === 'number') {
+		const input = attachNumberInput(cell, field, options.value, finish);
+		return {
+			cancel: () => finish(undefined),
+			commit: () => finish(numberFromInput(input, field)),
+		};
+	}
+
+	if (field.type === 'date' || field.type === 'datetime') {
+		const input = attachDateInput(cell, field, options.value, finish);
+		return {
+			cancel: () => finish(undefined),
+			// The control's own value is already the stored form, and `''` clears.
+			commit: () => finish(input.value),
+		};
+	}
+
 	const input = attachTextInput(cell, options.value, finish);
 	return {
 		cancel: () => finish(undefined),
@@ -113,6 +135,145 @@ export function beginCellEdit(
 }
 
 type Finish = (value: CellValue | undefined) => void;
+
+/**
+ * What a numeric input means: a number held inside the field's bounds, `''` when
+ * the box was emptied, and `undefined` when the text is not a number at all.
+ *
+ * Empty and invalid are kept apart on purpose — clearing a cell must clear it,
+ * while unparseable text is refused so nothing wrong reaches the document.
+ */
+function numberFromInput(
+	input: HTMLInputElement,
+	field: Field,
+): CellValue | undefined {
+	if (input.value.trim() === '') {
+		return '';
+	}
+	const parsed = parseNumber(input.value);
+	return parsed === null ? undefined : constrainNumber(parsed, field);
+}
+
+/**
+ * The editor for `number`: a text box that only ever holds what can be a number.
+ *
+ * Not an `<input type="number">`, because its spinner and its own notion of a
+ * valid value would disagree with the field's bounds and precision. Characters
+ * that cannot be part of a number are dropped as they are typed, and the text is
+ * still parsed strictly when the edit ends.
+ */
+function attachNumberInput(
+	cell: HTMLElement,
+	field: Field,
+	value: CellValue,
+	finish: Finish,
+): HTMLInputElement {
+	const input = cell.createEl('input', { cls: 'layer-grid-input' });
+	input.type = 'text';
+	input.inputMode = 'decimal';
+	// The bare number, not its display text: the `%` of a percent field is not
+	// something to select and delete before typing.
+	input.value = typeof value === 'number' ? String(value) : '';
+
+	input.focus();
+	input.select();
+
+	const commit = (): void => {
+		finish(numberFromInput(input, field));
+	};
+
+	input.addEventListener('input', () => {
+		const cleaned = sanitizeNumericInput(input.value);
+		if (cleaned === input.value) {
+			return;
+		}
+		// Rewriting the value moves the caret to the end, so it is put back.
+		const caret = input.selectionStart ?? cleaned.length;
+		input.value = cleaned;
+		const next = Math.min(caret, cleaned.length);
+		input.setSelectionRange(next, next);
+	});
+
+	input.addEventListener('keydown', (event) => {
+		event.stopPropagation();
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			commit();
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			finish(undefined);
+		}
+	});
+
+	input.addEventListener('blur', commit);
+
+	return input;
+}
+
+/**
+ * The editor for `date` and `datetime`: the browser's own control, which brings
+ * a calendar (and a time field) along with it.
+ *
+ * Its value is already the stored form — `YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` for
+ * `datetime-local` — so nothing has to be parsed or converted here, and an empty
+ * control means an empty cell.
+ */
+function attachDateInput(
+	cell: HTMLElement,
+	field: Field,
+	value: CellValue,
+	finish: Finish,
+): HTMLInputElement {
+	const input = cell.createEl('input', { cls: 'layer-grid-input' });
+	input.type = field.type === 'datetime' ? 'datetime-local' : 'date';
+	input.value = typeof value === 'string' ? value : '';
+
+	input.focus();
+	openPicker(input);
+
+	// A picker reports a choice through `input`/`change`; the edit ends on the
+	// same gesture rather than making the user click away from the calendar.
+	input.addEventListener('change', () => {
+		finish(input.value);
+	});
+
+	input.addEventListener('keydown', (event) => {
+		event.stopPropagation();
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			finish(input.value);
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			finish(undefined);
+		}
+	});
+
+	input.addEventListener('blur', () => {
+		finish(input.value);
+	});
+
+	return input;
+}
+
+/**
+ * Opens the control's calendar straight away, so a double-click edits a date by
+ * picking one instead of hunting for the small button at the input's edge.
+ *
+ * Called synchronously from the double-click, which is what makes it allowed:
+ * `showPicker` refuses to open without a user gesture. A browser that refuses
+ * anyway is not a reason to fail the edit — the button still works.
+ */
+function openPicker(input: HTMLInputElement): void {
+	const picker = input as HTMLInputElement & { showPicker?: () => void };
+	if (typeof picker.showPicker !== 'function') {
+		return;
+	}
+	try {
+		picker.showPicker.call(input);
+	} catch {
+		// Refused (no gesture, or unsupported): the control is still usable.
+	}
+}
 
 function attachTextInput(
 	cell: HTMLElement,

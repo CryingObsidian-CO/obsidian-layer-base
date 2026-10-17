@@ -218,6 +218,11 @@ body.layer-grid-resizing.is-row-resize * {
 	color: var(--text-faint);
 }
 
+/* A column of numbers is read by its last digit, so they line up on the right. */
+.layer-grid-td.is-number {
+	text-align: right;
+}
+
 .layer-grid-value {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -1112,6 +1117,19 @@ body.layer-grid-dragging-range * {
 	color: var(--text-muted);
 }
 
+/* Format, precision and bounds: only a number field has them. */
+.layer-field-number-input,
+.layer-field-number-format {
+	width: 100%;
+	min-width: 0;
+}
+
+.layer-field-number-hint {
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
 .layer-field-option-row {
 	display: flex;
 	align-items: center;
@@ -1303,4 +1321,34 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-grid-input:focus {
 	box-shadow: none;
 	outline: none;
+}
+
+/*
+ * The date controls draw their own calendar button and padding, so they are
+ * trimmed to sit in the cell like the text editor. `min-width: 0` lets the
+ * control shrink with its column instead of pushing its own right-hand edge —
+ * where the calendar button sits — out of the cell.
+ */
+.layer-grid-td input[type='date'],
+.layer-grid-td input[type='datetime-local'] {
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: 100%;
+	font-size: var(--font-ui-smaller);
+	cursor: text;
+}
+
+/*
+ * The calendar button itself. Obsidian styles these inputs but never hides the
+ * button, so this only gives it a dependable size and keeps it clickable when
+ * the column is narrow.
+ */
+.layer-grid-td input[type='date']::-webkit-calendar-picker-indicator,
+.layer-grid-td input[type='datetime-local']::-webkit-calendar-picker-indicator {
+	display: block;
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	opacity: 1;
+	cursor: pointer;
 }

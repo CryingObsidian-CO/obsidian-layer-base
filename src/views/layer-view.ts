@@ -37,7 +37,11 @@ import type {CellValue, Field, LayerDoc, SelectOption, View} from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
 import type { Anchor } from '../ui/anchored-popover';
-import {FieldEditorModal, type FieldEditorResult} from '../ui/field-editor-modal';
+import {
+	FieldEditorModal,
+	type FieldEditorResult,
+	type NumberSettings,
+} from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell} from './board-shell';
 import {GridRenderer} from './grid/grid-view';
@@ -403,6 +407,7 @@ export class LayerView extends TextFileView {
 			if (result.required) {
 				created.required = true;
 			}
+			this.applyNumberSettings(created, result.number);
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
 			} else {
@@ -426,10 +431,44 @@ export class LayerView extends TextFileView {
 					new Notice(t().fieldConverted(dropped));
 				}
 			}
+			// After the type change, which clears these when the field stops being
+			// a number.
+			this.applyNumberSettings(field, result.number);
 		}
 
 		this.markDirty();
 		this.render();
+	}
+
+	/** Writes the number settings, keeping only those that differ from defaults. */
+	private applyNumberSettings(field: Field, settings: NumberSettings): void {
+		if (field.type !== 'number') {
+			delete field.numberFormat;
+			delete field.decimals;
+			delete field.min;
+			delete field.max;
+			return;
+		}
+		if (settings.format === 'percent') {
+			field.numberFormat = 'percent';
+		} else {
+			delete field.numberFormat;
+		}
+		if (settings.decimals === null) {
+			delete field.decimals;
+		} else {
+			field.decimals = settings.decimals;
+		}
+		if (settings.min === null) {
+			delete field.min;
+		} else {
+			field.min = settings.min;
+		}
+		if (settings.max === null) {
+			delete field.max;
+		} else {
+			field.max = settings.max;
+		}
 	}
 
 	private handleDeleteRecords(recordIds: string[]): void {

@@ -3,9 +3,19 @@ export const LAYER_FORMAT_VERSION = 1;
 export type FieldType =
 	| 'text'
 	| 'longtext'
+	| 'number'
+	| 'date'
+	| 'datetime'
 	| 'select'
 	| 'multiSelect'
 	| 'checkbox';
+
+/**
+ * How a `number` field shows its value. The stored number is always what was
+ * typed, so `%` is a suffix on the display and never a conversion: 50 in a
+ * percent field is fifty percent, and its bounds are 0 and 100, not 0 and 1.
+ */
+export type NumberFormat = 'plain' | 'percent';
 
 /** A single choice of a `select` or `multiSelect` field. */
 export interface SelectOption {
@@ -26,13 +36,26 @@ export interface Field {
 	required?: boolean;
 	frontmatterKey?: string;
 	options?: SelectOption[];
+	/** `number` fields only: the display format. Missing means plain. */
+	numberFormat?: NumberFormat;
+	/** `number` fields only: decimal places. Missing means as typed. */
+	decimals?: number;
+	/** `number` fields only: the smallest value the cell may hold. */
+	min?: number;
+	/** `number` fields only: the largest value the cell may hold. */
+	max?: number;
 }
 
 /**
- * What one cell holds, in the shape its field type uses: text and long text keep
- * a string, `multiSelect` an array of option ids, `checkbox` a real boolean.
+ * What one cell holds, in the shape its field type uses: text, long text, date
+ * and date-time keep a string, `number` a real number, `multiSelect` an array of
+ * option ids, and `checkbox` a real boolean. An empty cell of any type is `''`.
+ *
+ * A date is `YYYY-MM-DD`; a date-time is `YYYY-MM-DDTHH:mm` in **local wall-clock
+ * time**, carrying no zone and never converted — what was entered is what is
+ * shown, in any timezone.
  */
-export type CellValue = string | string[] | boolean;
+export type CellValue = string | string[] | boolean | number;
 
 export interface Record_ {
 	id: string;
