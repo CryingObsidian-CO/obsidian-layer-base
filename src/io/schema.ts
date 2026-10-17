@@ -1,6 +1,7 @@
 import {
 	type CellValue,
 	type Field,
+	type FieldType,
 	type Filter,
 	type FilterCondition,
 	type FilterOperator,
@@ -13,7 +14,7 @@ import {
 	type View,
 } from '../types';
 import {generateId} from '../utils/id';
-import {FIELD_TYPES, isEmptyCell} from '../model/fields';
+import {FIELD_TYPES, isEmptyCell, usesOptions} from '../model/fields';
 import {migrate} from './migrate';
 
 /**
@@ -127,7 +128,10 @@ function parseField(
 	if (typeof raw.frontmatterKey === 'string' && raw.frontmatterKey.trim()) {
 		field.frontmatterKey = raw.frontmatterKey.trim();
 	}
-	if (type === 'select') {
+	// Asked of the model, not listed here: a type that stores choices by option id
+	// must keep them through a save, or the next parse drops them and writes the
+	// field back without them.
+	if (usesOptions(field.type)) {
 		field.options = parseOptions(raw.options, seen, warnings);
 	}
 	return field;
@@ -147,6 +151,33 @@ export function normalizeCellValue(raw: unknown): CellValue {
 		return String(raw);
 	}
 	return '';
+}
+
+/**
+ * Coerces a stored cell for the field that owns it, so the shape matches the
+ * type: a set keeps its string ids, a checkbox keeps a real boolean. Anything
+ * else is treated as absent, so a hand-edited file degrades to an empty cell
+ * rather than putting a wrong shape into the grid.
+ */
+export function normalizeCellForField(raw: unknown, type: FieldType): CellValue {
+	switch (type) {
+		case 'multiSelect': {
+			if (!Array.isArray(raw)) {
+				return [];
+			}
+			const ids: string[] = [];
+			for (const item of raw) {
+				if (typeof item === 'string' && item !== '' && !ids.includes(item)) {
+					ids.push(item);
+				}
+			}
+			return ids;
+		}
+		case 'checkbox':
+			return raw === true;
+		default:
+			return normalizeCellValue(raw);
+	}
 }
 
 function parseRecord(
@@ -171,7 +202,7 @@ function parseRecord(
 		if (!(field.id in cellsSource)) {
 			continue;
 		}
-		const value = normalizeCellValue(cellsSource[field.id]);
+		const value = normalizeCellForField(cellsSource[field.id], field.type);
 		if (!isEmptyCell(value)) {
 			cells[field.id] = value;
 		}

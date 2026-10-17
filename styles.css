@@ -224,6 +224,104 @@ body.layer-grid-resizing.is-row-resize * {
 	white-space: nowrap;
 }
 
+/*
+ * Long text keeps its line breaks, and the row keeps the height it was given.
+ *
+ * A table row grows to fit its content, and `overflow: hidden` on the cell does
+ * not stop that — it only clips the painting. So the value is taken out of flow:
+ * it then adds nothing to the row's minimum height. What does not fit scrolls,
+ * rather than being lost at the cell edge.
+ *
+ * The padding moves onto the value, because an absolutely positioned box is laid
+ * out against the cell's padding box.
+ */
+.layer-grid-td.is-longtext {
+	position: relative;
+}
+
+.layer-grid-value.is-longtext {
+	position: absolute;
+	inset: 0;
+	padding: var(--size-4-1) var(--size-4-3);
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/*
+ * A run of multi-select pills, clipped as ONE box so a long set is trimmed at the
+ * cell edge rather than each pill being cut mid-word.
+ */
+.layer-grid-pills {
+	display: flex;
+	flex-wrap: nowrap;
+	gap: 3px;
+	align-items: center;
+	min-width: 0;
+	overflow: hidden;
+}
+
+/*
+ * A checkbox cell, drawn in both states: an unticked cell needs a box, not the
+ * `—` placeholder, which would read as a column of missing data. Unticked stays
+ * faint so a long column is quiet; ticking brings it forward in the accent.
+ */
+.layer-grid-checkbox {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+}
+
+.layer-grid-checkbox.is-ticked {
+	color: var(--interactive-accent);
+}
+
+.layer-grid-checkbox svg {
+	width: 14px;
+	height: 14px;
+}
+
+/*
+ * The long-text editor: a box that opens over the cell rather than inside it.
+ *
+ * Taken out of flow, with the cell unclipped while it is open, so it can be
+ * several lines tall without pushing the grid. The stacking order keeps the rows
+ * below from painting over it.
+ */
+.layer-grid-td.is-editing.is-longtext {
+	position: relative;
+	overflow: visible;
+	z-index: 4;
+}
+
+.layer-grid-longtext {
+	position: absolute;
+	top: 0;
+	left: 0;
+	/* The width is the cell's, so the border has to sit inside it. */
+	box-sizing: border-box;
+	width: 100%;
+	/* About four lines tall, and draggable from there. */
+	min-height: 6em;
+	max-height: 40vh;
+	resize: vertical;
+	padding: var(--size-4-1) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	font-family: inherit;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	color: var(--text-normal);
+}
+
+.layer-grid-longtext:focus {
+	box-shadow: var(--shadow-s);
+	outline: none;
+}
+
 .layer-grid-empty-cell {
 	text-align: center;
 	/* A placeholder takes no drag, so it is not a crosshair. */

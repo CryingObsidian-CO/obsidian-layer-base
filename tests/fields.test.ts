@@ -29,8 +29,14 @@ const statusField: Field = {
 };
 
 describe('field types', () => {
-	it('supports exactly text and select', () => {
-		expect([...FIELD_TYPES]).toEqual(['text', 'select']);
+	it('offers text, long text, select, multi-select and checkbox', () => {
+		expect([...FIELD_TYPES]).toEqual([
+			'text',
+			'longtext',
+			'select',
+			'multiSelect',
+			'checkbox',
+		]);
 	});
 
 	it('gives every type an icon', () => {

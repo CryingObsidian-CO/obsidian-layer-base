@@ -41,14 +41,21 @@ export interface SearchableDropdownConfig {
 	items: (query: string) => readonly DropdownItem[];
 	/** The key of the row the cursor starts on; the top row when it is gone. */
 	selectedKey?: () => string | null;
+	/** Every key currently chosen, for a list that can hold more than one. */
+	selectedKeys?: () => readonly string[];
 	/** Draws a row's contents; without it the core draws the icon slot plus the label. */
 	renderRow?: (
 		row: HTMLElement,
 		item: DropdownItem,
 		state: DropdownRowState,
 	) => void;
-	/** A row was chosen. The query comes along, for consumers that create. */
-	onPick: (item: DropdownItem, query: string) => void;
+	/**
+	 * A row was chosen. The query comes along, for consumers that create.
+	 *
+	 * Returning `'keep-open'` leaves the panel up, for a list that collects
+	 * several choices; anything else closes it, which is the default behaviour.
+	 */
+	onPick: (item: DropdownItem, query: string) => void | 'keep-open';
 	/** The panel went away, however it went away. Called at most once. */
 	onClose?: () => void;
 }
@@ -85,6 +92,8 @@ export class SearchableDropdown {
 	private rows: readonly DropdownItem[] = [];
 	private active = 0;
 	private closed = false;
+	/** Set by a mousedown, so the click of that same gesture is not a second pick. */
+	private gestureTaken = false;
 
 	constructor(config: SearchableDropdownConfig) {
 		this.config = config;
@@ -165,14 +174,25 @@ export class SearchableDropdown {
 		this.render(this.inputEl.value);
 	}
 
+	/** Every key currently marked as chosen, for either shape of the config. */
+	private selectedKeys(): readonly string[] {
+		if (this.config.selectedKeys) {
+			return this.config.selectedKeys();
+		}
+		const one = this.config.selectedKey?.() ?? null;
+		return one === null ? [] : [one];
+	}
+
 	private render(query: string): void {
-		const selected = this.config.selectedKey?.() ?? null;
+		const marked = this.selectedKeys();
 		this.rows = [...this.config.items(query)];
-		// The cursor is seated on the current choice on every render, including
-		// when the query changed: with the choice filtered out, or with none set
-		// at all, that falls back to the top row. A stray Enter then re-picks
-		// what is already chosen instead of moving the value along.
-		const found = this.rows.findIndex((item) => item.key === selected);
+		/*
+		 * The cursor is seated on a chosen row on every render, including when the
+		 * query changed: with nothing chosen, or with all of it filtered out, that
+		 * falls back to the top row. A stray Enter then re-picks something already
+		 * chosen instead of moving the value along.
+		 */
+		const found = this.rows.findIndex((item) => marked.includes(item.key));
 		this.active = found < 0 ? 0 : found;
 
 		this.listEl.empty();
@@ -201,7 +221,7 @@ export class SearchableDropdown {
 		if (item.modifier) {
 			row.addClass(item.modifier);
 		}
-		const selected = item.key === (this.config.selectedKey?.() ?? null);
+		const selected = this.selectedKeys().includes(item.key);
 		if (selected) {
 			row.addClass('is-selected');
 		}
@@ -224,9 +244,21 @@ export class SearchableDropdown {
 		row.addEventListener('mousedown', (event) => {
 			// Keeps the caret in the search box instead of moving it to the row.
 			event.preventDefault();
+			/*
+			 * The gesture is taken on mousedown and the click belonging to it is
+			 * dropped. A pick may rebuild the rows, so that click can land on a
+			 * row that shifted under the pointer — a different choice entirely.
+			 */
+			this.gestureTaken = true;
 			this.pick(item);
 		});
-		row.addEventListener('click', () => this.pick(item));
+		row.addEventListener('click', () => {
+			if (this.gestureTaken) {
+				this.gestureTaken = false;
+				return;
+			}
+			this.pick(item);
+		});
 	}
 
 	/** The row a consumer gets when it does not draw its own. */
@@ -307,14 +339,22 @@ export class SearchableDropdown {
 	}
 
 	/**
-	 * Reports the pick, then closes. One gesture can deliver both a mousedown and
-	 * a click to a row, so the second of the two finds the panel already closed.
+	 * Reports the pick, then closes — unless the consumer asks to keep the panel
+	 * up, which a list collecting several choices does.
 	 */
 	private pick(item: DropdownItem): void {
 		if (this.closed) {
 			return;
 		}
-		this.config.onPick(item, this.inputEl.value);
+		const keep = this.config.onPick(item, this.inputEl.value) === 'keep-open';
+		if (keep) {
+			// The chosen set just changed, so the rows are rebuilt; the search box
+			// is cleared so the next press starts from the whole list.
+			this.inputEl.value = '';
+			this.refresh();
+			this.inputEl.focus();
+			return;
+		}
 		this.close();
 	}
 

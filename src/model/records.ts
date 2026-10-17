@@ -2,7 +2,7 @@ import type { CellValue, Field, GridView, LayerDoc, LayerRecord } from '../types
 import { generateId } from '../utils/id';
 import type { FormattedCell } from './clipboard';
 import { forgetFieldSize, forgetRecordSize } from './layout';
-import {cellFromText, isEmptyCell, usesOptions} from './fields';
+import {cellFromText, emptyValueFor, isEmptyCell, optionIds, usesOptions} from './fields';
 
 export function findRecord(
 	doc: LayerDoc,
@@ -21,12 +21,34 @@ export function setCellValue(
 	if (!record) {
 		return false;
 	}
+	if (!matchesFieldShape(field, value)) {
+		// A wrong shape would be written out and read back as garbage.
+		return false;
+	}
 	if (isEmptyCell(value)) {
 		delete record.cells[field.id];
 	} else {
 		record.cells[field.id] = value;
 	}
 	return true;
+}
+
+/**
+ * Whether a value has the shape this field's type stores. Enforced, not assumed:
+ * the value can come from a paste, a hand-edited file, or a caller that still
+ * thinks every cell is a string.
+ */
+function matchesFieldShape(field: Field, value: CellValue): boolean {
+	switch (field.type) {
+		case 'multiSelect':
+			return Array.isArray(value);
+		case 'checkbox':
+			return typeof value === 'boolean';
+		case 'select':
+		case 'text':
+		case 'longtext':
+			return typeof value === 'string';
+	}
 }
 
 export function setCellFromText(
@@ -126,7 +148,8 @@ export function clearCells(
 		for (const field of fields) {
 			const record = findRecord(doc, recordId);
 			if (record && field.id in record.cells) {
-				setCellValue(doc, recordId, field, '');
+				// The empty value for this type: `[]` or `false`, never `''`.
+				setCellValue(doc, recordId, field, emptyValueFor(field));
 				cleared++;
 			}
 		}
@@ -188,7 +211,11 @@ export function pasteFormatted(
 			const value =
 				field.type === 'select'
 					? resolveOption(field, source)
-					: ({ ok: true, value: source.value } as const);
+					: field.type === 'multiSelect'
+						? resolveOptionSet(field, source)
+						: field.type === 'checkbox'
+							? ({ ok: true, value: source.value === true } as const)
+							: ({ ok: true, value: source.value } as const);
 			if (!value.ok) {
 				refused++;
 				continue;
@@ -210,6 +237,20 @@ function resolveOption(
 ): { ok: true; value: CellValue } | { ok: false } {
 	if (field.options?.some((option) => option.id === source.value)) {
 		return { ok: true, value: source.value };
+	}
+	return cellFromText(field, source.text);
+}
+
+/** The set form of `resolveOption`: ids this field still knows, else the text. */
+function resolveOptionSet(
+	field: Field,
+	source: FormattedCell,
+): { ok: true; value: CellValue } | { ok: false } {
+	const known = optionIds(source.value).filter((id) =>
+		field.options?.some((option) => option.id === id),
+	);
+	if (known.length > 0) {
+		return { ok: true, value: known };
 	}
 	return cellFromText(field, source.text);
 }

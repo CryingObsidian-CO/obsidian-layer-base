@@ -76,6 +76,52 @@ export class LayerView extends TextFileView {
 		await super.onLoadFile(file);
 	}
 
+	onload(): void {
+		super.onload();
+		/*
+		 * The last edit has to survive the app closing.
+		 *
+		 * A save is debounced by two seconds (see `TextFileView.requestSave`), so a
+		 * change made just before quitting is still waiting when the app tears
+		 * down — and an editor that is still open is worse off, because its
+		 * contents have not reached the document at all. Obsidian hands the quit
+		 * event a task list it waits for, which is the only place a write can be
+		 * finished at that point.
+		 */
+		this.registerEvent(
+			this.app.workspace.on('quit', (tasks) => {
+				tasks.add(async () => {
+					this.commitOpenEdit();
+					// Never saved with no document: `getViewData` answers an empty
+					// string there, and writing that would empty the file.
+					if (this.doc) {
+						await this.save();
+					}
+				});
+			}),
+		);
+	}
+
+	/**
+	 * Ends an edit still open in a cell, keeping what it holds.
+	 *
+	 * The editor's contents live in a DOM input until they are committed, so
+	 * tearing the view down without this drops the last thing typed.
+	 */
+	private commitOpenEdit(): void {
+		this.grid?.commitOpenEdit();
+	}
+
+	/**
+	 * The base class "saves any unsaved changes first", so the pending write is
+	 * flushed here — but only after an open editor has been committed, or the
+	 * value being flushed would not include it.
+	 */
+	async onUnloadFile(file: TFile): Promise<void> {
+		this.commitOpenEdit();
+		await super.onUnloadFile(file);
+	}
+
 	getViewData(): string {
 		if (!this.doc) {
 			return '';

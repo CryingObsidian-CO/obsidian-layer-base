@@ -7,10 +7,18 @@ import {
 	columnWidthOf,
 	rowHeightOf,
 } from '../../model/layout';
-import {formatCell, isEmptyCell, isMissingRequired, specFor} from '../../model/fields';
+import {
+	deserializeCellValue,
+	formatCell,
+	isEmptyCell,
+	isMissingRequired,
+	optionsOf,
+	serializeCellValue,
+	specFor,
+} from '../../model/fields';
 import type {CellValue, Field, GridView, LayerDoc, SelectOption, View} from '../../types';
 import {renderOptionPill} from '../../ui/option-pill';
-import {beginCellEdit} from './cell-editor';
+import {beginCellEdit, type CellEditHandle} from './cell-editor';
 import {attachColumnDrag} from './column-drag';
 import {attachRangeDrag, type RangeDragHandle} from './range-drag';
 import {
@@ -69,6 +77,8 @@ export class GridRenderer {
 	private marquee: HTMLElement | null = null;
 	private marqueeHost: HTMLElement | null = null;
 	private rangeDrag: RangeDragHandle | null = null;
+	/** The edit in progress, so a teardown can keep what it holds. */
+	private openEdit: CellEditHandle | null = null;
 
 	private readonly selection: SelectionTracker;
 
@@ -80,6 +90,8 @@ export class GridRenderer {
 	}
 
 	render(doc: LayerDoc, view: GridView): void {
+		// The cell an editor was in is gone, so the handle must not outlive it.
+		this.openEdit = null;
 		this.host.empty();
 		this.host.addClass('layer-grid');
 		this.cells.clear();
@@ -586,11 +598,18 @@ export class GridRenderer {
 		value: CellValue,
 	): void {
 		renderCellValue(cell, field, value);
-		cell.dataset.value = value;
+		// `dataset` holds strings only; `fillRange` parses this back.
+		cell.dataset.value = serializeCellValue(value);
 
 		cell.onclick = (event) => {
 			event.preventDefault();
 			if (this.rangeDrag?.consumeStaleClick()) {
+				return;
+			}
+			// A checkbox toggles on one press, and the press does not also reselect:
+			// ticking a box inside a selected range must leave the range alone.
+			if (field.type === 'checkbox' && isCheckboxBox(event)) {
+				this.commit(cell, field, recordId, value !== true);
 				return;
 			}
 			this.setSelection({
@@ -602,6 +621,8 @@ export class GridRenderer {
 
 		cell.ondblclick = (event) => {
 			event.preventDefault();
+			// Whether a type HAS an editor is `beginCellEdit`'s decision, not a
+			// second list here — the two only drift apart.
 			this.beginEdit(cell, field, recordId, value);
 		};
 
@@ -711,10 +732,11 @@ export class GridRenderer {
 
 		for (const field of fields) {
 			const sourceCell = this.cells.get(cellKey(top, field.id));
-			const value = sourceCell?.dataset.value;
-			if (value === undefined) {
+			const raw = sourceCell?.dataset.value;
+			if (raw === undefined) {
 				continue;
 			}
+			const value = deserializeCellValue(raw, field);
 
 			for (const recordId of recordIds.slice(1)) {
 				const cell = this.cells.get(cellKey(recordId, field.id));
@@ -734,13 +756,26 @@ export class GridRenderer {
 		if (cell.hasClass('is-editing')) {
 			return;
 		}
-		beginCellEdit(cell, {
+		// What the cell shows when the edit ends. A commit moves it on, which a
+		// multi-select needs: its toggles commit while the panel stays open, and
+		// restoring from the value captured at open would undo them.
+		let latest = value;
+		this.openEdit = beginCellEdit(cell, {
 			field,
 			value,
-			commit: (next) => this.commit(cell, field, recordId, next),
-			restore: () => renderCellValue(cell, field, value),
+			commit: (next) => {
+				latest = next;
+				this.commit(cell, field, recordId, next);
+			},
+			restore: () => renderCellValue(cell, field, latest),
 			createOption: (name) => this.handlers.onCreateOption(field, name),
 		});
+	}
+
+	/** Ends an edit still open, keeping what it holds — its text is not saved yet. */
+	commitOpenEdit(): void {
+		this.openEdit?.commit();
+		this.openEdit = null;
 	}
 
 	private commit(
@@ -756,6 +791,15 @@ export class GridRenderer {
 
 function cellKey(recordId: string, fieldId: string): string {
 	return `${recordId}\u0000${fieldId}`;
+}
+
+/** Whether a press landed on a checkbox's box. Walks up: the box holds an `svg`. */
+function isCheckboxBox(event: MouseEvent): boolean {
+	const target = event.target;
+	return (
+		target instanceof HTMLElement &&
+		target.closest('.layer-grid-checkbox') !== null
+	);
 }
 
 function isElement(value: HTMLElement | undefined): value is HTMLElement {
@@ -776,6 +820,20 @@ export function renderCellValue(
 		'is-missing-required',
 		isMissingRequired(field, value),
 	);
+	/*
+	 * Answered before the empty branch, and drawn in both states: an unticked box
+	 * is an empty value, so the branch below would answer it with `—`, which says
+	 * "no data" where the reader needs "not ticked".
+	 */
+	if (field.type === 'checkbox') {
+		const ticked = value === true;
+		const box = cell.createSpan({
+			cls: ticked ? 'layer-grid-checkbox is-ticked' : 'layer-grid-checkbox',
+		});
+		setIcon(box, ticked ? 'check-square' : 'square');
+		box.setAttribute('aria-label', ticked ? t().cellChecked : t().cellUnchecked);
+		return;
+	}
 	if (isEmptyCell(value)) {
 		cell.createSpan({cls: 'layer-grid-placeholder', text: '—'});
 		return;
@@ -790,7 +848,25 @@ export function renderCellValue(
 			return;
 		}
 	}
-	cell.createSpan({cls: 'layer-grid-value', text: formatCell(field, value)});
+	if (field.type === 'multiSelect') {
+		const chosen = optionsOf(field, value);
+		if (chosen.length > 0) {
+			// One box around the run, so it clips as a whole.
+			const run = cell.createSpan({cls: 'layer-grid-pills'});
+			for (const option of chosen) {
+				renderOptionPill(run, option.name, option.color);
+			}
+			return;
+		}
+	}
+	// The class on the value is what lets CSS tell the two textual types apart.
+	cell.createSpan({
+		cls:
+			field.type === 'longtext'
+				? 'layer-grid-value is-longtext'
+				: 'layer-grid-value',
+		text: formatCell(field, value),
+	});
 }
 
 /** The option a stored cell value refers to; ids are unique per field. */

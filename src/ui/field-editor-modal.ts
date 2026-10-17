@@ -27,6 +27,18 @@ export interface FieldEditorOptions {
 /** How wide the panel is; `AnchoredPopover` applies it inline, since a modal's own width can only be moved with `!important`. */
 const FIELD_EDITOR_WIDTH = '17rem';
 
+/*
+ * The name of each type on the button that opens the picker, read lazily so a
+ * language change is picked up rather than frozen at module load.
+ */
+const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
+	text: () => t().typeText,
+	longtext: () => t().typeLongText,
+	select: () => t().typeSelect,
+	multiSelect: () => t().typeMultiSelect,
+	checkbox: () => t().typeCheckbox,
+};
+
 export class FieldEditorModal extends AnchoredPopover {
 	private name: string;
 	private type: FieldType;
@@ -146,7 +158,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		);
 		button.createSpan({
 			cls: 'layer-field-type-name',
-			text: this.type === 'text' ? t().typeText : t().typeSelect,
+			text: FIELD_TYPE_LABELS[this.type](),
 		});
 		button.createSpan({ cls: 'layer-field-type-chevron' });
 	}

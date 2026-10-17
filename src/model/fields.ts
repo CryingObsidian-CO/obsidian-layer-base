@@ -7,6 +7,9 @@ export interface FieldTypeSpec {
 	toText(field: Field, value: CellValue): string;
 
 	fromText(field: Field, text: string): TextParseResult;
+
+	/** Whether this type's cells hold nothing. Every type answers for itself. */
+	isEmpty(value: CellValue): boolean;
 }
 
 export type TextParseResult = {ok: true; value: CellValue} | {ok: false};
@@ -22,12 +25,62 @@ function optionByName(field: Field, name: string): SelectOption | undefined {
 	return field.options?.find((o) => o.name.trim().toLowerCase() === wanted);
 }
 
+/** The stored value read as a list of option ids, whatever shape it arrived in. */
+export function optionIds(value: CellValue): string[] {
+	return Array.isArray(value) ? value.filter((id) => typeof id === 'string') : [];
+}
+
+/** The names a `multiSelect` value shows, in the field's own option order. */
+function multiNames(field: Field, value: CellValue): string {
+	return optionsOf(field, value)
+		.map((option) => option.name)
+		.join(', ');
+}
+
+/** The options a value selects, in the field's order. Ids with no option are stale. */
+export function optionsOf(field: Field, value: CellValue): SelectOption[] {
+	const ids = optionIds(value);
+	return (field.options ?? []).filter((option) => ids.includes(option.id));
+}
+
+/** Option names, comma separated — and parseable back into ids by `parseMulti`. */
+function parseMulti(field: Field, text: string): TextParseResult {
+	const trimmed = text.trim();
+	if (trimmed === '') {
+		return accept([]);
+	}
+	const names = trimmed
+		.split(',')
+		.map((part) => part.trim())
+		.filter((part) => part !== '');
+	const ids: string[] = [];
+	for (const name of names) {
+		const option = optionByName(field, name);
+		if (!option) {
+			return REFUSED;
+		}
+		if (!ids.includes(option.id)) {
+			ids.push(option.id);
+		}
+	}
+	return accept(ids);
+}
+
 const SPECS: Record<FieldType, FieldTypeSpec> = {
 	text: {
 		type: 'text',
 		icon: 'type',
-		toText: (_field, value) => value,
+		toText: (_field, value) => (typeof value === 'string' ? value : ''),
 		fromText: (_field, text) => accept(text),
+		isEmpty: (value) => value === '',
+	},
+
+	longtext: {
+		type: 'longtext',
+		icon: 'align-left',
+		toText: (_field, value) => (typeof value === 'string' ? value : ''),
+		fromText: (_field, text) => accept(text),
+		isEmpty: (value) => value === '',
 	},
 
 	select: {
@@ -42,30 +95,84 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 			const option = optionByName(field, text);
 			return option ? accept(option.id) : REFUSED;
 		},
+		isEmpty: (value) => value === '',
+	},
+
+	multiSelect: {
+		type: 'multiSelect',
+		icon: 'list-checks',
+		toText: multiNames,
+		fromText: parseMulti,
+		isEmpty: (value) => optionIds(value).length === 0,
+	},
+
+	checkbox: {
+		type: 'checkbox',
+		icon: 'check-square',
+		toText: (_field, value) => (value === true ? 'true' : ''),
+		fromText: (_field, text) => {
+			const wanted = text.trim().toLowerCase();
+			if (wanted === '') {
+				return accept(false);
+			}
+			if (wanted === 'true' || wanted === 'yes' || wanted === '1') {
+				return accept(true);
+			}
+			if (wanted === 'false' || wanted === 'no' || wanted === '0') {
+				return accept(false);
+			}
+			return REFUSED;
+		},
+		// An unticked box is empty, which is what lets `required` mean "must be ticked".
+		isEmpty: (value) => value !== true,
 	},
 };
 
-export const FIELD_TYPES: readonly FieldType[] = ['text', 'select'];
+export const FIELD_TYPES: readonly FieldType[] = [
+	'text',
+	'longtext',
+	'select',
+	'multiSelect',
+	'checkbox',
+];
 
 export function specFor(type: FieldType): FieldTypeSpec {
 	return SPECS[type];
 }
 
+/** Whether a type's cells choose from the field's option list. */
 export function usesOptions(type: FieldType): boolean {
-	return type === 'select';
-}
-
-export function isEmptyCell(value: CellValue): boolean {
-	return value === '';
+	return type === 'select' || type === 'multiSelect';
 }
 
 /**
- * A required field whose cell holds nothing: the state the grid warns about.
+ * The value that means "nothing" for a field's type: clearing is `[]` or `false`,
+ * not `''`, wherever the shape matters.
+ */
+export function emptyValueFor(field: Field): CellValue {
+	switch (field.type) {
+		case 'multiSelect':
+			return [];
+		case 'checkbox':
+			return false;
+		default:
+			return '';
+	}
+}
+
+export function isEmptyCell(value: CellValue): boolean {
+	// A value with no field to interpret it is empty only when it holds nothing.
+	if (Array.isArray(value)) {
+		return value.length === 0;
+	}
+	return value === '' || value === false;
+}
+
+/**
+ * A required field whose cell holds nothing — the state the grid warns about.
  *
- * Lives here rather than in the grid because it is a statement about the field
- * and its value, not about how a cell is drawn — and because the grid module
- * imports `obsidian`, which ships types only, so nothing in it can be unit
- * tested.
+ * Lives here rather than in the grid so it can be unit tested: the grid imports
+ * `obsidian`, which ships types only.
  */
 export function isMissingRequired(field: Field, value: CellValue): boolean {
 	return field.required === true && isEmptyCell(value);
@@ -83,10 +190,18 @@ export function formatCell(field: Field, value: CellValue): string {
 	if (isEmptyCell(value)) {
 		return '';
 	}
-	if (field.type === 'select') {
-		return field.options?.find((o) => o.id === value)?.name ?? value;
+	if (field.type === 'multiSelect') {
+		return multiNames(field, value);
 	}
-	return value;
+	if (field.type === 'select') {
+		const name = field.options?.find((o) => o.id === value)?.name;
+		// A stale id stays visible rather than vanishing from the grid.
+		return name ?? (typeof value === 'string' ? value : '');
+	}
+	if (field.type === 'checkbox') {
+		return value === true ? 'true' : '';
+	}
+	return typeof value === 'string' ? value : '';
 }
 
 export function recordTitle(
@@ -98,4 +213,36 @@ export function recordTitle(
 		return '';
 	}
 	return formatCell(primary, record.cells[primary.id] ?? '');
+}
+
+/**
+ * A cell value as one string, for the places that carry text only — a cell's
+ * `dataset`, notably. JSON, not a join: a set and the string of its ids must not
+ * read back as the same value.
+ */
+export function serializeCellValue(value: CellValue): string {
+	if (typeof value === 'string') {
+		return value;
+	}
+	return JSON.stringify(value);
+}
+
+/** The inverse of `serializeCellValue`, read back for a specific field. */
+export function deserializeCellValue(raw: string, field: Field): CellValue {
+	if (field.type === 'multiSelect') {
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			return optionIds(parsed as CellValue);
+		} catch {
+			// A hand-written or legacy string: fall back to a comma-separated list.
+			return raw
+				.split(',')
+				.map((part) => part.trim())
+				.filter((part) => part !== '');
+		}
+	}
+	if (field.type === 'checkbox') {
+		return raw === 'true';
+	}
+	return raw;
 }

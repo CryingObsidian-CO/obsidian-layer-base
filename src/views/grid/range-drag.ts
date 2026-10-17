@@ -32,6 +32,44 @@ export function cellFromEvent(
 	return { recordId, fieldId };
 }
 
+/**
+ * Whether a pointer sits on a scrollbar of the given width.
+ *
+ * Pure, so the rule is testable without a layout engine. A gutter of 0 means the
+ * cell does not scroll, so no part of it is a scrollbar; both edges are checked
+ * so a point outside the cell is never one either.
+ */
+export function isOnScrollbarStrip(
+	clientX: number,
+	right: number,
+	gutter: number,
+): boolean {
+	if (gutter <= 0) {
+		return false;
+	}
+	return clientX >= right - gutter && clientX <= right;
+}
+
+/**
+ * Whether a press landed on the scrollbar of a cell that scrolls on its own.
+ *
+ * A scrolling cell's scrollbar belongs to the element and is painted by it, so a
+ * press on the bar arrives as a press on the element: dragging it would scroll
+ * the cell AND start a range. `offsetWidth` counts the scrollbar and `clientWidth`
+ * leaves it out, so the difference is the room it takes.
+ */
+function onScrollbar(event: MouseEvent, target: HTMLElement): boolean {
+	const scroller = target.closest<HTMLElement>(
+		'.layer-grid-value.is-longtext',
+	);
+	if (!scroller) {
+		return false;
+	}
+	const gutter = scroller.offsetWidth - scroller.clientWidth;
+	const right = scroller.getBoundingClientRect().right;
+	return isOnScrollbarStrip(event.clientX, right, gutter);
+}
+
 export interface RangeDragHandle {
 	consumeStaleClick(): boolean;
 	teardown(): void;
@@ -48,7 +86,11 @@ export function attachRangeDrag(
 		if (event.button !== 0) {
 			return;
 		}
-		if ((event.target as HTMLElement | null)?.closest('.is-editing')) {
+		const target = event.target as HTMLElement | null;
+		if (target?.closest('.is-editing')) {
+			return;
+		}
+		if (target && onScrollbar(event, target)) {
 			return;
 		}
 		const start = cellFromEvent(event, canvas);

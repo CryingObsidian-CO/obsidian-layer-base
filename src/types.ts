@@ -1,8 +1,13 @@
 export const LAYER_FORMAT_VERSION = 1;
 
-export type FieldType = 'text' | 'select';
+export type FieldType =
+	| 'text'
+	| 'longtext'
+	| 'select'
+	| 'multiSelect'
+	| 'checkbox';
 
-/** A single choice of a `select` field. */
+/** A single choice of a `select` or `multiSelect` field. */
 export interface SelectOption {
 	id: string;
 	name: string;
@@ -23,7 +28,11 @@ export interface Field {
 	options?: SelectOption[];
 }
 
-export type CellValue = string;
+/**
+ * What one cell holds, in the shape its field type uses: text and long text keep
+ * a string, `multiSelect` an array of option ids, `checkbox` a real boolean.
+ */
+export type CellValue = string | string[] | boolean;
 
 export interface Record_ {
 	id: string;

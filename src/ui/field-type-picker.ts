@@ -10,11 +10,17 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 	const s = t();
 	const label: Record<FieldType, string> = {
 		text: s.typeText,
+		longtext: s.typeLongText,
 		select: s.typeSelect,
+		multiSelect: s.typeMultiSelect,
+		checkbox: s.typeCheckbox,
 	};
 	const hint: Record<FieldType, string> = {
 		text: s.typeTextHint,
+		longtext: s.typeLongTextHint,
 		select: s.typeSelectHint,
+		multiSelect: s.typeMultiSelectHint,
+		checkbox: s.typeCheckboxHint,
 	};
 	return FIELD_TYPES.map((type) => ({
 		type,
