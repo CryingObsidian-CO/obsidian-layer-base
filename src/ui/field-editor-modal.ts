@@ -8,6 +8,8 @@ import {
 	parseOptionalNumber,
 } from '../model/number';
 import { optionColorHex } from '../model/select-options';
+import { aggregatesFor } from '../model/rollup';
+import { isDerived } from '../model/fields';
 import { fieldsUsed, parseFormula } from '../model/formula/parser';
 import { formulaErrorMessage } from './formula-text';
 import type { TableIndex } from '../io/table-index';
@@ -16,6 +18,7 @@ import type {
 	FieldType,
 	FormulaResultType,
 	NumberFormat,
+	RollupAggregate,
 	SelectOption,
 } from '../types';
 import { generateId } from '../utils/id';
@@ -43,6 +46,14 @@ export interface BackSettings extends RelationSettings {
 	titleFieldId: string;
 }
 
+export interface RollupSettings {
+	/** The relation column in this table whose rows are gathered; `''` for none. */
+	sourceFieldId: string;
+	/** The column read from those rows; `''` for none. */
+	fieldId: string;
+	aggregate: RollupAggregate;
+}
+
 export interface FieldEditorResult {
 	name: string;
 	type: FieldType;
@@ -54,6 +65,8 @@ export interface FieldEditorResult {
 	back: BackSettings;
 	/** The expression, when the type is `formula`. */
 	formula: string;
+	/** How a rollup gathers and reduces, when the type is `rollup`. */
+	rollup: RollupSettings;
 	/** How that result is presented; null to follow whatever it computed. */
 	formulaType: FormulaResultType | null;
 	typeChanged: boolean;
@@ -88,6 +101,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	datetime: () => t().typeDateTime,
 	relation: () => t().typeRelation,
 	relationBack: () => t().typeRelationBack,
+	rollup: () => t().typeRollup,
 	formula: () => t().typeFormula,
 	select: () => t().typeSelect,
 	multiSelect: () => t().typeMultiSelect,
@@ -117,6 +131,9 @@ export class FieldEditorModal extends AnchoredPopover {
 	private backPath: string;
 	private backFieldId: string;
 	private backTitleFieldId: string;
+	private rollupSourceFieldId: string;
+	private rollupFieldId: string;
+	private rollupAggregate: RollupAggregate;
 	private formula: string;
 	private formulaType: FormulaResultType | null;
 	private readonly originalType: FieldType | null;
@@ -125,6 +142,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private optionsEl: HTMLElement | null = null;
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
+	private rollupEl: HTMLElement | null = null;
 	private formulaEl: HTMLElement | null = null;
 	private requiredEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
@@ -147,6 +165,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.backPath = config.field?.backPath ?? '';
 		this.backFieldId = config.field?.backFieldId ?? '';
 		this.backTitleFieldId = config.field?.backTitleFieldId ?? '';
+		this.rollupSourceFieldId = config.field?.rollupSourceFieldId ?? '';
+		this.rollupFieldId = config.field?.rollupFieldId ?? '';
+		this.rollupAggregate = config.field?.rollupAggregate ?? 'sum';
 		this.formula = config.field?.formula ?? '';
 		this.formulaType = config.field?.formulaType ?? null;
 		// A path pointing at this very file IS "this table", so it is stored as one.
@@ -204,6 +225,9 @@ export class FieldEditorModal extends AnchoredPopover {
 
 		this.relationEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderRelationSettings();
+
+		this.rollupEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderRollupSettings();
 
 		this.formulaEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderFormulaSettings();
@@ -499,6 +523,164 @@ export class FieldEditorModal extends AnchoredPopover {
 		return null;
 	}
 
+	/** How a rollup gathers its rows and reduces them. */
+	private renderRollupSettings(): void {
+		const host = this.rollupEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+
+		if (this.type !== 'rollup') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().fieldRollupLabel });
+
+		const sourceGrid = host.createDiv({ cls: 'layer-field-grid' });
+		sourceGrid.createDiv({ cls: 'layer-field-label', text: t().fieldRollupSource });
+		const sourceSelect = sourceGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		const none = sourceSelect.createEl('option', { text: t().fieldRollupNone });
+		none.value = '';
+		for (const field of this.config.selfFields) {
+			if (field.type !== 'relation' && field.type !== 'relationBack') {
+				continue;
+			}
+			if (field.id === this.config.field?.id) {
+				continue;
+			}
+			const option = sourceSelect.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		sourceSelect.value = this.rollupSourceFieldId;
+		sourceSelect.addEventListener('change', () => {
+			this.rollupSourceFieldId = sourceSelect.value;
+			this.rollupFieldId = '';
+			this.renderRollupSettings();
+		});
+
+		const sourceField = this.config.selfFields.find(
+			(field) => field.id === this.rollupSourceFieldId,
+		);
+		if (!sourceField) {
+			const hasLink = this.config.selfFields.some(
+				(field) =>
+					field.type === 'relation' || field.type === 'relationBack',
+			);
+			host.createDiv({
+				cls: 'layer-field-number-hint',
+				text: hasLink ? t().fieldRollupHint : t().fieldRollupNoRelation,
+			});
+			return;
+		}
+
+		const columns = this.rollupColumns(sourceField);
+		const fieldGrid = host.createDiv({ cls: 'layer-field-grid' });
+		fieldGrid.createDiv({ cls: 'layer-field-label', text: t().fieldRollupField });
+		const fieldSelect = fieldGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		const noColumn = fieldSelect.createEl('option', {
+			text: t().fieldRollupNone,
+		});
+		noColumn.value = '';
+		for (const field of columns ?? []) {
+			if (isDerived(field.type)) {
+				// A computed column cannot be gathered: it would mean running every
+				// formula of every linked row, and could chain back into this one.
+				continue;
+			}
+			const option = fieldSelect.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		fieldSelect.value = this.rollupFieldId;
+		fieldSelect.addEventListener('change', () => {
+			this.rollupFieldId = fieldSelect.value;
+			this.clampRollupAggregate();
+			this.renderRollupSettings();
+		});
+
+		const targetField = (columns ?? []).find(
+			(field) => field.id === this.rollupFieldId,
+		);
+		if (!targetField) {
+			host.createDiv({
+				cls: 'layer-field-number-hint',
+				text: t().fieldRollupHint,
+			});
+			return;
+		}
+
+		const allowed = aggregatesFor(targetField.type);
+		this.clampRollupAggregate();
+		const howGrid = host.createDiv({ cls: 'layer-field-grid' });
+		howGrid.createDiv({ cls: 'layer-field-label', text: t().fieldRollupAggregate });
+		const howSelect = howGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		for (const how of allowed) {
+			const option = howSelect.createEl('option', {
+				text: this.aggregateLabel(how),
+			});
+			option.value = how;
+		}
+		howSelect.value = this.rollupAggregate;
+		howSelect.addEventListener('change', () => {
+			this.rollupAggregate = howSelect.value as RollupAggregate;
+		});
+
+		host.createDiv({ cls: 'layer-field-number-hint', text: t().fieldRollupHint });
+	}
+
+	/** What one aggregate is called in the reader's language. */
+	private aggregateLabel(how: RollupAggregate): string {
+		switch (how) {
+			case 'sum':
+				return t().rollupSum;
+			case 'average':
+				return t().rollupAverage;
+			case 'min':
+				return t().rollupMin;
+			case 'max':
+				return t().rollupMax;
+			case 'count':
+				return t().rollupCount;
+			default:
+				return t().rollupCountAll;
+		}
+	}
+
+	/** Keeps the chosen aggregate one the chosen column can answer. */
+	private clampRollupAggregate(): void {
+		const sourceField = this.config.selfFields.find(
+			(field) => field.id === this.rollupSourceFieldId,
+		);
+		if (!sourceField) {
+			return;
+		}
+		const target = this.rollupColumns(sourceField)?.find(
+			(field) => field.id === this.rollupFieldId,
+		);
+		if (!target) {
+			return;
+		}
+		const allowed = aggregatesFor(target.type);
+		if (!allowed.includes(this.rollupAggregate)) {
+			this.rollupAggregate = allowed[0] ?? 'count';
+		}
+	}
+
+	/** The columns a rollup may read, from the table its source column points at. */
+	private rollupColumns(sourceField: Field): readonly Field[] | null {
+		const path =
+			sourceField.type === 'relation'
+				? (sourceField.linkPath ?? '')
+				: (sourceField.backPath ?? '');
+		return this.relationColumns(path);
+	}
+
 	/**
 	 * The formula of a `formula` column, shown as the expression it holds.
 	 *
@@ -745,6 +927,11 @@ export class FieldEditorModal extends AnchoredPopover {
 				path: this.backPath,
 				fieldId: this.backFieldId,
 				titleFieldId: this.backTitleFieldId,
+			},
+			rollup: {
+				sourceFieldId: this.rollupSourceFieldId,
+				fieldId: this.rollupFieldId,
+				aggregate: this.rollupAggregate,
 			},
 			formula: this.formula.trim(),
 			formulaType: this.formulaType,

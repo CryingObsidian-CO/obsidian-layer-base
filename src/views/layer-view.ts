@@ -30,14 +30,18 @@ import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
 import {cellToText, relationIds, usesOptions} from '../model/fields';
 import {computeFormula} from '../model/formula';
+import {aggregateRollup} from '../model/rollup';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
 import {
 	relationBackIndex,
+	relationBackRows,
+	type BacklinkRow,
 	relationCandidates as candidatesOf,
 	relationText as textOf,
 	repairRelationPaths,
 	type RelationCandidate,
-} from '../model/relation';import {
+} from '../model/relation';
+import {
 	findGridView,
 	setColumnWidth,
 	setRowHeight,
@@ -47,18 +51,20 @@ import type {
 	Field,
 	FormulaResultType,
 	LayerDoc,
+	LayerRecord,
 	SelectOption,
 	View,
 } from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
-import type { Anchor } from '../ui/anchored-popover';
+import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
 	type BackSettings,
 	type FieldEditorResult,
 	type NumberSettings,
 	type RelationSettings,
+	type RollupSettings,
 } from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell} from './board-shell';
@@ -75,6 +81,11 @@ export class LayerView extends TextFileView {
 	private readonly backIndexes = new Map<
 		string,
 		Map<string, string[]> | null
+	>();
+	/** The pointing rows themselves, per source column, for the current render pass. */
+	private readonly backRows = new Map<
+		string,
+		Map<string, BacklinkRow[]> | null
 	>();
 	/** A repaint is already scheduled, so a burst of changes paints once. */
 	private repaintQueued = false;
@@ -218,6 +229,7 @@ export class LayerView extends TextFileView {
 	private render(): void {
 		// The reverse lookups belong to the tree about to be thrown away.
 		this.backIndexes.clear();
+		this.backRows.clear();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
 
@@ -246,12 +258,13 @@ export class LayerView extends TextFileView {
 		});
 		// Top to bottom: actions on the data, then the projection of it, then a
 		// read-only summary.
-		shell.renderToolbar();		shell.renderTabs({
+		shell.renderToolbar();
+		shell.renderTabs({
 			views: this.doc.views,
 			activeViewId: view.id,
 		});
 
-		const mount = this.contentEl.createDiv({ cls: 'layer-base-view' });
+		const mount = this.contentEl.createDiv({cls: 'layer-base-view'});
 		if (view.type === 'grid') {
 			const grid = new GridRenderer(mount, {
 				onCellCommit: (recordId, field, value) => {
@@ -271,14 +284,17 @@ export class LayerView extends TextFileView {
 					// stands in as the anchor.
 					const el = this.grid?.headerFor(field.id) ?? null;
 					const anchor: Anchor | null = at
-						? { kind: 'point', x: at.x, y: at.y }
+						? {kind: 'point', x: at.x, y: at.y}
 						: el
-							? { kind: 'element', el }
+							? {kind: 'element', el}
 							: null;
 					this.openFieldEditor(field, undefined, anchor);
 				},
 				onAddField: (after, anchor) => {
-					this.openFieldEditor(null, after, anchor ? { kind: 'element', el: anchor } : null);
+					this.openFieldEditor(null, after, anchor ? {
+						kind: 'element',
+						el: anchor
+					} : null);
 				},
 				onDuplicateField: (field) => {
 					this.handleDuplicateField(field);
@@ -304,6 +320,7 @@ export class LayerView extends TextFileView {
 					this.relationCandidates(field),
 				relationText: (field, value) => this.relationText(field, value),
 				backText: (field, recordId) => this.backText(field, recordId),
+				rollupText: (field, recordId) => this.rollupText(field, recordId),
 				formulaText: (field, recordId) =>
 					this.formulaText(field, recordId),
 				onSelectionChange: (selection, range) => {
@@ -325,7 +342,7 @@ export class LayerView extends TextFileView {
 			grid.render(this.doc, view);
 		} else {
 			this.grid = null;
-			const box = mount.createDiv({ cls: 'layer-base-message' });
+			const box = mount.createDiv({cls: 'layer-base-message'});
 			box.setText(t().gridNotImplemented);
 		}
 
@@ -376,7 +393,7 @@ export class LayerView extends TextFileView {
 			return field ? t().selectionColumn(field.name) : '';
 		}
 
-		const { anchor, focus } = selection;
+		const {anchor, focus} = selection;
 		if (anchor.recordId === focus.recordId && anchor.fieldId === focus.fieldId) {
 			const index = rowIndexOf(doc, anchor.recordId);
 			const field = doc.fields.find((f) => f.id === anchor.fieldId);
@@ -464,8 +481,9 @@ export class LayerView extends TextFileView {
 			}
 			this.applyNumberSettings(created, result.number);
 			this.applyRelationSettings(doc, created, result.relation);
+			this.applyRollupSettings(created, result.rollup);
 			this.applyFormulaSettings(created, result.formula, result.formulaType);
-				this.applyBackSettings(created, result.back);
+			this.applyBackSettings(created, result.back);
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
 			} else {
@@ -493,12 +511,39 @@ export class LayerView extends TextFileView {
 			// a number.
 			this.applyNumberSettings(field, result.number);
 			this.applyRelationSettings(doc, field, result.relation);
+			this.applyRollupSettings(field, result.rollup);
 			this.applyFormulaSettings(field, result.formula, result.formulaType);
-				this.applyBackSettings(field, result.back);
+			this.applyBackSettings(field, result.back);
 		}
 
 		this.markDirty();
 		this.render();
+	}
+
+	/**
+	 * Writes a rollup's three settings. It stores no values, so there is nothing to
+	 * clear: every cell is gathered again from the other table on each render.
+	 */
+	private applyRollupSettings(field: Field, settings: RollupSettings): void {
+		if (field.type !== 'rollup') {
+			delete field.rollupSourceFieldId;
+			delete field.rollupFieldId;
+			delete field.rollupAggregate;
+			return;
+		}
+		if (settings.sourceFieldId === '') {
+			delete field.rollupSourceFieldId;
+		} else {
+			field.rollupSourceFieldId = settings.sourceFieldId;
+		}
+		if (settings.fieldId === '') {
+			delete field.rollupFieldId;
+		} else {
+			field.rollupFieldId = settings.fieldId;
+		}
+		field.rollupAggregate = settings.aggregate;
+		// Derived, so it holds nothing and cannot be required.
+		delete field.required;
 	}
 
 	/**
@@ -757,7 +802,7 @@ export class LayerView extends TextFileView {
 	 * The rows and columns currently on screen, in order.
 	 */
 	private renderedOrder(): { recordIds: string[]; fields: Field[] } {
-		return this.grid?.renderedOrder() ?? { recordIds: [], fields: [] };
+		return this.grid?.renderedOrder() ?? {recordIds: [], fields: []};
 	}
 
 	/**
@@ -786,7 +831,7 @@ export class LayerView extends TextFileView {
 		if (grownRows.length < height || grownFields.length < width) {
 			return null;
 		}
-		return { recordIds: grownRows, fields: grownFields };
+		return {recordIds: grownRows, fields: grownFields};
 	}
 
 	/**
@@ -1004,12 +1049,12 @@ export class LayerView extends TextFileView {
 	private formulaText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		if (!doc) {
-			return { text: '', broken: 0 };
+			return {text: '', broken: 0};
 		}
 		const record = findRecord(doc, recordId);
 		const target = doc.fields.find((candidate) => candidate.id === field.id);
 		if (!record || !target) {
-			return { text: '', broken: 0 };
+			return {text: '', broken: 0};
 		}
 		/*
 		 * A column with no expression yet is not an error, it is a column waiting to
@@ -1017,7 +1062,7 @@ export class LayerView extends TextFileView {
 		 * row of a field that was just created.
 		 */
 		if ((target.formula ?? '').trim() === '') {
-			return { text: '', broken: 0 };
+			return {text: '', broken: 0};
 		}
 		const result = computeFormula(doc, record, target);
 		if (result.ok) {
@@ -1048,6 +1093,85 @@ export class LayerView extends TextFileView {
 		};
 	}
 
+	/** What a rollup gathered from the rows this row is linked to. */
+	private rollupText(field: Field, recordId: string): CellText {
+		const doc = this.doc;
+		if (!doc) {
+			return {text: '', broken: 0};
+		}
+		const record = findRecord(doc, recordId);
+		const target = doc.fields.find((candidate) => candidate.id === field.id);
+		if (!record || !target) {
+			return {text: '', broken: 0};
+		}
+		const sourceField = doc.fields.find(
+			(candidate) => candidate.id === target.rollupSourceFieldId,
+		);
+		// Not configured yet, or pointing at a column that is gone: a column waiting
+		// to be set up reads as empty, not as a failure in every row.
+		if (!sourceField || !target.rollupFieldId) {
+			return {text: '', broken: 0};
+		}
+
+		const gathered = this.gatheredValues(sourceField, target, record, recordId);
+		if (gathered === null) {
+			return {text: '', broken: 0};
+		}
+		const answer = aggregateRollup(gathered, target.rollupAggregate ?? 'sum');
+		if (answer === null) {
+			return {text: '', broken: 0};
+		}
+		return {text: answer.text, broken: 0, kind: answer.kind};
+	}
+
+	/**
+	 * The values a rollup reduces, or null when the other table cannot be read.
+	 *
+	 * Null is not the same as an empty list: an empty list means the other table was
+	 * read and had nothing to contribute, which a count answers as zero.
+	 */
+	private gatheredValues(
+		sourceField: Field,
+		rollup: Field,
+		record: LayerRecord,
+		recordId: string,
+	): readonly CellValue[] | null {
+		const columnId = rollup.rollupFieldId ?? '';
+
+		if (sourceField.type === 'relation') {
+			const other = this.targetDoc(sourceField);
+			if (!other) {
+				return null;
+			}
+			return relationIds(record.cells[sourceField.id] ?? '').map(
+				(id) => findRecord(other, id)?.cells[columnId] ?? '',
+			);
+		}
+
+		if (sourceField.type === 'relationBack') {
+			const other = this.sourceDoc(sourceField);
+			if (!other) {
+				return null;
+			}
+			const key = `${sourceField.id}\u0000${sourceField.backFieldId ?? ''}`;
+			let rows = this.backRows.get(key);
+			if (rows === undefined) {
+				rows = relationBackRows(other, sourceField.backFieldId ?? '');
+				this.backRows.set(key, rows);
+			}
+			if (rows === null) {
+				return null;
+			}
+			return (rows.get(recordId) ?? []).map(
+				(row) => row.record.cells[columnId] ?? '',
+			);
+		}
+
+		// A source column that is neither kind is a configuration this column cannot
+		// answer, so it reads as empty rather than guessing at a direction.
+		return null;
+	}
+
 	private relationCandidates(field: Field): readonly RelationCandidate[] {
 		const target = this.targetDoc(field);
 		return target ? candidatesOf(target, field.linkFieldId ?? '') : [];
@@ -1056,7 +1180,7 @@ export class LayerView extends TextFileView {
 	private relationText(field: Field, value: CellValue): CellText {
 		const target = this.targetDoc(field);
 		if (!target) {
-			return { text: '', broken: relationIds(value).length };
+			return {text: '', broken: relationIds(value).length};
 		}
 		const resolved = textOf(target, field.linkFieldId ?? '', value);
 		return {
@@ -1070,7 +1194,7 @@ export class LayerView extends TextFileView {
 	private backText(field: Field, recordId: string): CellText {
 		const source = this.sourceDoc(field);
 		if (source === null) {
-			return { text: '', broken: 1 };
+			return {text: '', broken: 1};
 		}
 		/*
 		 * Built once per column per render, not once per cell: asking per cell
@@ -1088,7 +1212,7 @@ export class LayerView extends TextFileView {
 			this.backIndexes.set(key, index);
 		}
 		if (index === null) {
-			return { text: '', broken: 1 };
+			return {text: '', broken: 1};
 		}
 		const texts = index.get(recordId) ?? [];
 		return {
@@ -1163,7 +1287,7 @@ export class LayerView extends TextFileView {
 	}
 
 	private renderMessage(text: string): void {
-		const box = this.contentEl.createDiv({ cls: 'layer-base-message' });
+		const box = this.contentEl.createDiv({cls: 'layer-base-message'});
 		box.setText(text);
 	}
 }

@@ -53,6 +53,8 @@ const CASES: readonly (readonly [string, string])[] = [
 	['1 +', 'unexpected-token'],
 	['1 2', 'trailing-text'],
 	['SUM(1 2)', 'bad-arguments'],
+	['NOT()', 'bad-arity'],
+	['BLANK(1)', 'bad-arity'],
 	['1 / 0', 'divide-by-zero'],
 	['1 % 0', 'modulo-by-zero'],
 	['{nope}', 'unknown-field'],
@@ -78,6 +80,19 @@ describe('the engine reports codes, not sentences', () => {
 		expect(errorOf('{nope}').detail).toBe('nope');
 		expect(errorOf('NOPE(1)').detail).toBe('NOPE');
 		expect(errorOf('1 $ 2').detail).toBe('$');
+		expect(errorOf('NOT()').detail).toBe('NOT');
+	});
+
+	it('names a value the formula wrote, never a sentence of its own', () => {
+		// The detail is substituted into the locale sentence, so it has to appear in
+		// the source verbatim rather than being prose of its own.
+		for (const [source] of CASES) {
+			const { detail } = errorOf(source);
+			if (detail === undefined) {
+				continue;
+			}
+			expect(source.includes(detail), `${source} → ${detail}`).toBe(true);
+		}
 	});
 });
 

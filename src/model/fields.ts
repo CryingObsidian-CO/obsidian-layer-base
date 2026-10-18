@@ -159,6 +159,16 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: () => true,
 	},
 
+	rollup: {
+		type: 'rollup',
+		icon: 'calculator',
+		// Nothing to read: the value is gathered from other rows, which this module
+		// cannot see.
+		toText: () => '',
+		fromText: () => REFUSED,
+		isEmpty: () => true,
+	},
+
 	formula: {
 		type: 'formula',
 		icon: 'sigma',
@@ -223,6 +233,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'datetime',
 	'relation',
 	'relationBack',
+	'rollup',
 	'formula',
 	'select',
 	'multiSelect',
@@ -279,7 +290,7 @@ export function isMissingRequired(field: Field, value: CellValue): boolean {
 
 /** Whether a type's values are computed rather than stored. */
 export function isDerived(type: FieldType): boolean {
-	return type === 'relationBack' || type === 'formula';
+	return type === 'relationBack' || type === 'rollup' || type === 'formula';
 }
 
 export function cellToText(field: Field, value: CellValue): string {

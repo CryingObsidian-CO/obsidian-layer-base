@@ -40,33 +40,56 @@ import {
 
 export interface GridHandlers {
 	onCellCommit(recordId: string, field: Field, value: CellValue): void;
+
 	onInsertRecordsBelow(recordId: string, count: number): void;
+
 	onDuplicateRecords(recordIds: string[]): void;
+
 	onDeleteRecords(recordIds: string[]): void;
+
 	onClearRecord(recordId: string): void;
+
 	onEditField(field: Field, at: { x: number; y: number } | null): void;
+
 	onAddField(after?: Field, anchor?: HTMLElement | null): void;
+
 	onDuplicateField(field: Field): void;
+
 	onDeleteField(field: Field): void;
+
 	onClearCells(recordIds: string[], fields: Field[]): void;
+
 	/** Creates an option on a select field for a name typed into a cell. */
 	onCreateOption(field: Field, name: string): SelectOption | null;
+
 	/** The rows a relation cell may point at, read from the table it links to. */
 	relationCandidates(field: Field): readonly RelationCandidate[];
+
 	/** What a relation cell reads as; the grid cannot read another table itself. */
 	relationText(field: Field, value: CellValue): CellText;
+
 	/** What a reverse relation row shows: the rows that point at it. */
 	backText(field: Field, recordId: string): CellText;
+
 	/** What a formula row computes to. */
 	formulaText(field: Field, recordId: string): CellText;
+
+	/** What a rollup gathered from the rows this row is linked to. */
+	rollupText(field: Field, recordId: string): CellText;
+
 	onCopyRange(recordIds: string[], fields: Field[]): void;
+
 	onPasteInto(recordIds: string[], fields: Field[]): void;
+
 	onSelectionChange(
 		selection: GridSelection | null,
 		range: RangeSize | null,
 	): void;
+
 	onColumnResize(fieldId: string, width: number): void;
+
 	onReorderField(fieldId: string, beforeFieldId: string | null): void;
+
 	onRowResize(recordId: string, height: number): void;
 }
 
@@ -151,7 +174,8 @@ export class GridRenderer {
 				}
 				this.setSelection({kind: 'range', anchor: current.anchor, focus: cell});
 			},
-			onEnd: () => {},
+			onEnd: () => {
+			},
 		});
 
 		this.renderColgroup(table, fields, view);
@@ -228,7 +252,7 @@ export class GridRenderer {
 			 */
 			if (isDerived(field.type)) {
 				th.addClass('is-derived');
-				const lock = th.createSpan({ cls: 'layer-grid-derived-icon' });
+				const lock = th.createSpan({cls: 'layer-grid-derived-icon'});
 				setIcon(lock, 'lock');
 				// Obsidian's own tooltip; a `title` as well would draw a second one.
 				setTooltip(lock, t().fieldDerivedHint);
@@ -817,7 +841,10 @@ export class GridRenderer {
 			if (field.type === 'formula') {
 				return this.handlers.formulaText(field, recordId);
 			}
-			return { text: formatCell(field, value), broken: 0 };
+			if (field.type === 'rollup') {
+				return this.handlers.rollupText(field, recordId);
+			}
+			return {text: formatCell(field, value), broken: 0};
 		};
 	}
 

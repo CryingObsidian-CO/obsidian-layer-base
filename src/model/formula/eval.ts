@@ -448,11 +448,10 @@ export function evaluate(node: FormulaNode, context: FormulaContext): EvalResult
 				return fail('unknown-function', node.name, node.at);
 			}
 			if (node.args.length < builtin.min || node.args.length > builtin.max) {
-				return fail(
-					'bad-arity',
-					`「${node.name}」 cannot take ${node.args.length} argument(s).`,
-					node.at,
-				);
+				// Only the name: the locale wording already says it took the wrong
+				// number of arguments, and a sentence here would be wrapped in that
+				// sentence and read as a mangled half-English remark.
+				return fail('bad-arity', node.name, node.at);
 			}
 			const results = evalArgs(node.args, context);
 			const failed = results.find((result) => !result.ok);

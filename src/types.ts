@@ -8,6 +8,7 @@ export type FieldType =
 	| 'datetime'
 	| 'relation'
 	| 'relationBack'
+	| 'rollup'
 	| 'formula'
 	| 'select'
 	| 'multiSelect'
@@ -77,7 +78,26 @@ export interface Field {
 	 * changes the dressing only — never the computed value.
 	 */
 	formulaType?: FormulaResultType;
+	/**
+	 * `rollup` fields only: the relation column in this table whose rows are
+	 * gathered. It may be a `relation` or a `relationBack`, which is what lets a
+	 * parent table total its children.
+	 */
+	rollupSourceFieldId?: string;
+	/** `rollup` fields only: the column in the other table that is read. */
+	rollupFieldId?: string;
+	/** `rollup` fields only: how the gathered values are reduced to one. */
+	rollupAggregate?: RollupAggregate;
 }
+
+/** How a `rollup` field reduces the values it gathered. */
+export type RollupAggregate =
+	| 'sum'
+	| 'average'
+	| 'min'
+	| 'max'
+	| 'count'
+	| 'countAll';
 
 /** How a `formula` field presents what it computed. */
 export type FormulaResultType = 'number' | 'text' | 'boolean';

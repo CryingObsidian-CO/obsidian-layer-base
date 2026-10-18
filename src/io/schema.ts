@@ -152,6 +152,27 @@ function parseField(
 			field.formulaType = declared;
 		}
 	}
+	if (field.type === 'rollup') {
+		const source = asString(raw.rollupSourceFieldId);
+		if (source !== '') {
+			field.rollupSourceFieldId = source;
+		}
+		const target = asString(raw.rollupFieldId);
+		if (target !== '') {
+			field.rollupFieldId = target;
+		}
+		const how = asString(raw.rollupAggregate);
+		if (
+			how === 'sum' ||
+			how === 'average' ||
+			how === 'min' ||
+			how === 'max' ||
+			how === 'count' ||
+			how === 'countAll'
+		) {
+			field.rollupAggregate = how;
+		}
+	}
 	return field;
 }
 

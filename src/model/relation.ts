@@ -1,5 +1,12 @@
-import type { CellValue, Field, LayerDoc } from '../types';
+import type { CellValue, Field, LayerDoc, LayerRecord } from '../types';
 import { formatCell, relationIds } from './fields';
+
+/** One row that points at another, with where it sits in its own table. */
+export interface BacklinkRow {
+	record: LayerRecord;
+	/** Its 1-based position, which names it when there is no title column. */
+	position: number;
+}
 
 /** One row of the target table that a relation cell may point at. */
 export interface RelationCandidate {
@@ -113,8 +120,8 @@ export function relationBackIndex(
 	sourceFieldId: string,
 	titleFieldId: string,
 ): Map<string, string[]> | null {
-	const field = source.fields.find((candidate) => candidate.id === sourceFieldId);
-	if (!field || field.type !== 'relation') {
+	const rows = relationBackRows(source, sourceFieldId);
+	if (rows === null) {
 		return null;
 	}
 	// A display column that was deleted falls back to row numbers rather than
@@ -123,21 +130,46 @@ export function relationBackIndex(
 		(candidate) => candidate.id === titleFieldId,
 	);
 	const index = new Map<string, string[]>();
+	for (const [id, pointing] of rows) {
+		index.set(
+			id,
+			pointing.map(({ record, position }) =>
+				titleField
+					? formatCell(titleField, record.cells[titleField.id] ?? '')
+					: String(position),
+			),
+		);
+	}
+	return index;
+}
+
+/**
+ * The rows that point at each row of this table, by the row they point at.
+ *
+ * One scan answers both questions asked of it: what a backlink cell reads as, and
+ * what a rollup should gather.
+ */
+export function relationBackRows(
+	source: LayerDoc,
+	sourceFieldId: string,
+): Map<string, BacklinkRow[]> | null {
+	const field = source.fields.find((candidate) => candidate.id === sourceFieldId);
+	if (!field || field.type !== 'relation') {
+		return null;
+	}
+	const index = new Map<string, BacklinkRow[]>();
 	for (const [position, record] of source.records.entries()) {
 		const ids = relationIds(record.cells[sourceFieldId] ?? '');
 		if (ids.length === 0) {
 			continue;
 		}
-		// The name is worked out only for rows that point somewhere.
-		const title = titleField
-			? formatCell(titleField, record.cells[titleField.id] ?? '')
-			: String(position + 1);
+		const row: BacklinkRow = { record, position: position + 1 };
 		for (const id of ids) {
 			const existing = index.get(id);
 			if (existing) {
-				existing.push(title);
+				existing.push(row);
 			} else {
-				index.set(id, [title]);
+				index.set(id, [row]);
 			}
 		}
 	}

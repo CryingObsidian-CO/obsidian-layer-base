@@ -1,9 +1,9 @@
-import { setIcon } from 'obsidian';
-import { t } from '../i18n';
-import { FIELD_TYPES, specFor } from '../model/fields';
-import type { FieldType } from '../types';
-import { fieldTypeMatches, type FieldTypeChoice } from './field-type-choices';
-import { SearchableDropdown, type DropdownItem } from './searchable-dropdown';
+import {setIcon} from 'obsidian';
+import {t} from '../i18n';
+import {FIELD_TYPES, specFor} from '../model/fields';
+import type {FieldType} from '../types';
+import {fieldTypeMatches, type FieldTypeChoice} from './field-type-choices';
+import {SearchableDropdown, type DropdownItem} from './searchable-dropdown';
 
 /** The rows, in the order they are offered, named for the active locale. */
 function fieldTypeChoices(): FieldTypeChoice[] {
@@ -16,6 +16,7 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 		datetime: s.typeDateTime,
 		relation: s.typeRelation,
 		relationBack: s.typeRelationBack,
+		rollup: s.typeRollup,
 		formula: s.typeFormula,
 		select: s.typeSelect,
 		multiSelect: s.typeMultiSelect,
@@ -29,6 +30,7 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 		datetime: s.typeDateTimeHint,
 		relation: s.typeRelationHint,
 		relationBack: s.typeRelationBackHint,
+		rollup: s.typeRollupHint,
 		formula: s.typeFormulaHint,
 		select: s.typeSelectHint,
 		multiSelect: s.typeMultiSelectHint,
@@ -59,13 +61,13 @@ export class FieldTypeDropdown {
 			emptyText: t().fieldTypeSearchNoMatch,
 			items: (query): DropdownItem[] =>
 				this.all
-					.filter((choice) => fieldTypeMatches(choice, query))
-					.map((choice) => ({
-						key: choice.type,
-						label: choice.label,
-						hint: choice.hint,
-						icon: specFor(choice.type).icon,
-					})),
+				.filter((choice) => fieldTypeMatches(choice, query))
+				.map((choice) => ({
+					key: choice.type,
+					label: choice.label,
+					hint: choice.hint,
+					icon: specFor(choice.type).icon,
+				})),
 			selectedKey: () => this.current,
 			renderRow: (row, item) => this.renderRow(row, item),
 			onPick: (item) => this.onPick(item.key as FieldType),
@@ -78,11 +80,11 @@ export class FieldTypeDropdown {
 	 */
 	private renderRow(row: HTMLElement, item: DropdownItem): void {
 		if (item.icon) {
-			setIcon(row.createSpan({ cls: 'layer-field-type-icon' }), item.icon);
+			setIcon(row.createSpan({cls: 'layer-field-type-icon'}), item.icon);
 		}
-		const body = row.createSpan({ cls: 'layer-field-type-text' });
-		body.createDiv({ cls: 'layer-field-type-label', text: item.label });
-		body.createDiv({ cls: 'layer-field-type-hint', text: item.hint ?? '' });
+		const body = row.createSpan({cls: 'layer-field-type-text'});
+		body.createDiv({cls: 'layer-field-type-label', text: item.label});
+		body.createDiv({cls: 'layer-field-type-hint', text: item.hint ?? ''});
 	}
 
 	/** Whether the list is currently on screen. */

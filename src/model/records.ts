@@ -41,6 +41,7 @@ export function setCellValue(
 function matchesFieldShape(field: Field, value: CellValue): boolean {
 	switch (field.type) {
 		case 'relationBack':
+		case 'rollup':
 		case 'formula':
 			// Derived, never stored: there is no value a caller could set here.
 			return false;
@@ -356,6 +357,15 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.formulaType) {
 		copy.formulaType = source.formulaType;
 	}
+	if (source.rollupSourceFieldId) {
+		copy.rollupSourceFieldId = source.rollupSourceFieldId;
+	}
+	if (source.rollupFieldId) {
+		copy.rollupFieldId = source.rollupFieldId;
+	}
+	if (source.rollupAggregate) {
+		copy.rollupAggregate = source.rollupAggregate;
+	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
@@ -522,6 +532,11 @@ export function changeFieldType(
 	if (nextType !== 'formula') {
 		delete field.formula;
 		delete field.formulaType;
+	}
+	if (nextType !== 'rollup') {
+		delete field.rollupSourceFieldId;
+		delete field.rollupFieldId;
+		delete field.rollupAggregate;
 	}
 
 	return dropped;
