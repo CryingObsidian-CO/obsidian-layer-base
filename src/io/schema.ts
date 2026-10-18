@@ -142,6 +142,16 @@ function parseField(
 	if (field.type === 'relation' || field.type === 'relationBack') {
 		parseLinkSettings(raw, field);
 	}
+	if (field.type === 'formula') {
+		const expression = asString(raw.formula);
+		if (expression.trim() !== '') {
+			field.formula = expression;
+		}
+		const declared = asString(raw.formulaType);
+		if (declared === 'number' || declared === 'text' || declared === 'boolean') {
+			field.formulaType = declared;
+		}
+	}
 	return field;
 }
 
@@ -242,8 +252,9 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 			return text ?? '';
 		}
 		case 'relationBack':
-			// Derived: a value written by hand is not kept, so it cannot drift out of
-			// step with the links it describes.
+		case 'formula':
+			// Derived: a value written by hand is not kept, so it cannot drift out
+			// of step with what it is computed from.
 			return '';
 		default:
 			return normalizeCellValue(raw);

@@ -8,16 +8,20 @@ import {
 	parseOptionalNumber,
 } from '../model/number';
 import { optionColorHex } from '../model/select-options';
+import { fieldsUsed, parseFormula } from '../model/formula/parser';
+import { formulaErrorMessage } from './formula-text';
 import type { TableIndex } from '../io/table-index';
 import type {
 	Field,
 	FieldType,
+	FormulaResultType,
 	NumberFormat,
 	SelectOption,
 } from '../types';
 import { generateId } from '../utils/id';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 import { FieldTypeDropdown } from './field-type-picker';
+import { FormulaModal } from './formula-modal';
 import { renderOptionPill } from './option-pill';
 
 export interface NumberSettings {
@@ -48,6 +52,10 @@ export interface FieldEditorResult {
 	relation: RelationSettings;
 	/** The reverse relation's source, when the type is `relationBack`. */
 	back: BackSettings;
+	/** The expression, when the type is `formula`. */
+	formula: string;
+	/** How that result is presented; null to follow whatever it computed. */
+	formulaType: FormulaResultType | null;
 	typeChanged: boolean;
 }
 
@@ -80,6 +88,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	datetime: () => t().typeDateTime,
 	relation: () => t().typeRelation,
 	relationBack: () => t().typeRelationBack,
+	formula: () => t().typeFormula,
 	select: () => t().typeSelect,
 	multiSelect: () => t().typeMultiSelect,
 	checkbox: () => t().typeCheckbox,
@@ -108,12 +117,15 @@ export class FieldEditorModal extends AnchoredPopover {
 	private backPath: string;
 	private backFieldId: string;
 	private backTitleFieldId: string;
+	private formula: string;
+	private formulaType: FormulaResultType | null;
 	private readonly originalType: FieldType | null;
 	private readonly isEditing: boolean;
 
 	private optionsEl: HTMLElement | null = null;
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
+	private formulaEl: HTMLElement | null = null;
 	private requiredEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
 	private typeButton: HTMLButtonElement | null = null;
@@ -135,6 +147,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.backPath = config.field?.backPath ?? '';
 		this.backFieldId = config.field?.backFieldId ?? '';
 		this.backTitleFieldId = config.field?.backTitleFieldId ?? '';
+		this.formula = config.field?.formula ?? '';
+		this.formulaType = config.field?.formulaType ?? null;
 		// A path pointing at this very file IS "this table", so it is stored as one.
 		if (this.linkPath === config.selfPath) {
 			this.linkPath = '';
@@ -191,6 +205,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.relationEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderRelationSettings();
 
+		this.formulaEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderFormulaSettings();
+
 		this.requiredEl = contentEl.createDiv({ cls: 'layer-field-required-host' });
 		this.renderRequiredToggle();
 
@@ -235,6 +252,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.renderOptions();
 			this.renderNumberSettings();
 			this.renderRelationSettings();
+			this.renderFormulaSettings();
 			this.renderRequiredToggle();
 		});
 	}
@@ -482,6 +500,86 @@ export class FieldEditorModal extends AnchoredPopover {
 	}
 
 	/**
+	 * The formula of a `formula` column, shown as the expression it holds.
+	 *
+	 * Writing one wants room and its own reference lists, so it opens a centred
+	 * panel; what is kept here is only what that panel reports.
+	 */
+	private renderFormulaSettings(): void {
+		const host = this.formulaEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+
+		if (this.type !== 'formula') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().fieldFormulaLabel });
+
+		const button = host.createEl('button', {
+			cls: 'layer-field-formula-open',
+		});
+		const icon = button.createSpan({ cls: 'layer-field-formula-open-icon' });
+		setIcon(icon, 'sigma');
+		button.createSpan({
+			text: this.formula.trim() === '' ? t().formulaOpenEmpty : this.formula,
+		});
+		button.addEventListener('click', () => this.openFormulaEditor());
+
+		const status = host.createDiv({ cls: 'layer-field-formula-status' });
+		this.paintFormulaStatus(status);
+	}
+
+	/** Opens the formula panel, and keeps whatever it reports. */
+	private openFormulaEditor(): void {
+		new FormulaModal({
+			app: this.app,
+			formula: this.formula,
+			formulaType: this.formulaType,
+			fields: this.config.selfFields.filter(
+				(field) => field.id !== this.config.field?.id,
+			),
+			onSubmit: (result) => {
+				this.formula = result.formula;
+				this.formulaType = result.formulaType;
+				if (this.formulaEl) {
+					this.renderFormulaSettings();
+				}
+			},
+		}).open();
+	}
+
+	/** The read shown under the button: whether the stored formula can run. */
+	private paintFormulaStatus(status: HTMLElement): void {
+		status.empty();
+		status.removeClass('is-error', 'is-ok');
+		if (this.formula.trim() === '') {
+			return;
+		}
+		const parsed = parseFormula(this.formula);
+		if (!parsed.ok) {
+			status.addClass('is-error');
+			status.setText(formulaErrorMessage(parsed.error));
+			return;
+		}
+		const names = this.config.selfFields
+			.filter((field) => field.id !== this.config.field?.id)
+			.map((field) => field.name);
+		const missing = [...fieldsUsed(parsed.node)].filter(
+			(name) => !names.includes(name),
+		);
+		if (missing.length > 0) {
+			status.addClass('is-error');
+			status.setText(`${t().fieldFormulaError} ${missing.join(', ')}`);
+			return;
+		}
+		status.addClass('is-ok');
+		status.setText(t().fieldFormulaOk);
+	}
+
+	/**
 	 * The required toggle, as a checkbox plus its explanation: "required" alone
 	 * does not say what it constrains, and the consequence is invisible until a
 	 * cell is left empty.
@@ -648,6 +746,8 @@ export class FieldEditorModal extends AnchoredPopover {
 				fieldId: this.backFieldId,
 				titleFieldId: this.backTitleFieldId,
 			},
+			formula: this.formula.trim(),
+			formulaType: this.formulaType,
 			typeChanged: this.originalType !== null && this.originalType !== this.type,
 		});
 		this.close();

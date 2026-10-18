@@ -41,6 +41,7 @@ export function setCellValue(
 function matchesFieldShape(field: Field, value: CellValue): boolean {
 	switch (field.type) {
 		case 'relationBack':
+		case 'formula':
 			// Derived, never stored: there is no value a caller could set here.
 			return false;
 		case 'multiSelect':
@@ -349,6 +350,12 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.backTitleFieldId) {
 		copy.backTitleFieldId = source.backTitleFieldId;
 	}
+	if (source.formula) {
+		copy.formula = source.formula;
+	}
+	if (source.formulaType) {
+		copy.formulaType = source.formulaType;
+	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
@@ -511,6 +518,10 @@ export function changeFieldType(
 		delete field.backPath;
 		delete field.backFieldId;
 		delete field.backTitleFieldId;
+	}
+	if (nextType !== 'formula') {
+		delete field.formula;
+		delete field.formulaType;
 	}
 
 	return dropped;

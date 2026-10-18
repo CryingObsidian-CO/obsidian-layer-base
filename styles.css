@@ -253,6 +253,15 @@ body.layer-grid-resizing.is-row-resize * {
 	text-align: right;
 }
 
+/*
+ * A computed number lines up the same way. The class is on the cell rather than
+ * the field, because whether a cell holds a number is only known once the formula
+ * has run — the column's type says "formula", not "number".
+ */
+.layer-grid-td.is-value-number {
+	text-align: right;
+}
+
 /* A relation cell with rows it can no longer resolve: kept, and marked. */
 .layer-grid-td.is-broken-reference .layer-grid-value {
 	color: var(--text-error);
@@ -415,14 +424,6 @@ body.layer-grid-resizing.is-row-resize * {
 .layer-grid-empty-hint {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
-}
-
-.layer-grid-footer {
-	flex: 0 0 auto;
-	padding: var(--size-4-1) var(--size-4-3);
-	border-top: 1px solid var(--background-modifier-border);
-	color: var(--text-faint);
-	font-size: var(--font-ui-smaller);
 }
 
 /* ---------- Board shell: action row ---------- */
@@ -1189,6 +1190,170 @@ body.layer-grid-dragging-range * {
 	margin-top: var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
+}
+
+/*
+ * Whether the formula can run, shown as it is typed. `#error` in every cell is a
+ * bad way to learn about a missing brace, so the answer appears here first.
+ */
+.layer-field-formula-status {
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.layer-field-formula-status.is-error {
+	color: var(--text-error);
+}
+
+.layer-field-formula-status.is-ok {
+	color: var(--text-success);
+}
+
+/* The button that opens the formula panel: shows the expression it holds. */
+.layer-field-formula-open {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	width: 100%;
+	min-width: 0;
+	text-align: left;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-field-formula-open-icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+/* The formula panel itself: a wide, centred editor with its own reference lists. */
+.modal.layer-formula-modal {
+	width: min(52rem, 90vw);
+	max-width: min(52rem, 90vw);
+}
+
+.layer-formula-title {
+	margin: 0 0 var(--size-4-3);
+}
+
+/*
+ * The expression box is the largest thing in the panel, because it is what the
+ * panel is for; three rows is enough to see a nested call without scrolling.
+ */
+.layer-formula-input {
+	width: 100%;
+	min-height: 7rem;
+	resize: vertical;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+	line-height: 1.5;
+}
+
+/* The result-type row: a label and its picker, sitting right under the box. */
+.layer-formula-type {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-2);
+}
+
+.layer-formula-type-label {
+	flex: 0 0 auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.layer-formula-type-select {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.layer-formula-type-hint {
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* A quiet strip that says what the formula currently reads. */
+.layer-formula-preview {
+	margin-top: var(--size-4-2);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Only on screen when there is something wrong, so it does not add noise. */
+.layer-formula-error {
+	display: none;
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+}
+
+.layer-formula-error.is-visible {
+	display: block;
+}
+
+.layer-formula-heading {
+	margin: var(--size-4-4) 0 var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* The name of a group of functions, quieter than the heading above it. */
+.layer-formula-group {
+	margin: var(--size-4-2) 0 var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* The buttons wrap, so a table with many columns still fits the panel. */
+.layer-formula-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+}
+
+.layer-formula-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-radius: var(--radius-l);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-formula-chip-icon {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+/*
+ * A symbol chip holds the character itself, so it is set in the same monospace as
+ * the expression and given a little more room a symbol does not need but a pair
+ * like `>=` does.
+ */
+.layer-formula-chip.is-symbol {
+	min-width: 2.6em;
+	justify-content: center;
+	font-family: var(--font-monospace);
+}
+
+.layer-formula-hint {
+	margin-top: var(--size-4-4);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.layer-formula-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
 }
 
 .layer-field-option-row {

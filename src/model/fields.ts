@@ -159,6 +159,17 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: () => true,
 	},
 
+	formula: {
+		type: 'formula',
+		icon: 'sigma',
+		// Nothing to read: the value is computed from the row, which this module
+		// cannot see.
+		toText: () => '',
+		fromText: () => REFUSED,
+		// Always "empty": it stores nothing, so there is nothing here to be full.
+		isEmpty: () => true,
+	},
+
 	select: {
 		type: 'select',
 		icon: 'circle',
@@ -212,6 +223,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'datetime',
 	'relation',
 	'relationBack',
+	'formula',
 	'select',
 	'multiSelect',
 	'checkbox',
@@ -267,7 +279,7 @@ export function isMissingRequired(field: Field, value: CellValue): boolean {
 
 /** Whether a type's values are computed rather than stored. */
 export function isDerived(type: FieldType): boolean {
-	return type === 'relationBack';
+	return type === 'relationBack' || type === 'formula';
 }
 
 export function cellToText(field: Field, value: CellValue): string {

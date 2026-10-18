@@ -38,6 +38,7 @@ describe('field types', () => {
 			'datetime',
 			'relation',
 			'relationBack',
+			'formula',
 			'select',
 			'multiSelect',
 			'checkbox',

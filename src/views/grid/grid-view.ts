@@ -1,4 +1,4 @@
-import {setIcon} from 'obsidian';
+import {setIcon, setTooltip} from 'obsidian';
 import {t} from '../../i18n';
 import {
 	HEADER_HEIGHT,
@@ -57,6 +57,8 @@ export interface GridHandlers {
 	relationText(field: Field, value: CellValue): CellText;
 	/** What a reverse relation row shows: the rows that point at it. */
 	backText(field: Field, recordId: string): CellText;
+	/** What a formula row computes to. */
+	formulaText(field: Field, recordId: string): CellText;
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 	onPasteInto(recordIds: string[], fields: Field[]): void;
 	onSelectionChange(
@@ -228,8 +230,9 @@ export class GridRenderer {
 				th.addClass('is-derived');
 				const lock = th.createSpan({ cls: 'layer-grid-derived-icon' });
 				setIcon(lock, 'lock');
+				// Obsidian's own tooltip; a `title` as well would draw a second one.
+				setTooltip(lock, t().fieldDerivedHint);
 				lock.setAttribute('aria-label', t().fieldDerivedHint);
-				lock.setAttribute('title', t().fieldDerivedHint);
 			}
 			const icon = th.createSpan({cls: 'layer-grid-type-icon'});
 			setIcon(icon, specFor(field.type).icon);
@@ -811,6 +814,9 @@ export class GridRenderer {
 			if (field.type === 'relationBack') {
 				return this.handlers.backText(field, recordId);
 			}
+			if (field.type === 'formula') {
+				return this.handlers.formulaText(field, recordId);
+			}
 			return { text: formatCell(field, value), broken: 0 };
 		};
 	}
@@ -860,6 +866,20 @@ export interface CellText {
 	broken: number;
 	/** Values to draw as separate chips, when the cell holds more than one. */
 	chips?: readonly string[];
+	/**
+	 * What kind of value stands behind the text, when the caller knows. A plain
+	 * field always answers text; a computed one says what it computed, so a total
+	 * can line up and a condition can show a tick. A column may also be told which
+	 * kind to present, for rows that compute different ones.
+	 */
+	kind?: 'number' | 'text' | 'boolean';
+	/** Whether a box drawn for this cell is ticked. Only read when `kind` is boolean. */
+	ticked?: boolean;
+	/**
+	 * Why the cell cannot show what it should, as a sentence. Shown on hover and
+	 * read out, so a cell that is too narrow for the reason still offers it.
+	 */
+	hint?: string;
 }
 
 /** Resolves a cell to text. A relation needs another table, so the caller supplies it. */
@@ -881,6 +901,21 @@ function paintResolved(
 	resolved: CellText,
 ): void {
 	cell.toggleClass('is-broken-reference', resolved.broken > 0);
+	// The kind is carried by the cell rather than the span, so the alignment rule
+	// reaches the text without the span having to know what it holds.
+	cell.toggleClass('is-value-number', resolved.kind === 'number');
+	if (resolved.kind === 'boolean') {
+		// A condition shows the same box a checkbox column draws, rather than the
+		// words TRUE and FALSE. Whether it is ticked comes from the value's own
+		// meaning, so a column told to show a box has one rule to follow.
+		const ticked = resolved.ticked === true;
+		const box = cell.createSpan({
+			cls: ticked ? 'layer-grid-checkbox is-ticked' : 'layer-grid-checkbox',
+		});
+		setIcon(box, ticked ? 'check-square' : 'square');
+		box.setAttribute('aria-label', ticked ? t().cellChecked : t().cellUnchecked);
+		return;
+	}
 	if (resolved.chips && resolved.chips.length > 0) {
 		const run = cell.createSpan({cls: 'layer-grid-pills'});
 		for (const chip of resolved.chips) {
@@ -896,7 +931,17 @@ function paintResolved(
 		});
 	}
 	if (resolved.broken > 0) {
-		cell.setAttribute('aria-label', t().relationBroken);
+		// The reason travels with the cell, so a hover and a screen reader both get
+		// it. A broken link has none of its own, so it keeps the shared wording.
+		const why = resolved.hint ?? t().relationBroken;
+		cell.setAttribute('aria-label', why);
+		// Registered only when the wording changes: a cell repaints on every scroll
+		// of the grid, and re-registering the same tooltip each time would pile up
+		// handlers for nothing.
+		if (cell.dataset.hint !== why) {
+			cell.dataset.hint = why;
+			setTooltip(cell, why);
+		}
 	}
 }
 
@@ -911,6 +956,7 @@ export function renderCellValue(
 	cell.removeClass('is-editing');
 	// Cleared on every paint, so a stale warning cannot outlive the value.
 	cell.removeClass('is-broken-reference');
+	cell.removeClass('is-value-number');
 	cell.removeAttribute('aria-label');
 	// Recomputed on every paint, including the restore after a cancelled edit, so
 	// the warning disappears the moment the cell stops being empty. Kept here
@@ -938,7 +984,22 @@ export function renderCellValue(
 	 * that branch would give it `—` even when the other table has plenty to say.
 	 */
 	if (isDerived(field.type)) {
-		paintResolved(cell, field, format(field, value, recordId));
+		const resolved = format(field, value, recordId);
+		/*
+		 * A computed cell that came back with nothing to show reads the same way any
+		 * other empty cell does. A column with no expression yet, and a reverse
+		 * relation nobody points at, are both simply empty — not broken.
+		 */
+		const empty =
+			resolved.broken === 0 &&
+			resolved.kind !== 'boolean' &&
+			resolved.text === '' &&
+			(resolved.chips === undefined || resolved.chips.length === 0);
+		if (empty) {
+			cell.createSpan({cls: 'layer-grid-placeholder', text: '—'});
+			return;
+		}
+		paintResolved(cell, field, resolved);
 		return;
 	}
 	if (isEmptyCell(value)) {

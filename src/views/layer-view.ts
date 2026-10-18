@@ -29,6 +29,8 @@ import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
 import {cellToText, relationIds, usesOptions} from '../model/fields';
+import {computeFormula} from '../model/formula';
+import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
 import {
 	relationBackIndex,
 	relationCandidates as candidatesOf,
@@ -40,7 +42,14 @@ import {
 	setColumnWidth,
 	setRowHeight,
 } from '../model/layout';
-import type {CellValue, Field, LayerDoc, SelectOption, View} from '../types';
+import type {
+	CellValue,
+	Field,
+	FormulaResultType,
+	LayerDoc,
+	SelectOption,
+	View,
+} from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
 import type { Anchor } from '../ui/anchored-popover';
@@ -295,6 +304,8 @@ export class LayerView extends TextFileView {
 					this.relationCandidates(field),
 				relationText: (field, value) => this.relationText(field, value),
 				backText: (field, recordId) => this.backText(field, recordId),
+				formulaText: (field, recordId) =>
+					this.formulaText(field, recordId),
 				onSelectionChange: (selection, range) => {
 					this.selection = selection;
 					this.rangeSize = range;
@@ -453,6 +464,7 @@ export class LayerView extends TextFileView {
 			}
 			this.applyNumberSettings(created, result.number);
 			this.applyRelationSettings(doc, created, result.relation);
+			this.applyFormulaSettings(created, result.formula, result.formulaType);
 				this.applyBackSettings(created, result.back);
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
@@ -481,11 +493,42 @@ export class LayerView extends TextFileView {
 			// a number.
 			this.applyNumberSettings(field, result.number);
 			this.applyRelationSettings(doc, field, result.relation);
+			this.applyFormulaSettings(field, result.formula, result.formulaType);
 				this.applyBackSettings(field, result.back);
 		}
 
 		this.markDirty();
 		this.render();
+	}
+
+	/**
+	 * Writes a formula's expression and how its result is presented. It stores no
+	 * values, so there are no cells to clear when either changes — every cell is
+	 * recomputed, and only its dressing follows the declared kind.
+	 */
+	private applyFormulaSettings(
+		field: Field,
+		formula: string,
+		formulaType: FormulaResultType | null,
+	): void {
+		if (field.type !== 'formula') {
+			delete field.formula;
+			delete field.formulaType;
+			return;
+		}
+		if (formula === '') {
+			delete field.formula;
+		} else {
+			field.formula = formula;
+		}
+		// Absent means "follow the result", which is not worth writing down.
+		if (formulaType === null) {
+			delete field.formulaType;
+		} else {
+			field.formulaType = formulaType;
+		}
+		// Derived, so it holds nothing and cannot be required.
+		delete field.required;
 	}
 
 	/**
@@ -949,6 +992,60 @@ export class LayerView extends TextFileView {
 			this.repaintQueued = false;
 			this.render();
 		}, 0);
+	}
+
+	/**
+	 * What a formula row computes to.
+	 *
+	 * The columns are re-read from the open document rather than trusted from the
+	 * cell that asked: the grid was built from an earlier render, and a formula
+	 * must read the values as they are now.
+	 */
+	private formulaText(field: Field, recordId: string): CellText {
+		const doc = this.doc;
+		if (!doc) {
+			return { text: '', broken: 0 };
+		}
+		const record = findRecord(doc, recordId);
+		const target = doc.fields.find((candidate) => candidate.id === field.id);
+		if (!record || !target) {
+			return { text: '', broken: 0 };
+		}
+		/*
+		 * A column with no expression yet is not an error, it is a column waiting to
+		 * be set up, so it reads as empty rather than reporting a failure in every
+		 * row of a field that was just created.
+		 */
+		if ((target.formula ?? '').trim() === '') {
+			return { text: '', broken: 0 };
+		}
+		const result = computeFormula(doc, record, target);
+		if (result.ok) {
+			/*
+			 * The text is always what was computed; only the dressing follows the
+			 * column's declared kind. Coercing here would quietly change a result
+			 * the reader can see, which is worse than presenting it plainly.
+			 */
+			return {
+				text: result.text,
+				broken: 0,
+				kind: target.formulaType ?? result.kind,
+				ticked: result.truthy,
+			};
+		}
+		/*
+		 * A broken formula says so in the cell, and is marked so it reads as a
+		 * problem rather than as a value that happens to start with `#`.
+		 *
+		 * The cell names the KIND of mistake — a raw code like `trailing-text` tells
+		 * a reader nothing — and the sentence explaining it travels as the hover and
+		 * the accessible name.
+		 */
+		return {
+			text: formulaErrorShort(result.error),
+			broken: 1,
+			hint: formulaErrorMessage(result.error),
+		};
 	}
 
 	private relationCandidates(field: Field): readonly RelationCandidate[] {

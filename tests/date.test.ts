@@ -5,6 +5,10 @@ import {
 	serializeLayerDoc,
 } from '../src/io/schema';
 import {
+	addDays,
+	dateField as partOfDate,
+	dateParts,
+	dayNumber,
 	daysInMonth,
 	displayDateTime,
 	isLeapYear,
@@ -221,5 +225,61 @@ describe('through the file', () => {
 		expect(setCellValue(doc, record.id, field, 20261017)).toBe(false);
 		expect(setCellValue(doc, record.id, field, '2026-10-17')).toBe(true);
 		expect(record.cells.f_d).toBe('2026-10-17');
+	});
+});
+
+describe('day arithmetic without a clock', () => {
+	it('counts whole days between dates', () => {
+		expect(dayNumber('1970-01-01')).toBe(0);
+		expect(dayNumber('1970-01-02')).toBe(1);
+		expect(dayNumber('2026-10-18')! - dayNumber('2026-10-01')!).toBe(17);
+	});
+
+	it('counts across a leap day rather than skipping it', () => {
+		expect(dayNumber('2028-03-01')! - dayNumber('2028-02-28')!).toBe(2);
+		// 2100 is not a leap year, which the every-fourth-year rule alone would miss.
+		expect(dayNumber('2100-03-01')! - dayNumber('2100-02-28')!).toBe(1);
+	});
+
+	it('does not shift with a daylight-saving change', () => {
+		// The reason this does not use Date: a local-zone count would answer 0 or 2
+		// on the days the clocks move, depending on where the reader lives.
+		expect(dayNumber('2026-03-29')! - dayNumber('2026-03-28')!).toBe(1);
+		expect(dayNumber('2026-10-25')! - dayNumber('2026-10-24')!).toBe(1);
+	});
+
+	it('moves a date by whole days', () => {
+		expect(addDays('2026-12-25', 14)).toBe('2027-01-08');
+		expect(addDays('2026-01-01', -1)).toBe('2025-12-31');
+		expect(addDays('2028-02-28', 1)).toBe('2028-02-29');
+	});
+
+	it('keeps the time half of a date-time', () => {
+		expect(addDays('2026-10-18T09:15', 1)).toBe('2026-10-19T09:15');
+	});
+
+	it('refuses what is not a date, rather than guessing', () => {
+		expect(dayNumber('soon')).toBeNull();
+		expect(dayNumber('2026-02-30')).toBeNull();
+		expect(addDays('soon', 1)).toBeNull();
+		// Half a day has no meaning in a column of dates.
+		expect(addDays('2026-10-18', 1.5)).toBeNull();
+	});
+
+	it('reads the parts of a stored date', () => {
+		expect(partOfDate('2026-03-07', 'year')).toBe(2026);
+		expect(partOfDate('2026-03-07', 'month')).toBe(3);
+		expect(partOfDate('2026-03-07', 'day')).toBe(7);
+		expect(partOfDate('2026-03-07T22:00', 'day')).toBe(7);
+		expect(partOfDate('soon', 'year')).toBeNull();
+	});
+
+	it('splits a date-time into its two halves', () => {
+		expect(dateParts('2026-03-07')).toEqual({date: '2026-03-07', time: null});
+		expect(dateParts('2026-03-07T08:05')).toEqual({
+			date: '2026-03-07',
+			time: '08:05',
+		});
+		expect(dateParts('soon')).toBeNull();
 	});
 });

@@ -8,6 +8,7 @@ export type FieldType =
 	| 'datetime'
 	| 'relation'
 	| 'relationBack'
+	| 'formula'
 	| 'select'
 	| 'multiSelect'
 	| 'checkbox';
@@ -65,7 +66,21 @@ export interface Field {
 	 * means the row's number, which is what an unconfigured column shows.
 	 */
 	backTitleFieldId?: string;
+	/**
+	 * `formula` fields only: the expression this column is computed from. Other
+	 * columns are named with `{their name}`; nothing about it is stored in cells.
+	 */
+	formula?: string;
+	/**
+	 * `formula` fields only: how the result is presented, for a column whose rows
+	 * compute different kinds. Missing means the result's own kind decides. It
+	 * changes the dressing only — never the computed value.
+	 */
+	formulaType?: FormulaResultType;
 }
+
+/** How a `formula` field presents what it computed. */
+export type FormulaResultType = 'number' | 'text' | 'boolean';
 
 /**
  * What one cell holds, in the shape its field type uses: text, long text, date
