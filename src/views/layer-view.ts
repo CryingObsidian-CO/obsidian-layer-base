@@ -10,6 +10,7 @@ import {
 	changeFieldType,
 	clearRecord,
 	clearCells,
+	clearFieldCells,
 	duplicateField,
 	duplicateRecords,
 	findRecord,
@@ -27,8 +28,14 @@ import {copyFormatted, readFormatted, readText} from '../model/clipboard';
 import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
-import {cellToText, usesOptions} from '../model/fields';
+import {cellToText, relationIds, usesOptions} from '../model/fields';
 import {
+	relationBackIndex,
+	relationCandidates as candidatesOf,
+	relationText as textOf,
+	repairRelationPaths,
+	type RelationCandidate,
+} from '../model/relation';import {
 	findGridView,
 	setColumnWidth,
 	setRowHeight,
@@ -39,12 +46,14 @@ import {ConfirmModal} from '../ui/confirm-modal';
 import type { Anchor } from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
+	type BackSettings,
 	type FieldEditorResult,
 	type NumberSettings,
+	type RelationSettings,
 } from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell} from './board-shell';
-import {GridRenderer} from './grid/grid-view';
+import {GridRenderer, type CellText} from './grid/grid-view';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -53,6 +62,13 @@ export class LayerView extends TextFileView {
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
 	private grid: GridRenderer | null = null;
+	/** Reverse lookups for the current render pass, per source column. */
+	private readonly backIndexes = new Map<
+		string,
+		Map<string, string[]> | null
+	>();
+	/** A repaint is already scheduled, so a burst of changes paints once. */
+	private repaintQueued = false;
 	private statusEl: HTMLElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, private readonly plugin: LayerBasePlugin) {
@@ -104,6 +120,25 @@ export class LayerView extends TextFileView {
 				});
 			}),
 		);
+		// A linked table arriving or changing has to reach the cells that read it.
+		this.register(this.plugin.tables.onChange(() => this.onTargetLoaded()));
+		// A rename carries the exact old-and-new pair, which is the only way to
+		// follow a table that was renamed rather than merely moved.
+		this.register(
+			this.plugin.tables.onRename((oldPath, newPath) =>
+				this.repairLinks(oldPath, newPath),
+			),
+		);
+	}
+
+	/** Rewrites this document's links to a table that was renamed or moved. */
+	private repairLinks(oldPath: string, newPath: string): void {
+		if (!this.doc) {
+			return;
+		}
+		if (repairRelationPaths(this.doc, oldPath, newPath) > 0) {
+			this.markDirty();
+		}
 	}
 
 	/**
@@ -172,6 +207,8 @@ export class LayerView extends TextFileView {
 	}
 
 	private render(): void {
+		// The reverse lookups belong to the tree about to be thrown away.
+		this.backIndexes.clear();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
 
@@ -254,6 +291,10 @@ export class LayerView extends TextFileView {
 				},
 				onCreateOption: (field, name) =>
 					this.handleCreateOption(field, name),
+				relationCandidates: (field) =>
+					this.relationCandidates(field),
+				relationText: (field, value) => this.relationText(field, value),
+				backText: (field, recordId) => this.backText(field, recordId),
 				onSelectionChange: (selection, range) => {
 					this.selection = selection;
 					this.rangeSize = range;
@@ -381,6 +422,9 @@ export class LayerView extends TextFileView {
 			app: this.app,
 			field,
 			anchor: anchor ?? null,
+			tables: this.plugin.tables,
+			selfFields: this.doc.fields,
+			selfPath: this.file?.path ?? '',
 			onSubmit: (result) => {
 				this.applyFieldEdit(field, result, after);
 			},
@@ -408,6 +452,8 @@ export class LayerView extends TextFileView {
 				created.required = true;
 			}
 			this.applyNumberSettings(created, result.number);
+			this.applyRelationSettings(doc, created, result.relation);
+				this.applyBackSettings(created, result.back);
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
 			} else {
@@ -434,10 +480,91 @@ export class LayerView extends TextFileView {
 			// After the type change, which clears these when the field stops being
 			// a number.
 			this.applyNumberSettings(field, result.number);
+			this.applyRelationSettings(doc, field, result.relation);
+				this.applyBackSettings(field, result.back);
 		}
 
 		this.markDirty();
 		this.render();
+	}
+
+	/**
+	 * Writes the relation's source, keeping "this table" out of the file entirely.
+	 *
+	 * Pointing the field at a different table or column clears the cells it held:
+	 * the stored row ids no longer mean what they did, and carrying them over
+	 * would show one column's values where another was asked for. Same rule as
+	 * changing a field's type.
+	 */
+	private applyRelationSettings(
+		doc: LayerDoc,
+		field: Field,
+		settings: RelationSettings,
+	): void {
+		const wasRelation = field.type === 'relation';
+		const beforePath = field.linkPath ?? '';
+		const beforeColumn = field.linkFieldId ?? '';
+
+		if (field.type !== 'relation') {
+			delete field.linkPath;
+			delete field.linkFieldId;
+		} else if (settings.path === '') {
+			delete field.linkPath;
+		} else {
+			field.linkPath = settings.path;
+		}
+		if (field.type === 'relation') {
+			if (settings.fieldId === '') {
+				delete field.linkFieldId;
+			} else {
+				field.linkFieldId = settings.fieldId;
+			}
+		}
+
+		const movedTarget =
+			wasRelation &&
+			(beforePath !== (field.linkPath ?? '') ||
+				beforeColumn !== (field.linkFieldId ?? ''));
+		if (!movedTarget) {
+			return;
+		}
+		const cleared = clearFieldCells(doc, field.id);
+		if (cleared > 0) {
+			new Notice(t().fieldLinkCleared(cleared));
+		}
+	}
+
+	/**
+	 * Writes a reverse relation's source. It stores no values, so there are no
+	 * cells to clear when the source changes — only the flag it cannot carry.
+	 */
+	private applyBackSettings(
+		field: Field,
+		settings: BackSettings,
+	): void {
+		if (field.type !== 'relationBack') {
+			delete field.backPath;
+			delete field.backFieldId;
+			delete field.backTitleFieldId;
+			return;
+		}
+		if (settings.path === '') {
+			delete field.backPath;
+		} else {
+			field.backPath = settings.path;
+		}
+		if (settings.fieldId === '') {
+			delete field.backFieldId;
+		} else {
+			field.backFieldId = settings.fieldId;
+		}
+		if (settings.titleFieldId === '') {
+			delete field.backTitleFieldId;
+		} else {
+			field.backTitleFieldId = settings.titleFieldId;
+		}
+		// Derived, so it holds nothing and cannot be required.
+		delete field.required;
 	}
 
 	/** Writes the number settings, keeping only those that differ from defaults. */
@@ -767,6 +894,137 @@ export class LayerView extends TextFileView {
 		const option = appendOption(target, name);
 		this.markDirty();
 		return option;
+	}
+
+	/**
+	 * The document a relation field reads, or null while it is not to hand.
+	 *
+	 * A field with no path links to this table; anything else goes through the
+	 * vault index, which is also what a renamed table is found by. A miss is not
+	 * an error: the index is asked to read it, and the repaint that follows a
+	 * finished read is what fills the cell in.
+	 */
+	private targetDoc(field: Field): LayerDoc | null {
+		const path = field.linkPath;
+		if (!path) {
+			return this.doc;
+		}
+		const resolved = this.plugin.tables.resolve(path);
+		if (!resolved) {
+			return null;
+		}
+		if (resolved !== path) {
+			/*
+			 * The table was renamed or moved and found again by its filename. The
+			 * correction is kept on the field, so the next save of THIS document
+			 * writes it down — the plugin never writes a file it was not asked to
+			 * edit, and that is the only way the repair reaches the disk.
+			 *
+			 * Mutating during a paint is safe here: the value it would repaint is
+			 * unchanged, so no second render is asked for.
+			 */
+			field.linkPath = resolved;
+			this.markDirty();
+		}
+		const target = this.plugin.tables.get(resolved);
+		if (!target) {
+			this.plugin.tables.ensure(resolved);
+		}
+		return target;
+	}
+
+	/**
+	 * A linked table finished loading or changed: paint again, once.
+	 *
+	 * Several tables can land together, and a repaint while a cell is open would
+	 * throw the editor away, so the work is deferred and coalesced — a burst of
+	 * changes costs one render rather than one each.
+	 */
+	private onTargetLoaded(): void {
+		if (this.grid?.isEditing() || this.repaintQueued) {
+			return;
+		}
+		this.repaintQueued = true;
+		window.setTimeout(() => {
+			this.repaintQueued = false;
+			this.render();
+		}, 0);
+	}
+
+	private relationCandidates(field: Field): readonly RelationCandidate[] {
+		const target = this.targetDoc(field);
+		return target ? candidatesOf(target, field.linkFieldId ?? '') : [];
+	}
+
+	private relationText(field: Field, value: CellValue): CellText {
+		const target = this.targetDoc(field);
+		if (!target) {
+			return { text: '', broken: relationIds(value).length };
+		}
+		const resolved = textOf(target, field.linkFieldId ?? '', value);
+		return {
+			text: resolved.texts.join(', '),
+			broken: resolved.broken,
+			chips: resolved.texts,
+		};
+	}
+
+	/** What a reverse relation row shows: the rows elsewhere that point at it. */
+	private backText(field: Field, recordId: string): CellText {
+		const source = this.sourceDoc(field);
+		if (source === null) {
+			return { text: '', broken: 1 };
+		}
+		/*
+		 * Built once per column per render, not once per cell: asking per cell
+		 * would scan the whole source table for every row of this one.
+		 */
+		const titleFieldId = field.backTitleFieldId ?? '';
+		const key = `${field.backPath ?? ''}\u0000${field.backFieldId ?? ''}\u0000${titleFieldId}`;
+		let index = this.backIndexes.get(key);
+		if (index === undefined) {
+			index = relationBackIndex(
+				source,
+				field.backFieldId ?? '',
+				titleFieldId,
+			);
+			this.backIndexes.set(key, index);
+		}
+		if (index === null) {
+			return { text: '', broken: 1 };
+		}
+		const texts = index.get(recordId) ?? [];
+		return {
+			text: texts.join(', '),
+			broken: 0,
+			chips: texts,
+		};
+	}
+
+	/**
+	 * The table a reverse relation reads: the one whose rows point back here.
+	 *
+	 * Resolved the same way a forward link is, including the filename fallback,
+	 * and repaired the same way when it turns out to have moved.
+	 */
+	private sourceDoc(field: Field): LayerDoc | null {
+		const path = field.backPath;
+		if (!path) {
+			return this.doc;
+		}
+		const resolved = this.plugin.tables.resolve(path);
+		if (!resolved) {
+			return null;
+		}
+		if (resolved !== path) {
+			field.backPath = resolved;
+			this.markDirty();
+		}
+		const source = this.plugin.tables.get(resolved);
+		if (!source) {
+			this.plugin.tables.ensure(resolved);
+		}
+		return source;
 	}
 
 	/**

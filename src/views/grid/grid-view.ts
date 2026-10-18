@@ -10,12 +10,14 @@ import {
 import {
 	deserializeCellValue,
 	formatCell,
+	isDerived,
 	isEmptyCell,
 	isMissingRequired,
 	optionsOf,
 	serializeCellValue,
 	specFor,
 } from '../../model/fields';
+import type {RelationCandidate} from '../../model/relation';
 import type {CellValue, Field, GridView, LayerDoc, SelectOption, View} from '../../types';
 import {renderOptionPill} from '../../ui/option-pill';
 import {beginCellEdit, type CellEditHandle} from './cell-editor';
@@ -49,6 +51,12 @@ export interface GridHandlers {
 	onClearCells(recordIds: string[], fields: Field[]): void;
 	/** Creates an option on a select field for a name typed into a cell. */
 	onCreateOption(field: Field, name: string): SelectOption | null;
+	/** The rows a relation cell may point at, read from the table it links to. */
+	relationCandidates(field: Field): readonly RelationCandidate[];
+	/** What a relation cell reads as; the grid cannot read another table itself. */
+	relationText(field: Field, value: CellValue): CellText;
+	/** What a reverse relation row shows: the rows that point at it. */
+	backText(field: Field, recordId: string): CellText;
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 	onPasteInto(recordIds: string[], fields: Field[]): void;
 	onSelectionChange(
@@ -210,6 +218,18 @@ export class GridRenderer {
 			th.addClass('layer-grid-th', 'is-clickable');
 			if (field.primary) {
 				th.addClass('is-primary');
+			}
+			/*
+			 * A derived column says so before its type: its values are worked out
+			 * from another table, so nothing here can be typed into. The badge is
+			 * what tells the two apart before a cell is even tried.
+			 */
+			if (isDerived(field.type)) {
+				th.addClass('is-derived');
+				const lock = th.createSpan({ cls: 'layer-grid-derived-icon' });
+				setIcon(lock, 'lock');
+				lock.setAttribute('aria-label', t().fieldDerivedHint);
+				lock.setAttribute('title', t().fieldDerivedHint);
 			}
 			const icon = th.createSpan({cls: 'layer-grid-type-icon'});
 			setIcon(icon, specFor(field.type).icon);
@@ -424,6 +444,9 @@ export class GridRenderer {
 				const cell = row.insertCell();
 				cell.addClass('layer-grid-td', `is-${field.type}`);
 				cell.dataset.fieldId = field.id;
+				if (isDerived(field.type)) {
+					cell.addClass('is-derived');
+				}
 				if (field.primary) {
 					cell.addClass('is-primary');
 				}
@@ -597,7 +620,7 @@ export class GridRenderer {
 		recordId: string,
 		value: CellValue,
 	): void {
-		renderCellValue(cell, field, value);
+		renderCellValue(cell, field, value, this.formatter(), recordId);
 		// `dataset` holds strings only; `fillRange` parses this back.
 		cell.dataset.value = serializeCellValue(value);
 
@@ -767,15 +790,40 @@ export class GridRenderer {
 				latest = next;
 				this.commit(cell, field, recordId, next);
 			},
-			restore: () => renderCellValue(cell, field, latest),
+			restore: () => renderCellValue(cell, field, latest, this.formatter(), recordId),
 			createOption: (name) => this.handlers.onCreateOption(field, name),
+			relationCandidates: () => this.handlers.relationCandidates(field),
 		});
+	}
+
+	/**
+	 * How this grid resolves a cell to text.
+	 *
+	 * A relation reads from another table, which only the view can reach, so its
+	 * cells go through the handler while every other type keeps the plain
+	 * formatter.
+	 */
+	private formatter(): CellFormatter {
+		return (field, value, recordId) => {
+			if (field.type === 'relation') {
+				return this.handlers.relationText(field, value);
+			}
+			if (field.type === 'relationBack') {
+				return this.handlers.backText(field, recordId);
+			}
+			return { text: formatCell(field, value), broken: 0 };
+		};
 	}
 
 	/** Ends an edit still open, keeping what it holds — its text is not saved yet. */
 	commitOpenEdit(): void {
 		this.openEdit?.commit();
 		this.openEdit = null;
+	}
+
+	/** Whether a cell editor is open, so a repaint must wait for it. */
+	isEditing(): boolean {
+		return this.openEdit !== null;
 	}
 
 	private commit(
@@ -806,13 +854,64 @@ function isElement(value: HTMLElement | undefined): value is HTMLElement {
 	return value !== undefined;
 }
 
+/** What a cell reads as, and whether part of it could not be resolved. */
+export interface CellText {
+	text: string;
+	broken: number;
+	/** Values to draw as separate chips, when the cell holds more than one. */
+	chips?: readonly string[];
+}
+
+/** Resolves a cell to text. A relation needs another table, so the caller supplies it. */
+export type CellFormatter = (
+	field: Field,
+	value: CellValue,
+	recordId: string,
+) => CellText;
+
+const plainFormatter: CellFormatter = (field, value) => ({
+	text: formatCell(field, value),
+	broken: 0,
+});
+
+/** Draws an already-resolved cell: chips when it holds several values. */
+function paintResolved(
+	cell: HTMLElement,
+	field: Field,
+	resolved: CellText,
+): void {
+	cell.toggleClass('is-broken-reference', resolved.broken > 0);
+	if (resolved.chips && resolved.chips.length > 0) {
+		const run = cell.createSpan({cls: 'layer-grid-pills'});
+		for (const chip of resolved.chips) {
+			renderOptionPill(run, chip, undefined);
+		}
+	} else {
+		cell.createSpan({
+			cls:
+				field.type === 'longtext'
+					? 'layer-grid-value is-longtext'
+					: 'layer-grid-value',
+			text: resolved.text,
+		});
+	}
+	if (resolved.broken > 0) {
+		cell.setAttribute('aria-label', t().relationBroken);
+	}
+}
+
 export function renderCellValue(
 	cell: HTMLElement,
 	field: Field,
 	value: CellValue,
+	format: CellFormatter = plainFormatter,
+	recordId = '',
 ): void {
 	cell.empty();
 	cell.removeClass('is-editing');
+	// Cleared on every paint, so a stale warning cannot outlive the value.
+	cell.removeClass('is-broken-reference');
+	cell.removeAttribute('aria-label');
 	// Recomputed on every paint, including the restore after a cancelled edit, so
 	// the warning disappears the moment the cell stops being empty. Kept here
 	// rather than in `paintCell` because this function is also the restore path.
@@ -832,6 +931,14 @@ export function renderCellValue(
 		});
 		setIcon(box, ticked ? 'check-square' : 'square');
 		box.setAttribute('aria-label', ticked ? t().cellChecked : t().cellUnchecked);
+		return;
+	}
+	/*
+	 * A derived cell stores nothing, so it is answered before the empty branch:
+	 * that branch would give it `—` even when the other table has plenty to say.
+	 */
+	if (isDerived(field.type)) {
+		paintResolved(cell, field, format(field, value, recordId));
 		return;
 	}
 	if (isEmptyCell(value)) {
@@ -860,13 +967,7 @@ export function renderCellValue(
 		}
 	}
 	// The class on the value is what lets CSS tell the two textual types apart.
-	cell.createSpan({
-		cls:
-			field.type === 'longtext'
-				? 'layer-grid-value is-longtext'
-				: 'layer-grid-value',
-		text: formatCell(field, value),
-	});
+	paintResolved(cell, field, format(field, value, recordId));
 }
 
 /** The option a stored cell value refers to; ids are unique per field. */

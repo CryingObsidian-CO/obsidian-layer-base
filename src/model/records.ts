@@ -40,7 +40,11 @@ export function setCellValue(
  */
 function matchesFieldShape(field: Field, value: CellValue): boolean {
 	switch (field.type) {
+		case 'relationBack':
+			// Derived, never stored: there is no value a caller could set here.
+			return false;
 		case 'multiSelect':
+		case 'relation':
 			return Array.isArray(value);
 		case 'checkbox':
 			return typeof value === 'boolean';
@@ -330,6 +334,21 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.max !== undefined) {
 		copy.max = source.max;
 	}
+	if (source.linkPath) {
+		copy.linkPath = source.linkPath;
+	}
+	if (source.linkFieldId) {
+		copy.linkFieldId = source.linkFieldId;
+	}
+	if (source.backPath) {
+		copy.backPath = source.backPath;
+	}
+	if (source.backFieldId) {
+		copy.backFieldId = source.backFieldId;
+	}
+	if (source.backTitleFieldId) {
+		copy.backTitleFieldId = source.backTitleFieldId;
+	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
@@ -446,6 +465,18 @@ export function moveFieldBefore(
 	return true;
 }
 
+/** Removes every value in one field, and says how many there were. */
+export function clearFieldCells(doc: LayerDoc, fieldId: string): number {
+	let cleared = 0;
+	for (const record of doc.records) {
+		if (fieldId in record.cells) {
+			delete record.cells[fieldId];
+			cleared++;
+		}
+	}
+	return cleared;
+}
+
 export function changeFieldType(
 	doc: LayerDoc,
 	fieldId: string,
@@ -456,13 +487,7 @@ export function changeFieldType(
 		return 0;
 	}
 
-	let dropped = 0;
-	for (const record of doc.records) {
-		if (fieldId in record.cells) {
-			delete record.cells[fieldId];
-			dropped++;
-		}
-	}
+	const dropped = clearFieldCells(doc, fieldId);
 
 	field.type = nextType;
 	if (usesOptions(nextType)) {
@@ -476,6 +501,16 @@ export function changeFieldType(
 		delete field.decimals;
 		delete field.min;
 		delete field.max;
+	}
+	// Same for a relation's target, which no other type can use.
+	if (nextType !== 'relation') {
+		delete field.linkPath;
+		delete field.linkFieldId;
+	}
+	if (nextType !== 'relationBack') {
+		delete field.backPath;
+		delete field.backFieldId;
+		delete field.backTitleFieldId;
 	}
 
 	return dropped;

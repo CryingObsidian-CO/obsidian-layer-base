@@ -139,7 +139,33 @@ function parseField(
 	if (field.type === 'number') {
 		parseNumberSettings(raw, field);
 	}
+	if (field.type === 'relation' || field.type === 'relationBack') {
+		parseLinkSettings(raw, field);
+	}
 	return field;
+}
+
+/** The table-and-column pair behind a relation, in either direction. */
+function parseLinkSettings(raw: Record<string, unknown>, field: Field): void {
+	const back = field.type === 'relationBack';
+	const pathKey = back ? 'backPath' : 'linkPath';
+	const fieldKey = back ? 'backFieldId' : 'linkFieldId';
+	// A blank path means this table, so it is left absent rather than written as
+	// an empty string.
+	const path = asString(raw[pathKey]).trim();
+	if (path !== '') {
+		field[pathKey] = path;
+	}
+	const fieldId = asString(raw[fieldKey]).trim();
+	if (fieldId !== '') {
+		field[fieldKey] = fieldId;
+	}
+	if (back) {
+		const titleFieldId = asString(raw.backTitleFieldId).trim();
+		if (titleFieldId !== '') {
+			field.backTitleFieldId = titleFieldId;
+		}
+	}
 }
 
 /** The number settings, kept only where they differ from the plain defaults. */
@@ -185,7 +211,8 @@ export function normalizeCellValue(raw: unknown): CellValue {
  */
 export function normalizeCellForField(raw: unknown, type: FieldType): CellValue {
 	switch (type) {
-		case 'multiSelect': {
+		case 'multiSelect':
+		case 'relation': {
 			if (!Array.isArray(raw)) {
 				return [];
 			}
@@ -214,6 +241,10 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 			const text = typeof raw === 'string' ? normaliseDateTime(raw) : null;
 			return text ?? '';
 		}
+		case 'relationBack':
+			// Derived: a value written by hand is not kept, so it cannot drift out of
+			// step with the links it describes.
+			return '';
 		default:
 			return normalizeCellValue(raw);
 	}

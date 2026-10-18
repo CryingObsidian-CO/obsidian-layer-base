@@ -1,11 +1,13 @@
-import { serializeCellValue } from '../../model/fields';
+import { isDerived, relationIds, serializeCellValue } from '../../model/fields';
 import {
 	constrainNumber,
 	parseNumber,
 	sanitizeNumericInput,
 } from '../../model/number';
+import type { RelationCandidate } from '../../model/relation';
 import type { CellValue, Field, SelectOption } from '../../types';
 import { openOptionDropdown } from '../../ui/option-dropdown';
+import { openRelationDropdown } from '../../ui/relation-dropdown';
 
 export interface CellEditOptions {
 	field: Field;
@@ -14,6 +16,8 @@ export interface CellEditOptions {
 	restore: () => void;
 	/** Creates the option a typed name asks for; `null` when it cannot. */
 	createOption: (name: string) => SelectOption | null;
+	/** The rows a relation cell may point at, resolved by the caller. */
+	relationCandidates?: () => readonly RelationCandidate[];
 }
 
 /**
@@ -30,18 +34,20 @@ export interface CellEditHandle {
 export function beginCellEdit(
 	cell: HTMLElement,
 	options: CellEditOptions,
-): CellEditHandle {
+): CellEditHandle | null {
 	const { field } = options;
 	/*
-	 * A checkbox has no editor: it toggles on a single press, and this must be
-	 * answered before `cell.empty()` and before the text editor below, which a
-	 * checkbox must never reach.
+	 * Some types have no editor at all, and say so by answering null rather than
+	 * handing back a handle that does nothing: a handle nobody can use is still an
+	 * edit as far as the grid is concerned, and it would keep the cell "being
+	 * edited" forever, which blocks every later repaint.
+	 *
+	 * A derived field stores nothing, so an edit would have nowhere to write; a
+	 * checkbox toggles on one press. Both are answered before `cell.empty()`, so
+	 * neither can fall through to the text editor below.
 	 */
-	if (field.type === 'checkbox') {
-		return {
-			cancel: () => undefined,
-			commit: () => undefined,
-		};
+	if (isDerived(field.type) || field.type === 'checkbox') {
+		return null;
 	}
 	cell.empty();
 	cell.addClass('is-editing');
@@ -107,6 +113,27 @@ export function beginCellEdit(
 		return {
 			cancel: () => finish(undefined),
 			commit: () => finish(area.value),
+		};
+	}
+
+	if (field.type === 'relation') {
+		const dropdown = attachRelation(
+			cell,
+			options.value,
+			options.relationCandidates?.() ?? [],
+			options.commit,
+			finish,
+		);
+		return {
+			cancel: () => {
+				dropdown.close();
+				finish(undefined);
+			},
+			// Each toggle was committed as it happened.
+			commit: () => {
+				dropdown.close();
+				finish(undefined);
+			},
 		};
 	}
 
@@ -394,6 +421,29 @@ function attachMultiSelect(
 			// `onPickMany`. Kept so the core's callback is always satisfied.
 		},
 		onPickMany: (optionIds) => commit(optionIds),
+		onCancel: () => finish(undefined),
+	});
+}
+
+/**
+ * The relation editor: the source table's rows that have a value to offer,
+ * toggled as a set.
+ *
+ * The same shape as the multi-select — each toggle commits immediately and the
+ * panel stays open, so the cell behind it keeps showing what it will hold.
+ */
+function attachRelation(
+	cell: HTMLElement,
+	value: CellValue,
+	candidates: readonly RelationCandidate[],
+	commit: (value: CellValue) => void,
+	finish: Finish,
+): { close: () => void } {
+	return openRelationDropdown({
+		anchor: cell,
+		candidates,
+		selectedIds: relationIds(value),
+		onChange: (recordIds) => commit(recordIds),
 		onCancel: () => finish(undefined),
 	});
 }

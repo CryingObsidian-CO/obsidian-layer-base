@@ -12,14 +12,19 @@ import {
 	type LayerBaseSettings,
 } from './settings';
 import { createLayerView } from './views/layer-view';
+import { TableIndex } from './io/table-index';
 
 export default class LayerBasePlugin extends Plugin {
 	settings!: LayerBaseSettings;
 	store!: LayerStore;
+	/** The other `.layer` files a relation may read, cached and kept current. */
+	tables!: TableIndex;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
 		this.store = new LayerStore(this.app);
+		this.tables = new TableIndex(this.app);
+		this.tables.register(this);
 
 		this.registerView(VIEW_TYPE_LAYER, (leaf) => createLayerView(leaf, this));
 		this.registerExtensions([LAYER_EXTENSION], VIEW_TYPE_LAYER);

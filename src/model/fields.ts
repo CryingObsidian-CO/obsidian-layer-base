@@ -32,6 +32,11 @@ export function optionIds(value: CellValue): string[] {
 	return Array.isArray(value) ? value.filter((id) => typeof id === 'string') : [];
 }
 
+/** The row ids a relation cell holds. */
+export function relationIds(value: CellValue): string[] {
+	return optionIds(value);
+}
+
 /** The names a `multiSelect` value shows, in the field's own option order. */
 function multiNames(field: Field, value: CellValue): string {
 	return optionsOf(field, value)
@@ -131,6 +136,29 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
+	relation: {
+		type: 'relation',
+		icon: 'link',
+		// Ids are a fallback only: what a relation reads as needs the other table,
+		// which the caller has and this module does not.
+		toText: (_field, value) => relationIds(value).join(', '),
+		// A relation cannot be typed in as text, so a paste into it is refused
+		// rather than turned into references to nothing.
+		fromText: () => REFUSED,
+		isEmpty: (value) => relationIds(value).length === 0,
+	},
+
+	relationBack: {
+		type: 'relationBack',
+		icon: 'git-fork',
+		// Nothing to read: the values are derived from the other table, and this
+		// module cannot see it.
+		toText: () => '',
+		fromText: () => REFUSED,
+		// Always "empty": it stores nothing, so there is nothing here to be full.
+		isEmpty: () => true,
+	},
+
 	select: {
 		type: 'select',
 		icon: 'circle',
@@ -182,6 +210,8 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'number',
 	'date',
 	'datetime',
+	'relation',
+	'relationBack',
 	'select',
 	'multiSelect',
 	'checkbox',
@@ -203,6 +233,7 @@ export function usesOptions(type: FieldType): boolean {
 export function emptyValueFor(field: Field): CellValue {
 	switch (field.type) {
 		case 'multiSelect':
+		case 'relation':
 			return [];
 		case 'checkbox':
 			return false;
@@ -226,7 +257,17 @@ export function isEmptyCell(value: CellValue): boolean {
  * `obsidian`, which ships types only.
  */
 export function isMissingRequired(field: Field, value: CellValue): boolean {
+	// A derived cell holds nothing by definition, so it can never be the thing a
+	// required field is waiting for.
+	if (isDerived(field.type)) {
+		return false;
+	}
 	return field.required === true && isEmptyCell(value);
+}
+
+/** Whether a type's values are computed rather than stored. */
+export function isDerived(type: FieldType): boolean {
+	return type === 'relationBack';
 }
 
 export function cellToText(field: Field, value: CellValue): string {
@@ -258,6 +299,10 @@ export function formatCell(field: Field, value: CellValue): string {
 	if (field.type === 'datetime') {
 		return typeof value === 'string' ? displayDateTime(value) : '';
 	}
+	if (field.type === 'relation') {
+		// Only a fallback: a caller with the other table reads it properly.
+		return relationIds(value).join(', ');
+	}
 	return typeof value === 'string' ? value : '';
 }
 
@@ -286,7 +331,7 @@ export function serializeCellValue(value: CellValue): string {
 
 /** The inverse of `serializeCellValue`, read back for a specific field. */
 export function deserializeCellValue(raw: string, field: Field): CellValue {
-	if (field.type === 'multiSelect') {
+	if (field.type === 'multiSelect' || field.type === 'relation') {
 		try {
 			const parsed: unknown = JSON.parse(raw);
 			return optionIds(parsed as CellValue);

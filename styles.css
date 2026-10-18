@@ -168,6 +168,28 @@ body.layer-grid-resizing.is-row-resize * {
 	height: 14px;
 }
 
+/*
+ * The badge on a computed column, sat before its type icon. It says the values
+ * are worked out from another table, so nothing here can be typed into — a
+ * column that silently refuses edits would otherwise look broken.
+ */
+.layer-grid-derived-icon {
+	display: inline-flex;
+	vertical-align: middle;
+	margin-right: var(--size-4-1);
+	color: var(--text-faint);
+}
+
+.layer-grid-derived-icon svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* A derived column is not somewhere to type, so it does not invite it. */
+.layer-grid-td.is-derived {
+	cursor: default;
+}
+
 .layer-grid-th-name {
 	vertical-align: middle;
 }
@@ -186,6 +208,14 @@ body.layer-grid-resizing.is-row-resize * {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	cursor: cell;
+	/*
+	 * Every cell is a containing block. Some values are laid out against the cell
+	 * rather than inside its flow (a run of pills, a long text, an editor), and a
+	 * cell that is not positioned lets them escape to a distant ancestor — where
+	 * they would cover the whole board and swallow its clicks. Setting this once
+	 * here means a new type cannot forget to.
+	 */
+	position: relative;
 }
 
 .layer-grid-td.is-primary {
@@ -223,6 +253,11 @@ body.layer-grid-resizing.is-row-resize * {
 	text-align: right;
 }
 
+/* A relation cell with rows it can no longer resolve: kept, and marked. */
+.layer-grid-td.is-broken-reference .layer-grid-value {
+	color: var(--text-error);
+}
+
 .layer-grid-value {
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -240,10 +275,6 @@ body.layer-grid-resizing.is-row-resize * {
  * The padding moves onto the value, because an absolutely positioned box is laid
  * out against the cell's padding box.
  */
-.layer-grid-td.is-longtext {
-	position: relative;
-}
-
 .layer-grid-value.is-longtext {
 	position: absolute;
 	inset: 0;
@@ -254,16 +285,46 @@ body.layer-grid-resizing.is-row-resize * {
 }
 
 /*
- * A run of multi-select pills, clipped as ONE box so a long set is trimmed at the
- * cell edge rather than each pill being cut mid-word.
+ * A run of pills: the several values one cell holds.
+ *
+ * It is laid out against the cell rather than inside its flow, for the same
+ * reason a long text value is: a table row grows to fit its content, so a run
+ * that wrapped while in flow would push the row taller. Out of flow it adds
+ * nothing to the row, which keeps the height the user gave it — and whatever
+ * does not fit is reached by scrolling rather than being lost.
+ *
+ * The pills wrap instead of shrinking. With a single line, a long second value
+ * used to squeeze the first until it vanished, hiding a value that is really
+ * stored there. Each pill keeps the width its text needs and drops to the next
+ * line; only the last one gives way, ellipsising when it is too wide even on a
+ * line of its own.
  */
 .layer-grid-pills {
+	position: absolute;
+	inset: 0;
+	box-sizing: border-box;
+	/* The padding the cell no longer applies to an out-of-flow box. */
+	padding: var(--size-4-1) var(--size-4-3);
 	display: flex;
-	flex-wrap: nowrap;
-	gap: 3px;
+	flex-wrap: wrap;
+	/* Wrapped lines stack from the top instead of being spread out. */
+	align-content: flex-start;
 	align-items: center;
+	gap: 3px;
+	overflow: auto;
 	min-width: 0;
-	overflow: hidden;
+}
+
+/* Natural width, and never narrower than the text inside. */
+.layer-grid-pills > * {
+	flex: 0 0 auto;
+	max-width: 100%;
+}
+
+/* The tail is the one that gives way. */
+.layer-grid-pills > *:last-child {
+	flex-shrink: 1;
+	min-width: 0;
 }
 
 /*

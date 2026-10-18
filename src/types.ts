@@ -6,6 +6,8 @@ export type FieldType =
 	| 'number'
 	| 'date'
 	| 'datetime'
+	| 'relation'
+	| 'relationBack'
 	| 'select'
 	| 'multiSelect'
 	| 'checkbox';
@@ -44,6 +46,25 @@ export interface Field {
 	min?: number;
 	/** `number` fields only: the largest value the cell may hold. */
 	max?: number;
+	/**
+	 * `relation` fields only: the `.layer` file whose rows a cell picks from.
+	 * Missing means this table, so a self-reference needs no path at all.
+	 */
+	linkPath?: string;
+	/** `relation` fields only: the column of that table whose values are shown. */
+	linkFieldId?: string;
+	/**
+	 * `relationBack` fields only: the table whose rows point back at this one.
+	 * Missing means this table, the same way `linkPath` does.
+	 */
+	backPath?: string;
+	/** `relationBack` fields only: the `relation` column in that table. */
+	backFieldId?: string;
+	/**
+	 * `relationBack` fields only: the column a pointing row is named by. Missing
+	 * means the row's number, which is what an unconfigured column shows.
+	 */
+	backTitleFieldId?: string;
 }
 
 /**
