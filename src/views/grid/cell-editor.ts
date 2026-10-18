@@ -1,4 +1,4 @@
-import { isDerived, relationIds, serializeCellValue } from '../../model/fields';
+import { isReadOnly, relationIds, serializeCellValue } from '../../model/fields';
 import {
 	constrainNumber,
 	parseNumber,
@@ -46,7 +46,7 @@ export function beginCellEdit(
 	 * checkbox toggles on one press. Both are answered before `cell.empty()`, so
 	 * neither can fall through to the text editor below.
 	 */
-	if (isDerived(field.type) || field.type === 'checkbox') {
+	if (isReadOnly(field.type) || field.type === 'checkbox') {
 		return null;
 	}
 	cell.empty();

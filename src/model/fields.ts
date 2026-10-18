@@ -1,5 +1,6 @@
 import type {CellValue, Field, FieldType, SelectOption} from '../types';
 import {displayDateTime, normaliseDate, normaliseDateTime} from './date';
+import {numberText} from './auto-number';
 import {constrainNumber, formatNumber, parseNumber} from './number';
 
 export interface FieldTypeSpec {
@@ -159,6 +160,14 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: () => true,
 	},
 
+	autoNumber: {
+		type: 'autoNumber',
+		icon: 'hash',
+		toText: numberText,
+		fromText: () => REFUSED,
+		isEmpty: (value) => value === '' || value === undefined,
+	},
+
 	rollup: {
 		type: 'rollup',
 		icon: 'calculator',
@@ -233,6 +242,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'datetime',
 	'relation',
 	'relationBack',
+	'autoNumber',
 	'rollup',
 	'formula',
 	'select',
@@ -293,6 +303,11 @@ export function isDerived(type: FieldType): boolean {
 	return type === 'relationBack' || type === 'rollup' || type === 'formula';
 }
 
+/** Whether the table fills this cell in, so nothing here can be typed into. */
+export function isReadOnly(type: FieldType): boolean {
+	return isDerived(type) || type === 'autoNumber';
+}
+
 export function cellToText(field: Field, value: CellValue): string {
 	return SPECS[field.type].toText(field, value);
 }
@@ -318,6 +333,9 @@ export function formatCell(field: Field, value: CellValue): string {
 	}
 	if (field.type === 'number') {
 		return typeof value === 'number' ? formatNumber(value, field) : '';
+	}
+	if (field.type === 'autoNumber') {
+		return numberText(field, value);
 	}
 	if (field.type === 'datetime') {
 		return typeof value === 'string' ? displayDateTime(value) : '';

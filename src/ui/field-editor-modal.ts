@@ -46,6 +46,12 @@ export interface BackSettings extends RelationSettings {
 	titleFieldId: string;
 }
 
+export interface AutoNumberSettings {
+	length: number;
+	/** The column numbered separately; '' numbers the whole table as one. */
+	groupFieldId: string;
+}
+
 export interface RollupSettings {
 	/** The relation column in this table whose rows are gathered; `''` for none. */
 	sourceFieldId: string;
@@ -65,6 +71,7 @@ export interface FieldEditorResult {
 	back: BackSettings;
 	/** The expression, when the type is `formula`. */
 	formula: string;
+	autoNumber: AutoNumberSettings;
 	/** How a rollup gathers and reduces, when the type is `rollup`. */
 	rollup: RollupSettings;
 	/** How that result is presented; null to follow whatever it computed. */
@@ -101,6 +108,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	datetime: () => t().typeDateTime,
 	relation: () => t().typeRelation,
 	relationBack: () => t().typeRelationBack,
+	autoNumber: () => t().typeAutoNumber,
 	rollup: () => t().typeRollup,
 	formula: () => t().typeFormula,
 	select: () => t().typeSelect,
@@ -134,6 +142,8 @@ export class FieldEditorModal extends AnchoredPopover {
 	private rollupSourceFieldId: string;
 	private rollupFieldId: string;
 	private rollupAggregate: RollupAggregate;
+	private numberLength: number;
+	private numberGroupFieldId: string;
 	private formula: string;
 	private formulaType: FormulaResultType | null;
 	private readonly originalType: FieldType | null;
@@ -143,6 +153,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
 	private rollupEl: HTMLElement | null = null;
+	private autoNumberEl: HTMLElement | null = null;
 	private formulaEl: HTMLElement | null = null;
 	private requiredEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
@@ -168,6 +179,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.rollupSourceFieldId = config.field?.rollupSourceFieldId ?? '';
 		this.rollupFieldId = config.field?.rollupFieldId ?? '';
 		this.rollupAggregate = config.field?.rollupAggregate ?? 'sum';
+		this.numberLength = config.field?.numberLength ?? 1;
+		this.numberGroupFieldId = config.field?.numberGroupFieldId ?? '';
 		this.formula = config.field?.formula ?? '';
 		this.formulaType = config.field?.formulaType ?? null;
 		// A path pointing at this very file IS "this table", so it is stored as one.
@@ -228,6 +241,9 @@ export class FieldEditorModal extends AnchoredPopover {
 
 		this.rollupEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderRollupSettings();
+
+		this.autoNumberEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderAutoNumberSettings();
 
 		this.formulaEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderFormulaSettings();
@@ -652,6 +668,72 @@ export class FieldEditorModal extends AnchoredPopover {
 		}
 	}
 
+	/**
+	 * Two settings only: any prefix is left to a formula, so this column stays a
+	 * number rather than an identifier it cannot sort.
+	 */
+	private renderAutoNumberSettings(): void {
+		const host = this.autoNumberEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+
+		if (this.type !== 'autoNumber') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().fieldAutoNumberLabel });
+
+		const lengthGrid = host.createDiv({ cls: 'layer-field-grid' });
+		lengthGrid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldAutoNumberLength,
+		});
+		const lengthInput = lengthGrid.createEl('input', {
+			cls: 'layer-field-number-format',
+			type: 'number',
+		});
+		lengthInput.min = '1';
+		lengthInput.max = '12';
+		lengthInput.value = String(this.numberLength);
+		lengthInput.addEventListener('input', () => {
+			const parsed = Number(lengthInput.value);
+			this.numberLength =
+				Number.isFinite(parsed) && parsed >= 1 ? Math.min(Math.floor(parsed), 12) : 1;
+		});
+
+		const groupGrid = host.createDiv({ cls: 'layer-field-grid' });
+		groupGrid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldAutoNumberGroup,
+		});
+		const groupSelect = groupGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		const whole = groupSelect.createEl('option', {
+			text: t().fieldAutoNumberNoGroup,
+		});
+		whole.value = '';
+		for (const field of this.config.selfFields) {
+			// Numbering by itself would be a cycle; a computed column has no number.
+			if (field.id === this.config.field?.id || isDerived(field.type)) {
+				continue;
+			}
+			const option = groupSelect.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		groupSelect.value = this.numberGroupFieldId;
+		groupSelect.addEventListener('change', () => {
+			this.numberGroupFieldId = groupSelect.value;
+		});
+
+		host.createDiv({
+			cls: 'layer-field-number-hint',
+			text: t().fieldAutoNumberHint,
+		});
+	}
+
 	/** Keeps the chosen aggregate one the chosen column can answer. */
 	private clampRollupAggregate(): void {
 		const sourceField = this.config.selfFields.find(
@@ -927,6 +1009,10 @@ export class FieldEditorModal extends AnchoredPopover {
 				path: this.backPath,
 				fieldId: this.backFieldId,
 				titleFieldId: this.backTitleFieldId,
+			},
+			autoNumber: {
+				length: this.numberLength,
+				groupFieldId: this.numberGroupFieldId,
 			},
 			rollup: {
 				sourceFieldId: this.rollupSourceFieldId,

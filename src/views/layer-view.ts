@@ -31,6 +31,7 @@ import {appendOption} from '../model/select-options';
 import {cellToText, relationIds, usesOptions} from '../model/fields';
 import {computeFormula} from '../model/formula';
 import {aggregateRollup} from '../model/rollup';
+import {backfillNumbers, renumberAll} from '../model/records';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
 import {
 	relationBackIndex,
@@ -60,6 +61,7 @@ import {ConfirmModal} from '../ui/confirm-modal';
 import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
+	type AutoNumberSettings,
 	type BackSettings,
 	type FieldEditorResult,
 	type NumberSettings,
@@ -481,6 +483,7 @@ export class LayerView extends TextFileView {
 			}
 			this.applyNumberSettings(created, result.number);
 			this.applyRelationSettings(doc, created, result.relation);
+			this.applyAutoNumberSettings(created, result.autoNumber);
 			this.applyRollupSettings(created, result.rollup);
 			this.applyFormulaSettings(created, result.formula, result.formulaType);
 			this.applyBackSettings(created, result.back);
@@ -511,6 +514,7 @@ export class LayerView extends TextFileView {
 			// a number.
 			this.applyNumberSettings(field, result.number);
 			this.applyRelationSettings(doc, field, result.relation);
+			this.applyAutoNumberSettings(field, result.autoNumber);
 			this.applyRollupSettings(field, result.rollup);
 			this.applyFormulaSettings(field, result.formula, result.formulaType);
 			this.applyBackSettings(field, result.back);
@@ -518,6 +522,33 @@ export class LayerView extends TextFileView {
 
 		this.markDirty();
 		this.render();
+	}
+
+	/** Writes an auto number's padding and grouping, numbering existing rows. */
+	private applyAutoNumberSettings(field: Field, settings: AutoNumberSettings): void {
+		if (field.type !== 'autoNumber') {
+			delete field.numberLength;
+			delete field.numberGroupFieldId;
+			return;
+		}
+		const groupingChanged =
+			(field.numberGroupFieldId ?? '') !== settings.groupFieldId;
+		field.numberLength = Math.max(1, Math.min(Math.floor(settings.length), 12));
+		if (settings.groupFieldId === '') {
+			delete field.numberGroupFieldId;
+		} else {
+			field.numberGroupFieldId = settings.groupFieldId;
+		}
+		const doc = this.doc;
+		if (doc) {
+			if (groupingChanged) {
+				renumberAll(doc, field);
+			} else {
+				backfillNumbers(doc, field);
+			}
+		}
+		// Derived from the rows it numbers, so it is never required.
+		delete field.required;
 	}
 
 	/**

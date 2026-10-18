@@ -8,6 +8,7 @@ export type FieldType =
 	| 'datetime'
 	| 'relation'
 	| 'relationBack'
+	| 'autoNumber'
 	| 'rollup'
 	| 'formula'
 	| 'select'
@@ -88,6 +89,10 @@ export interface Field {
 	rollupFieldId?: string;
 	/** `rollup` fields only: how the gathered values are reduced to one. */
 	rollupAggregate?: RollupAggregate;
+	/** `autoNumber` fields only: how many digits the number is padded to; missing means one. */
+	numberLength?: number;
+	/** `autoNumber` fields only: the column whose values are numbered separately. */
+	numberGroupFieldId?: string;
 }
 
 /** How a `rollup` field reduces the values it gathered. */

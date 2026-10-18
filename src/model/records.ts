@@ -2,7 +2,15 @@ import type { CellValue, Field, GridView, LayerDoc, LayerRecord } from '../types
 import { generateId } from '../utils/id';
 import type { FormattedCell } from './clipboard';
 import { forgetFieldSize, forgetRecordSize } from './layout';
-import {cellFromText, emptyValueFor, isEmptyCell, optionIds, usesOptions} from './fields';
+import {
+	cellFromText,
+	emptyValueFor,
+	formatCell,
+	isEmptyCell,
+	optionIds,
+	usesOptions,
+} from './fields';
+import { nextNumber, storedNumber } from './auto-number';
 
 export function findRecord(
 	doc: LayerDoc,
@@ -30,6 +38,11 @@ export function setCellValue(
 	} else {
 		record.cells[field.id] = value;
 	}
+	for (const candidate of doc.fields) {
+		if (candidate.type === 'autoNumber' && candidate.numberGroupFieldId === field.id) {
+			assignNumber(doc, candidate, record);
+		}
+	}
 	return true;
 }
 
@@ -45,6 +58,9 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 		case 'formula':
 			// Derived, never stored: there is no value a caller could set here.
 			return false;
+		case 'autoNumber':
+			// Stored, unlike a derived column: the number the table handed out.
+			return typeof value === 'number';
 		case 'multiSelect':
 		case 'relation':
 			return Array.isArray(value);
@@ -140,15 +156,99 @@ export function duplicateRecords(
 	return made;
 }
 
-function insertRecordAt(doc: LayerDoc, index: number): LayerRecord {	const record: LayerRecord = {
-	id: generateId('r'),
-	created: new Date().toISOString(),
-	cells: {},
-};
+function insertRecordAt(doc: LayerDoc, index: number): LayerRecord {
+	const record: LayerRecord = {
+		id: generateId('r'),
+		created: new Date().toISOString(),
+		cells: {},
+	};
 	doc.records.splice(index, 0, record);
+	for (const field of doc.fields) {
+		if (field.type === 'autoNumber') {
+			assignNumber(doc, field, record);
+		}
+	}
 	return record;
 }
 
+/**
+ * The value a row has in the column its numbers are grouped by, as text.
+ *
+ * Read through `formatCell` so grouping follows what the reader sees: two rows
+ * showing the same choice group together even if they store different ids.
+ */
+function groupValueOf(
+	doc: LayerDoc,
+	record: LayerRecord,
+	groupFieldId: string,
+): string {
+	if (groupFieldId === '') {
+		return '';
+	}
+	const groupField = doc.fields.find((field) => field.id === groupFieldId);
+	if (!groupField) {
+		return '';
+	}
+	return formatCell(groupField, record.cells[groupField.id] ?? '');
+}
+
+/** The numbers already issued within one group, ignoring one row. */
+function numbersInGroup(
+	doc: LayerDoc,
+	field: Field,
+	group: string,
+	exceptRecordId: string,
+): number[] {
+	const groupFieldId = field.numberGroupFieldId ?? '';
+	const taken: number[] = [];
+	for (const record of doc.records) {
+		if (record.id === exceptRecordId) {
+			continue;
+		}
+		if (groupValueOf(doc, record, groupFieldId) !== group) {
+			continue;
+		}
+		const number = storedNumber(record.cells[field.id] ?? '');
+		if (number !== null) {
+			taken.push(number);
+		}
+	}
+	return taken;
+}
+
+/**
+ * Hands one row the next number in its group. Called when a row is created and
+ * when its group changes, so a moved row takes its new group's next number and
+ * only that row changes.
+ */
+export function assignNumber(
+	doc: LayerDoc,
+	field: Field,
+	record: LayerRecord,
+): void {
+	const group = groupValueOf(doc, record, field.numberGroupFieldId ?? '');
+	const taken = numbersInGroup(doc, field, group, record.id);
+	record.cells[field.id] = nextNumber(taken);
+}
+
+/** Numbers every row that has none yet, in the order the rows are in. */
+export function backfillNumbers(doc: LayerDoc, field: Field): void {
+	for (const record of doc.records) {
+		if (storedNumber(record.cells[field.id] ?? '') === null) {
+			assignNumber(doc, field, record);
+		}
+	}
+}
+
+/** Numbers every row again from the start, for when the grouping changes. */
+export function renumberAll(doc: LayerDoc, field: Field): void {
+	for (const record of doc.records) {
+		delete record.cells[field.id];
+	}
+	for (const record of doc.records) {
+		assignNumber(doc, field, record);
+	}
+}
 export function clearCells(
 	doc: LayerDoc,
 	recordIds: readonly string[],
@@ -357,6 +457,12 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.formulaType) {
 		copy.formulaType = source.formulaType;
 	}
+	if (source.numberLength !== undefined) {
+		copy.numberLength = source.numberLength;
+	}
+	if (source.numberGroupFieldId) {
+		copy.numberGroupFieldId = source.numberGroupFieldId;
+	}
 	if (source.rollupSourceFieldId) {
 		copy.rollupSourceFieldId = source.rollupSourceFieldId;
 	}
@@ -532,6 +638,10 @@ export function changeFieldType(
 	if (nextType !== 'formula') {
 		delete field.formula;
 		delete field.formulaType;
+	}
+	if (nextType !== 'autoNumber') {
+		delete field.numberLength;
+		delete field.numberGroupFieldId;
 	}
 	if (nextType !== 'rollup') {
 		delete field.rollupSourceFieldId;

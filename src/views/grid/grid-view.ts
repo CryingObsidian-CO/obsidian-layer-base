@@ -13,6 +13,7 @@ import {
 	isDerived,
 	isEmptyCell,
 	isMissingRequired,
+	isReadOnly,
 	optionsOf,
 	serializeCellValue,
 	specFor,
@@ -245,18 +246,19 @@ export class GridRenderer {
 			if (field.primary) {
 				th.addClass('is-primary');
 			}
-			/*
-			 * A derived column says so before its type: its values are worked out
-			 * from another table, so nothing here can be typed into. The badge is
-			 * what tells the two apart before a cell is even tried.
-			 */
-			if (isDerived(field.type)) {
+			/* A column the table fills in says so before its type. */
+			if (isReadOnly(field.type)) {
 				th.addClass('is-derived');
 				const lock = th.createSpan({cls: 'layer-grid-derived-icon'});
 				setIcon(lock, 'lock');
+				// Handed out, not worked out: a number gets its own wording.
+				const hint =
+					field.type === 'autoNumber'
+						? t().fieldAutoNumberLockHint
+						: t().fieldDerivedHint;
 				// Obsidian's own tooltip; a `title` as well would draw a second one.
-				setTooltip(lock, t().fieldDerivedHint);
-				lock.setAttribute('aria-label', t().fieldDerivedHint);
+				setTooltip(lock, hint);
+				lock.setAttribute('aria-label', hint);
 			}
 			const icon = th.createSpan({cls: 'layer-grid-type-icon'});
 			setIcon(icon, specFor(field.type).icon);

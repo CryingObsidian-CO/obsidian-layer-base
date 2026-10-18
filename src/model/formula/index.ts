@@ -39,7 +39,10 @@ function valueKind(value: FormulaValue): FormulaValueKind {
 
 /** The text a cell of some field shows, as a formula sees it. */
 function cellAsFormulaValue(field: Field, value: CellValue): FormulaValue {
-	if (typeof value === 'number') {
+	// A number column contributes its number; an auto number contributes the text
+	// the grid shows, leading zeros included, so `CONCAT({group}, "-", {no})` builds
+	// the identifier the reader sees rather than a bare integer.
+	if (typeof value === 'number' && field.type !== 'autoNumber') {
 		return value;
 	}
 	if (typeof value === 'boolean') {

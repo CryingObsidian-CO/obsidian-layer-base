@@ -152,6 +152,16 @@ function parseField(
 			field.formulaType = declared;
 		}
 	}
+	if (field.type === 'autoNumber') {
+		const length = raw.numberLength;
+		if (typeof length === 'number' && Number.isFinite(length) && length >= 1) {
+			field.numberLength = Math.min(Math.floor(length), 12);
+		}
+		const group = asString(raw.numberGroupFieldId);
+		if (group !== '') {
+			field.numberGroupFieldId = group;
+		}
+	}
 	if (field.type === 'rollup') {
 		const source = asString(raw.rollupSourceFieldId);
 		if (source !== '') {
@@ -257,7 +267,9 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 		}
 		case 'checkbox':
 			return raw === true;
-		case 'number': {
+		case 'number':
+		case 'autoNumber': {
+			// Kept a number: text would lose the padding and read 1 where it says 01.
 			if (typeof raw === 'number' && Number.isFinite(raw)) {
 				return raw;
 			}
