@@ -1578,3 +1578,142 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	opacity: 1;
 	cursor: pointer;
 }
+
+/* ---------- Export dialog ---------- */
+
+/* Wide enough for a vault path to be read at a glance. */
+.modal.layer-export-modal {
+	width: min(34rem, 90vw);
+	max-width: min(34rem, 90vw);
+}
+
+.layer-export-title {
+	margin: 0 0 var(--size-4-3);
+}
+
+.layer-export-modal .layer-field-grid {
+	margin-top: var(--size-4-2);
+}
+
+/* Only shown when the name cannot be used, so it does not add noise. */
+.layer-export-error {
+	display: none;
+	margin-top: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+}
+
+.layer-export-error.is-visible {
+	display: block;
+}
+
+.layer-export-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+/* ---------- Sort panel ---------- */
+
+.layer-sort-panel {
+	padding: var(--size-4-3);
+}
+
+.layer-sort-title {
+	margin: 0 0 var(--size-4-3);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-sort-empty {
+	margin-bottom: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/*
+ * One rule per line: a number, the column, the direction, and a way out. The
+ * number is what says rule 2 only decides rows rule 1 left tied.
+ */
+.layer-sort-rule {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-2);
+}
+
+.layer-sort-rank {
+	flex: 0 0 auto;
+	min-width: 1.2em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	text-align: right;
+}
+
+.layer-sort-field {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.layer-sort-order {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	flex: 0 0 auto;
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-sort-remove {
+	flex: 0 0 auto;
+	padding: var(--size-4-1);
+	color: var(--text-faint);
+}
+
+.layer-sort-remove:hover {
+	color: var(--text-error);
+}
+
+.layer-sort-add {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-sort-add-icon {
+	display: inline-flex;
+}
+
+/* A toolbar button that is doing something reads as pressed, not as a label. */
+.layer-shell-button.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+/* A sorted column's header carries its direction, and its rank when there are
+ * several rules, so the order can be read without opening the panel. */
+.layer-grid-th.is-sorted {
+	background: var(--background-modifier-hover);
+}
+
+.layer-grid-th-sort {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: var(--size-4-1);
+	color: var(--text-accent);
+}
+
+.layer-grid-th-sort-rank {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+/* What the current order is, told beside the sort button rather than in it. */
+.layer-shell-sort-summary {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}

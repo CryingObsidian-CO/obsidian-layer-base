@@ -1,4 +1,10 @@
-import {Notice, TextFileView, type TFile, type WorkspaceLeaf} from 'obsidian';
+import {
+	Notice,
+	TextFileView,
+	type TFolder,
+	type TFile,
+	type WorkspaceLeaf,
+} from 'obsidian';
 import {LAYER_EXTENSION, VIEW_TYPE_LAYER} from '../constants';
 import {t} from '../i18n';
 import {parseLayerDoc, serializeLayerDoc} from '../io/schema';
@@ -28,10 +34,18 @@ import {copyFormatted, readFormatted, readText} from '../model/clipboard';
 import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
-import {cellToText, relationIds, usesOptions} from '../model/fields';
+import {
+	cellToText,
+	emptyValueFor,
+	formatCell,
+	relationIds,
+	usesOptions,
+} from '../model/fields';
 import {computeFormula} from '../model/formula';
 import {aggregateRollup} from '../model/rollup';
 import {backfillNumbers, renumberAll} from '../model/records';
+import {csvFileName, toCsv} from '../model/csv';
+import {sortRecords} from '../model/sort';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
 import {
 	relationBackIndex,
@@ -58,6 +72,8 @@ import type {
 } from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
+import {ExportModal} from '../ui/export-modal';
+import {SortPopover} from '../ui/sort-popover';
 import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
@@ -69,7 +85,7 @@ import {
 	type RollupSettings,
 } from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
-import {BoardShell} from './board-shell';
+import {BoardShell, type ToolbarState} from './board-shell';
 import {GridRenderer, type CellText} from './grid/grid-view';
 
 export class LayerView extends TextFileView {
@@ -228,6 +244,76 @@ export class LayerView extends TextFileView {
 		return this.doc;
 	}
 
+	/**
+	 * Asks where the export goes, then writes it, and says where it landed.
+	 *
+	 * The text is built from the view rather than the stored document so it holds
+	 * what is on screen: a computed column has no stored value to copy.
+	 */
+	private async handleExportCsv(): Promise<void> {
+		const built = this.buildCsv();
+		const file = this.file;
+		if (!built || !file) {
+			new Notice(t().noticeExportEmpty);
+			return;
+		}
+		new ExportModal({
+			app: this.app,
+			boardFile: {
+				path: file.path,
+				basename: this.doc?.name ?? file.basename,
+				parent: file.parent,
+			},
+			onSubmit: (result) => {
+				void this.writeExport(result.folder, result.name, built.text);
+			},
+		}).open();
+	}
+
+	private async writeExport(
+		folder: TFolder,
+		name: string,
+		text: string,
+	): Promise<void> {
+		try {
+			const written = await this.plugin.store.writeExport(folder, name, text);
+			new Notice(t().noticeExportDone(written.name));
+		} catch (error) {
+			new Notice(t().noticeExportFailed);
+			console.error('[obsidian-layer-base] Failed to export CSV:', error);
+		}
+	}
+
+	/**
+	 * The current table as CSV text, or null when there is nothing open.
+	 *
+	 * Columns follow the grid rather than the file: a hidden column is not exported,
+	 * because the reader hid it and an export is a copy of what they are looking at.
+	 * Rows follow the rows on screen, so a hand-reordered table exports in that
+	 * order.
+	 */
+	buildCsv(): { text: string; name: string } | null {
+		const doc = this.doc;
+		if (!doc) {
+			return null;
+		}
+		const view = this.activeView();
+		const hidden = new Set(view?.hiddenFieldIds ?? []);
+		const fields = doc.fields.filter((field) => !hidden.has(field.id));
+		const header = fields.map((field) => field.name);
+		const rows = this.orderedRecords(doc, view).map((record) =>
+			fields.map((field) => this.displayText(field, record)),
+		);
+		return {
+			text: toCsv(header, rows),
+			/*
+			 * The base name only: the dialog shows it as a name and the writer adds
+			 * `.csv`, so a reader never ends up with a file called `x.csv.csv`.
+			 */
+			name: csvFileName(doc.name).replace(/\.csv$/, ''),
+		};
+	}
+
 	private render(): void {
 		// The reverse lookups belong to the tree about to be thrown away.
 		this.backIndexes.clear();
@@ -257,10 +343,16 @@ export class LayerView extends TextFileView {
 			onAddRecordAtTop: () => {
 				this.handleAddRecordAtTop();
 			},
+			onExportCsv: () => {
+				void this.handleExportCsv();
+			},
+			onOpenSort: (anchor) => {
+				this.openSortPanel(anchor);
+			},
 		});
 		// Top to bottom: actions on the data, then the projection of it, then a
 		// read-only summary.
-		shell.renderToolbar();
+		shell.renderToolbar(this.toolbarState(view));
 		shell.renderTabs({
 			views: this.doc.views,
 			activeViewId: view.id,
@@ -341,7 +433,7 @@ export class LayerView extends TextFileView {
 				},
 			});
 			this.grid = grid;
-			grid.render(this.doc, view);
+			grid.render(this.doc, view, this.orderedRecords(this.doc, view));
 		} else {
 			this.grid = null;
 			const box = mount.createDiv({cls: 'layer-base-message'});
@@ -1070,6 +1162,95 @@ export class LayerView extends TextFileView {
 		}, 0);
 	}
 
+
+	/**
+	 * What the toolbar should say about the current order.
+	 *
+	 * Read from the view rather than remembered here, so it cannot drift from what
+	 * the rows are actually doing.
+	 */
+	private toolbarState(view: View): ToolbarState {
+		const columns: string[] = [];
+		let descending = false;
+		view.sorts.forEach((sort, index) => {
+			const field = this.doc?.fields.find(
+				(candidate) => candidate.id === sort.fieldId,
+			);
+			// A rule naming a column that is gone has nothing to show.
+			if (!field) {
+				return;
+			}
+			columns.push(field.name);
+			if (index === 0) {
+				descending = sort.order === 'desc';
+			}
+		});
+		return { sort: { columns, descending } };
+	}
+
+	/**
+	 * Opens the sort rules beside the button that asked for them.
+	 *
+	 * The panel reports every change, so the table follows it as the rules are
+	 * edited rather than waiting for the panel to be dismissed.
+	 */
+	private openSortPanel(anchor: HTMLElement): void {
+		const view = this.activeView();
+		if (!view) {
+			return;
+		}
+		new SortPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			fields: this.doc?.fields ?? [],
+			sorts: view.sorts,
+			onChange: (sorts) => {
+				const current = this.activeView();
+				if (!current) {
+					return;
+				}
+				current.sorts = sorts;
+				this.markDirty();
+				this.render();
+			},
+		}).open();
+	}
+
+	/**
+	 * The rows in the order this view asks for.
+	 *
+	 * One place answers this so the grid and the export cannot disagree: a table
+	 * sorted one way on screen and written out another would be worse than no sort.
+	 * The document itself is left alone, so the stored order survives.
+	 */
+	private orderedRecords(doc: LayerDoc, view: View | null): readonly LayerRecord[] {
+		return sortRecords(doc.records, doc.fields, view?.sorts ?? []);
+	}
+
+	/**
+	 * What one cell reads as, whoever is asking.
+	 *
+	 * The grid and the CSV export both come through here, so what is written to a
+	 * file cannot disagree with what the screen showed: a derived column contributes
+	 * its computed value, a relation its names, and everything else its own text.
+	 */
+	private displayText(field: Field, record: LayerRecord): string {
+		const value = record.cells[field.id] ?? emptyValueFor(field);
+		if (field.type === 'relation') {
+			return this.relationText(field, value).text;
+		}
+		if (field.type === 'relationBack') {
+			return this.backText(field, record.id).text;
+		}
+		if (field.type === 'rollup') {
+			return this.rollupText(field, record.id).text;
+		}
+		if (field.type === 'formula') {
+			return this.formulaText(field, record.id).text;
+		}
+		return formatCell(field, value);
+	}
+
 	/**
 	 * What a formula row computes to.
 	 *
@@ -1298,6 +1479,29 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		this.markDirty();
+		/*
+		 * A value that is part of the order has to be allowed to move its row. The
+		 * grid repaints the one cell it changed, which is right for every other
+		 * column — redrawing the table on each keystroke would fight the editor —
+		 * but a sorted column has to be rendered again for its row to move.
+		 */
+		if (this.changesTheOrder(field)) {
+			this.render();
+		}
+	}
+
+	/**
+	 * Whether writing this column can change where rows belong.
+	 *
+	 * Only the columns the view sorts by matter: no other value takes part in the
+	 * comparison, so no other value can move a row.
+	 */
+	private changesTheOrder(field: Field): boolean {
+		const view = this.activeView();
+		if (!view) {
+			return false;
+		}
+		return view.sorts.some((sort) => sort.fieldId === field.id);
 	}
 
 	/**

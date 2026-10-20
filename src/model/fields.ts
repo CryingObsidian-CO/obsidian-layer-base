@@ -192,8 +192,13 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	select: {
 		type: 'select',
 		icon: 'circle',
-		toText: (field, value) =>
-			field.options?.find((o) => o.id === value)?.name ?? '',
+		// A stale id stays visible rather than vanishing from the grid: an id with no
+		// option is still what the cell holds, and hiding it would look like data
+		// loss rather than a deleted choice.
+		toText: (field, value) => {
+			const name = field.options?.find((o) => o.id === value)?.name;
+			return name ?? (typeof value === 'string' ? value : '');
+		},
 		fromText: (field, text) => {
 			if (text.trim() === '') {
 				return accept('');
@@ -316,35 +321,22 @@ export function cellFromText(field: Field, text: string): TextParseResult {
 	return SPECS[field.type].fromText(field, text);
 }
 
+/**
+ * What a cell reads as.
+ *
+ * A lookup into `SPECS` rather than a chain of type tests: the chain had to be
+ * edited by hand whenever a type was added, and `tsc` cannot see a missing branch
+ * in an `if` — an unhandled type silently rendered as an empty cell. Through the
+ * table, a type with no `toText` fails to compile.
+ *
+ * An empty value reads as nothing whatever its type, which is what lets an
+ * unticked box show a box in the grid and still copy as empty text.
+ */
 export function formatCell(field: Field, value: CellValue): string {
 	if (isEmptyCell(value)) {
 		return '';
 	}
-	if (field.type === 'multiSelect') {
-		return multiNames(field, value);
-	}
-	if (field.type === 'select') {
-		const name = field.options?.find((o) => o.id === value)?.name;
-		// A stale id stays visible rather than vanishing from the grid.
-		return name ?? (typeof value === 'string' ? value : '');
-	}
-	if (field.type === 'checkbox') {
-		return value === true ? 'true' : '';
-	}
-	if (field.type === 'number') {
-		return typeof value === 'number' ? formatNumber(value, field) : '';
-	}
-	if (field.type === 'autoNumber') {
-		return numberText(field, value);
-	}
-	if (field.type === 'datetime') {
-		return typeof value === 'string' ? displayDateTime(value) : '';
-	}
-	if (field.type === 'relation') {
-		// Only a fallback: a caller with the other table reads it properly.
-		return relationIds(value).join(', ');
-	}
-	return typeof value === 'string' ? value : '';
+	return SPECS[field.type].toText(field, value);
 }
 
 export function recordTitle(

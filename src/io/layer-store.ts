@@ -63,6 +63,43 @@ export class LayerStore {
 		return parseLayerDoc(text);
 	}
 
+	/**
+	 * Writes an export beside the board it came from.
+	 *
+	 * Next to the file rather than into a fixed folder, because that is where the
+	 * reader will look for it. A name already in use gets a suffix instead of being
+	 * overwritten: an export is a copy, and a copy must not destroy a file.
+	 */
+	async writeExport(
+		folder: TFolder,
+		name: string,
+		text: string,
+	): Promise<TFile> {
+		const dot = name.lastIndexOf('.');
+		const base = dot > 0 ? name.slice(0, dot) : name;
+		const extension = dot > 0 ? name.slice(dot + 1) : 'csv';
+		const taken = new Set(
+			folder.children
+				.filter((child): child is TFile => child instanceof TFile)
+				.map((child) => `${child.basename}.${child.extension}`),
+		);
+
+		for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
+			const candidate =
+				attempt === 1 ? `${base}.${extension}` : `${base} ${attempt}.${extension}`;
+			if (taken.has(candidate)) {
+				continue;
+			}
+			const path = folder.isRoot()
+				? normalizePath(candidate)
+				: normalizePath(`${folder.path}/${candidate}`);
+			return await this.app.vault.create(path, text);
+		}
+		throw new Error(
+			`Could not find an unused name after ${MAX_NAME_ATTEMPTS} attempts`,
+		);
+	}
+
 	private takenNamesIn(folder: TFolder | null): Set<string> {
 		const target = folder ?? this.app.vault.getRoot();
 		const taken = new Set<string>();

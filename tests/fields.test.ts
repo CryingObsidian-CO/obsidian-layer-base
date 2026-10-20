@@ -8,7 +8,7 @@ import {
 	recordTitle,
 	specFor,
 } from '../src/model/fields';
-import type { Field } from '../src/types';
+import type { Field, FieldType } from '../src/types';
 
 const text = (over: Partial<Field> = {}): Field => ({
 	id: 'f_a',
@@ -157,5 +157,68 @@ describe('recordTitle', () => {
 
 	it('returns an empty title when the document has no fields', () => {
 		expect(recordTitle({ fields: [] }, { cells: { f_a: 'x' } })).toBe('');
+	});
+});
+
+describe('what every type reads as', () => {
+	/*
+	 * `formatCell` now looks its answer up in the same table the rest of the module
+	 * uses, instead of a hand-written chain. These cases pin what each type shows,
+	 * so the two cannot drift apart again without a test failing.
+	 */
+	function field(type: FieldType, extra: Partial<Field> = {}): Field {
+		return { id: 'f', name: 'F', type, ...extra };
+	}
+
+	it('leaves text as it is', () => {
+		expect(formatCell(field('text'), 'hi')).toBe('hi');
+		expect(formatCell(field('longtext'), 'line\nline')).toBe('line\nline');
+	});
+
+	it('formats a number by its settings', () => {
+		expect(formatCell(field('number'), 42)).toBe('42');
+		expect(formatCell(field('number', { numberFormat: 'percent' }), 50)).toBe('50%');
+	});
+
+	it('shows a date and a date-time as they read', () => {
+		expect(formatCell(field('date'), '2026-10-18')).toBe('2026-10-18');
+		expect(formatCell(field('datetime'), '2026-10-18T09:05')).toBe('2026-10-18 09:05');
+	});
+
+	it('names the options a choice holds', () => {
+		const options = [
+			{ id: 'o1', name: 'Done', color: 'blue' },
+			{ id: 'o2', name: 'Todo', color: 'red' },
+		];
+		expect(formatCell(field('select', { options }), 'o1')).toBe('Done');
+		expect(formatCell(field('multiSelect', { options }), ['o1', 'o2'])).toBe(
+			'Done, Todo',
+		);
+	});
+
+	it('keeps a stale option id visible rather than blanking the cell', () => {
+		expect(formatCell(field('select', { options: [] }), 'gone')).toBe('gone');
+	});
+
+	it('pads an auto number', () => {
+		expect(formatCell(field('autoNumber', { numberLength: 3 }), 7)).toBe('007');
+	});
+
+	it('answers nothing for a type whose value lives elsewhere', () => {
+		// These three are computed by the view, which is the only layer that can see
+		// the other table or the row's formula.
+		for (const type of ['relationBack', 'rollup', 'formula'] as const) {
+			expect(formatCell(field(type), ''), type).toBe('');
+		}
+	});
+
+	it('answers nothing for an empty value whatever the type', () => {
+		expect(formatCell(field('number'), '')).toBe('');
+		expect(formatCell(field('checkbox'), false)).toBe('');
+		expect(formatCell(field('multiSelect', { options: [] }), [])).toBe('');
+	});
+
+	it('reads a ticked box as text', () => {
+		expect(formatCell(field('checkbox'), true)).toBe('true');
 	});
 });

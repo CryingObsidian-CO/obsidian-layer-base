@@ -19,7 +19,15 @@ import {
 	specFor,
 } from '../../model/fields';
 import type {RelationCandidate} from '../../model/relation';
-import type {CellValue, Field, GridView, LayerDoc, SelectOption, View} from '../../types';
+import type {
+	CellValue,
+	Field,
+	GridView,
+	LayerDoc,
+	LayerRecord,
+	SelectOption,
+	View,
+} from '../../types';
 import {renderOptionPill} from '../../ui/option-pill';
 import {beginCellEdit, type CellEditHandle} from './cell-editor';
 import {attachColumnDrag} from './column-drag';
@@ -123,7 +131,7 @@ export class GridRenderer {
 		this.selection = new SelectionTracker((target) => this.resolve(target));
 	}
 
-	render(doc: LayerDoc, view: GridView): void {
+	render(doc: LayerDoc, view: GridView, order?: readonly LayerRecord[]): void {
 		// The cell an editor was in is gone, so the handle must not outlive it.
 		this.openEdit = null;
 		this.host.empty();
@@ -181,7 +189,7 @@ export class GridRenderer {
 
 		this.renderColgroup(table, fields, view);
 		this.renderHead(table, doc, fields, view);
-		this.renderBody(table, doc, fields, view);
+		this.renderBody(table, doc, fields, view, order);
 
 		this.marquee = fit.createDiv({cls: 'layer-grid-marquee'});
 
@@ -263,6 +271,34 @@ export class GridRenderer {
 			const icon = th.createSpan({cls: 'layer-grid-type-icon'});
 			setIcon(icon, specFor(field.type).icon);
 			th.createSpan({cls: 'layer-grid-th-name', text: field.name});
+
+			/*
+			 * A sorted column says so in its own header: the toolbar names the column
+			 * too, but the eye is on the table, and a second rule's column would
+			 * otherwise be invisible. The rank shows which rule it is.
+			 */
+			const sortIndex = view.sorts.findIndex(
+				(sort) => sort.fieldId === field.id,
+			);
+			if (sortIndex !== -1) {
+				const sort = view.sorts[sortIndex];
+				th.addClass('is-sorted');
+				const badge = th.createSpan({ cls: 'layer-grid-th-sort' });
+				setIcon(
+					badge,
+					sort?.order === 'desc' ? 'arrow-down' : 'arrow-up',
+				);
+				if (view.sorts.length > 1) {
+					badge.createSpan({
+						cls: 'layer-grid-th-sort-rank',
+						text: String(sortIndex + 1),
+					});
+				}
+				badge.setAttribute(
+					'aria-label',
+					sort?.order === 'desc' ? t().sortDesc : t().sortAsc,
+				);
+			}
 
 			this.headers.set(field.id, th);
 			this.attachColumnResizer(th, field, view);
@@ -442,13 +478,15 @@ export class GridRenderer {
 		doc: LayerDoc,
 		fields: Field[],
 		view: GridView,
+		order?: readonly LayerRecord[],
 	): void {
 		const body = table.createTBody();
 		// Row numbers, one per field, and the header's trailing add-column cell,
 		// which spans the body too.
 		const columnCount = fields.length + 2;
 
-		if (doc.records.length === 0) {
+		const drawn = order ?? doc.records;
+		if (drawn.length === 0) {
 			const row = body.insertRow();
 			row.addClass('layer-grid-row', 'is-empty');
 			const cell = row.insertCell();
@@ -458,7 +496,7 @@ export class GridRenderer {
 			return;
 		}
 
-		for (const [index, record] of doc.records.entries()) {
+		for (const [index, record] of drawn.entries()) {
 			const row = body.insertRow();
 			row.addClass('layer-grid-row');
 			row.dataset.recordId = record.id;
