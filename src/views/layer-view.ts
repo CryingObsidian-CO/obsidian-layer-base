@@ -46,6 +46,7 @@ import {aggregateRollup} from '../model/rollup';
 import {backfillNumbers, renumberAll} from '../model/records';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
+import {filterRecords} from '../model/filter';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
 import {
 	relationBackIndex,
@@ -74,6 +75,7 @@ import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
 import {ExportModal} from '../ui/export-modal';
 import {SortPopover} from '../ui/sort-popover';
+import {FilterPopover} from '../ui/filter-popover';
 import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
@@ -349,6 +351,9 @@ export class LayerView extends TextFileView {
 			onOpenSort: (anchor) => {
 				this.openSortPanel(anchor);
 			},
+			onOpenFilter: (anchor) => {
+				this.openFilterPanel(anchor);
+			},
 		});
 		// Top to bottom: actions on the data, then the projection of it, then a
 		// read-only summary.
@@ -452,8 +457,16 @@ export class LayerView extends TextFileView {
 		}
 		const columns = view.type === 'grid' ? this.visibleColumnCount(view) : null;
 
+		/*
+		 * A filtered table reports both numbers. Showing only the visible count would
+		 * look like rows had been lost, and showing only the total would hide that a
+		 * filter is on.
+		 */
+		const total = doc.records.length;
+		const visible = this.orderedRecords(doc, view).length;
 		this.statusEl = shell.renderStatusBar({
-			recordCount: doc.records.length,
+			recordCount: visible,
+			totalRecordCount: total,
 			columnCount: columns,
 			selectionLabel: this.selectionLabel(),
 		});
@@ -633,7 +646,14 @@ export class LayerView extends TextFileView {
 		}
 		const doc = this.doc;
 		if (doc) {
-			if (groupingChanged) {
+			if (settings.renumber) {
+				/*
+				 * Asked for explicitly, so it runs in the order the reader is looking at
+				 * rather than the stored order: after sorting a table, "renumber" means
+				 * number what is on screen.
+				 */
+				renumberAll(doc, field, this.orderedRecords(doc, this.activeView()));
+			} else if (groupingChanged) {
 				renumberAll(doc, field);
 			} else {
 				backfillNumbers(doc, field);
@@ -1185,7 +1205,38 @@ export class LayerView extends TextFileView {
 				descending = sort.order === 'desc';
 			}
 		});
-		return { sort: { columns, descending } };
+		return {
+			sort: { columns, descending },
+			filterCount: view.filter.conditions.length,
+		};
+	}
+
+	/**
+	 * Opens the filter rules beside the button that asked for them.
+	 *
+	 * Every change is reported as it is made, so the rows follow the rules while
+	 * they are still being written.
+	 */
+	private openFilterPanel(anchor: HTMLElement): void {
+		const view = this.activeView();
+		if (!view) {
+			return;
+		}
+		new FilterPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			fields: this.doc?.fields ?? [],
+			filter: view.filter,
+			onChange: (filter) => {
+				const current = this.activeView();
+				if (!current) {
+					return;
+				}
+				current.filter = filter;
+				this.markDirty();
+				this.render();
+			},
+		}).open();
 	}
 
 	/**
@@ -1223,8 +1274,24 @@ export class LayerView extends TextFileView {
 	 * sorted one way on screen and written out another would be worse than no sort.
 	 * The document itself is left alone, so the stored order survives.
 	 */
+	/**
+	 * The row names a relation cell points at, for filtering to compare against.
+	 *
+	 * Reuses the same resolution the cell itself is drawn with, so what is filtered
+	 * on cannot differ from what is on screen. An unreadable table answers with no
+	 * names, which is honest: there is nothing to compare yet.
+	 */
+	private relationNames(field: Field, value: CellValue): readonly string[] {
+		return this.relationText(field, value).chips ?? [];
+	}
+
 	private orderedRecords(doc: LayerDoc, view: View | null): readonly LayerRecord[] {
-		return sortRecords(doc.records, doc.fields, view?.sorts ?? []);
+		// Filtering first, then ordering: sorting rows that are about to be hidden is
+		// work nobody sees, and it keeps "the visible rows" as one idea.
+		const visible = filterRecords(doc.records, doc.fields, view?.filter, (field, value) =>
+			this.relationNames(field, value),
+		);
+		return sortRecords(visible, doc.fields, view?.sorts ?? []);
 	}
 
 	/**

@@ -1717,3 +1717,97 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 }
+/* ---------- Filter panel ---------- */
+
+.layer-filter-panel {
+	padding: var(--size-4-3);
+}
+
+.layer-filter-title {
+	margin: 0 0 var(--size-4-3);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-filter-empty {
+	margin-bottom: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* The choice between requiring every condition and any of them. */
+.layer-filter-conjunction {
+	display: flex;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-2);
+}
+
+.layer-filter-mode {
+	flex: 1 1 auto;
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-filter-mode.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/*
+ * A condition reads left to right as a sentence: this column, this comparison,
+ * this value. The value shrinks first when the panel is narrow.
+ */
+.layer-filter-rule {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-bottom: var(--size-4-1);
+}
+
+.layer-filter-field {
+	flex: 1 1 30%;
+	min-width: 0;
+}
+
+.layer-filter-operator {
+	flex: 1 1 30%;
+	min-width: 0;
+}
+
+.layer-filter-value {
+	flex: 1 1 40%;
+	min-width: 0;
+}
+
+.layer-filter-remove {
+	flex: 0 0 auto;
+	padding: var(--size-4-1);
+	color: var(--text-faint);
+}
+
+.layer-filter-remove:hover {
+	color: var(--text-error);
+}
+
+.layer-filter-add {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-filter-add-icon {
+	display: inline-flex;
+}
+/* The renumber action: it replaces every number, so it does not look like the
+ * other settings on the panel. */
+.layer-field-renumber {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-field-renumber-icon {
+	display: inline-flex;
+}

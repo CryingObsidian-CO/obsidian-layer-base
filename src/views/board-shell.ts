@@ -10,6 +10,8 @@ export interface ShellHandlers {
 	onExportCsv(): void;
 	/** Opens the sort rules panel, anchored to the button that asked for it. */
 	onOpenSort(anchor: HTMLElement): void;
+	/** Opens the filter rules panel, anchored to the button that asked for it. */
+	onOpenFilter(anchor: HTMLElement): void;
 }
 
 /** What the toolbar says about the current order, if there is one. */
@@ -22,6 +24,8 @@ export interface SortState {
 
 export interface ToolbarState {
 	sort: SortState;
+	/** How many conditions are active, for the filter button's badge. */
+	filterCount: number;
 }
 
 export interface TabsState {
@@ -30,7 +34,10 @@ export interface TabsState {
 }
 
 export interface StatusState {
+	/** Rows the view shows, after filtering. */
 	recordCount: number;
+	/** Rows the table holds, which differs once a filter is on. */
+	totalRecordCount: number;
 	columnCount: number | null;
 	selectionLabel: string;
 }
@@ -96,6 +103,25 @@ export class BoardShell {
 		if (summary !== '') {
 			bar.createSpan({ cls: 'layer-shell-sort-summary', text: summary });
 		}
+
+		// Filtering takes rows away, so it says how many conditions are doing that.
+		const filterButton = bar.createEl('button', { cls: 'layer-shell-button' });
+		filterButton.toggleClass('is-active', state.filterCount > 0);
+		setIcon(
+			filterButton.createSpan({ cls: 'layer-shell-button-icon' }),
+			'filter',
+		);
+		filterButton.createSpan({
+			text:
+				state.filterCount === 0
+					? t().filterButton
+					: `${t().filterButton} ${state.filterCount}`,
+		});
+		filterButton.setAttribute('aria-label', t().filterButton);
+		filterButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			this.handlers.onOpenFilter(filterButton);
+		});
 
 		bar.createDiv({ cls: 'layer-shell-spacer' });
 		const overflow = bar.createEl('button', { cls: 'layer-shell-button' });
@@ -187,12 +213,17 @@ export class BoardShell {
 		bar.createSpan({ cls: 'layer-shell-selection', text: state.selectionLabel });
 
 		bar.createDiv({ cls: 'layer-shell-spacer' });
+		// A filtered table says so: the visible count alone would read as lost rows.
+		const shown =
+			state.recordCount === state.totalRecordCount
+				? String(state.recordCount)
+				: `${state.recordCount} / ${state.totalRecordCount}`;
 		bar.createSpan({
 			cls: 'layer-shell-count',
 			text:
 				state.columnCount === null
-					? String(state.recordCount)
-					: `${state.recordCount} × ${state.columnCount}`,
+					? shown
+					: `${shown} × ${state.columnCount}`,
 		});
 		return bar;
 	}

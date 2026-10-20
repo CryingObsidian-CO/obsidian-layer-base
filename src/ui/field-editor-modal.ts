@@ -1,4 +1,4 @@
-import { setIcon, type App } from 'obsidian';
+import { setIcon, setTooltip, type App } from 'obsidian';
 import { t } from '../i18n';
 import { specFor, usesOptions } from '../model/fields';
 import {
@@ -25,6 +25,7 @@ import { generateId } from '../utils/id';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 import { FieldTypeDropdown } from './field-type-picker';
 import { FormulaModal } from './formula-modal';
+import { ConfirmModal } from './confirm-modal';
 import { renderOptionPill } from './option-pill';
 
 export interface NumberSettings {
@@ -50,6 +51,8 @@ export interface AutoNumberSettings {
 	length: number;
 	/** The column numbered separately; '' numbers the whole table as one. */
 	groupFieldId: string;
+	/** Set when the reader asked for the whole column to be numbered again. */
+	renumber: boolean;
 }
 
 export interface RollupSettings {
@@ -144,6 +147,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private rollupAggregate: RollupAggregate;
 	private numberLength: number;
 	private numberGroupFieldId: string;
+	private renumberRequested = false;
 	private formula: string;
 	private formulaType: FormulaResultType | null;
 	private readonly originalType: FieldType | null;
@@ -732,6 +736,40 @@ export class FieldEditorModal extends AnchoredPopover {
 			cls: 'layer-field-number-hint',
 			text: t().fieldAutoNumberHint,
 		});
+
+		/*
+		 * Renumbering asks for the whole column to be issued again, which is the one
+		 * thing the numbers otherwise never do. It is offered here because it acts on
+		 * this column's settings, and it carries a tooltip because the effect is not
+		 * obvious from the label alone.
+		 */
+		const renumber = host.createEl('button', {
+			cls: 'layer-field-renumber',
+		});
+		setIcon(renumber.createSpan({ cls: 'layer-field-renumber-icon' }), 'refresh-cw');
+		renumber.createSpan({ text: t().fieldAutoNumberRenumber });
+		setTooltip(renumber, t().fieldAutoNumberRenumberHint);
+		renumber.addEventListener('click', (event) => {
+			event.preventDefault();
+			// Confirmed before it is queued, because saving replaces every number and
+			// there is no undo.
+			new ConfirmModal(this.app, {
+				title: t().fieldAutoNumberRenumber,
+				message: t().fieldAutoNumberRenumberConfirm,
+				confirmText: t().fieldAutoNumberRenumber,
+				onConfirm: () => {
+					this.renumberRequested = true;
+					this.renderAutoNumberSettings();
+				},
+			}).open();
+		});
+
+		if (this.renumberRequested) {
+			host.createDiv({
+				cls: 'layer-field-number-hint',
+				text: t().fieldAutoNumberRenumberQueued,
+			});
+		}
 	}
 
 	/** Keeps the chosen aggregate one the chosen column can answer. */
@@ -1013,6 +1051,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			autoNumber: {
 				length: this.numberLength,
 				groupFieldId: this.numberGroupFieldId,
+				renumber: this.renumberRequested,
 			},
 			rollup: {
 				sourceFieldId: this.rollupSourceFieldId,

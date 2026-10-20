@@ -14,7 +14,9 @@ import type { Field, LayerDoc } from '../src/types';
 /** A table whose rows are numbered, optionally grouped by a text column. */
 function board(fields: Field[]): LayerDoc {
 	const doc = createEmptyDoc('Board');
-	doc.fields = fields;
+	// Copied, because a test that changes a column's type mutates the field it is
+	// given, and these fixtures are shared between cases.
+	doc.fields = fields.map((field) => ({ ...field }));
 	return doc;
 }
 
@@ -216,5 +218,67 @@ describe('what the grid is given to draw', () => {
 		const value = reloaded.records[0]?.cells.f_no;
 		expect(typeof value).toBe('number');
 		expect(formatCell(reloaded.fields[0]!, value ?? '')).toBe('01');
+	});
+});
+describe('numbering again in a given order', () => {
+	it('numbers by the order it is handed, not by the stored order', () => {
+		/*
+		 * What the renumber button means: after sorting a table, the numbers should
+		 * follow what is on screen, not the order the rows were entered in.
+		 */
+		const doc = board([serial]);
+		addRecord(doc);
+		addRecord(doc);
+		addRecord(doc);
+		// Reverse it, as a descending sort would show it.
+		const shown = [...doc.records].reverse();
+		renumberAll(doc, serial, shown);
+		expect(shown.map((record) => record.cells.f_no)).toEqual([1, 2, 3]);
+	});
+
+	it('numbers by the stored order when no order is given', () => {
+		const doc = board([serial]);
+		addRecord(doc);
+		addRecord(doc);
+		renumberAll(doc, serial);
+		expect(doc.records.map((record) => record.cells.f_no)).toEqual([1, 2]);
+	});
+
+	it('closes the gaps a deletion left', () => {
+		const doc = board([serial]);
+		addRecord(doc);
+		addRecord(doc);
+		addRecord(doc);
+		doc.records.splice(1, 1);
+		expect(doc.records.map((record) => record.cells.f_no)).toEqual([1, 3]);
+		renumberAll(doc, serial);
+		expect(doc.records.map((record) => record.cells.f_no)).toEqual([1, 2]);
+	});
+
+	it('starts each group again, as the ordinary issuing does', () => {
+		const doc = board([groupColumn, grouped]);
+		const a = addRecord(doc);
+		setCellValue(doc, a.id, groupColumn, 'COL');
+		const b = addRecord(doc);
+		setCellValue(doc, b.id, groupColumn, 'AAA');
+		const c = addRecord(doc);
+		setCellValue(doc, c.id, groupColumn, 'COL');
+		renumberAll(doc, grouped);
+		expect([a, b, c].map((record) => record.cells.f_no)).toEqual([1, 1, 2]);
+	});
+});
+describe('the fixtures themselves', () => {
+	it('gives each board its own copy of a column', () => {
+		/*
+		 * A column object handed to a board is mutated by changing its type, and
+		 * these fixtures are shared between cases. Without the copy, one case that
+		 * clears a setting leaves every later case running against a column that no
+		 * longer has it — which is exactly how this suite once failed while every
+		 * case passed on its own.
+		 */
+		const first = board([grouped]);
+		const second = board([grouped]);
+		expect(first.fields[0]).not.toBe(second.fields[0]);
+		expect(grouped.numberGroupFieldId).toBe('f_group');
 	});
 });

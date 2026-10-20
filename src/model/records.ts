@@ -241,11 +241,25 @@ export function backfillNumbers(doc: LayerDoc, field: Field): void {
 }
 
 /** Numbers every row again from the start, for when the grouping changes. */
-export function renumberAll(doc: LayerDoc, field: Field): void {
+/**
+ * Numbers every row again from the start, in the order given.
+ *
+ * The order is passed in rather than read from the document, so a table shown
+ * sorted can be numbered in the order the reader sees.
+ *
+ * Every number in the column is cleared first, not just those in the order passed
+ * in: issuing a number asks which ones are already taken across the whole table,
+ * so a number left on a row outside the sequence would count as taken.
+ */
+export function renumberAll(
+	doc: LayerDoc,
+	field: Field,
+	order?: readonly LayerRecord[],
+): void {
 	for (const record of doc.records) {
 		delete record.cells[field.id];
 	}
-	for (const record of doc.records) {
+	for (const record of order ?? doc.records) {
 		assignNumber(doc, field, record);
 	}
 }
