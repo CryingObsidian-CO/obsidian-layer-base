@@ -6,6 +6,7 @@ import {
 	type FilterCondition,
 	type FilterOperator,
 	type GridView,
+	type KanbanView,
 	LAYER_FORMAT_VERSION,
 	type LayerDoc,
 	type LayerRecord,
@@ -422,20 +423,39 @@ function parseView(
 	if (raw.type === 'kanban') {
 		const groupByFieldId = asString(raw.groupByFieldId);
 		const groupField = fields.find((f) => f.id === groupByFieldId);
-		// A board is meaningless without a select field to group by.
-		if (!groupField || groupField.type !== 'select') {
+		/*
+		 * A board needs a column to group by, but any column will do: a choice gives
+		 * the classic board, while a date or a number gives one column per value.
+		 * Only a column that is gone sends the view back to the table.
+		 */
+		if (!groupField) {
 			return {...base, type: 'grid', columnWidths: {}, rowHeights: {}};
 		}
-		return {
+		const kanban: KanbanView = {
 			...base,
 			type: 'kanban',
 			groupByFieldId,
 			cardFieldIds: asArray(raw.cardFieldIds)
-			.map((v) => asString(v))
-			.filter((v) => fieldIds.has(v)),
+				.map((v) => asString(v))
+				.filter((v) => fieldIds.has(v)),
 		};
+		// Clamped on the way in, so a hand-edited file cannot ask for a board that
+		// would never finish drawing.
+		const limit = raw.columnLimit;
+		if (typeof limit === 'number' && Number.isFinite(limit) && limit >= 1) {
+			kanban.columnLimit = Math.min(Math.floor(limit), 500);
+		}
+		if (raw.showEmptyColumns === true) {
+			kanban.showEmptyColumns = true;
+		}
+		// Only a column that is still here may title a card; otherwise the table's
+		// primary column stands in.
+		const titleId = asString(raw.titleFieldId);
+		if (titleId !== '' && fieldIds.has(titleId)) {
+			kanban.titleFieldId = titleId;
+		}
+		return kanban;
 	}
-
 	return {
 		...base,
 		type: 'grid',

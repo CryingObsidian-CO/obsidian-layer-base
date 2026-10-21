@@ -1811,3 +1811,277 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-field-renumber-icon {
 	display: inline-flex;
 }
+/* ---------- Board ---------- */
+
+/* The columns scroll sideways as a group, so a board wider than the pane can be
+ * read by dragging rather than wrapping into rows of columns. */
+.layer-kanban {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	flex: 1 1 auto;
+}
+
+.layer-kanban-board {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-3);
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: var(--size-4-3);
+}
+
+/*
+ * A column is as tall as its cards, not as tall as the pane: a board with one card
+ * in each of five columns should not draw five full-height empty boxes.
+ */
+.layer-kanban-column {
+	display: flex;
+	flex-direction: column;
+	flex: 0 0 auto;
+	width: 16rem;
+	max-height: 100%;
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.layer-kanban-column.is-drop-target {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.layer-kanban-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.layer-kanban-title {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* A count, because an empty column and one the limit emptied look the same. */
+.layer-kanban-count {
+	flex: 0 0 auto;
+	padding: 0 var(--size-4-1);
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-hover);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-kanban-cards {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: 0 var(--size-4-2) var(--size-4-2);
+	overflow-y: auto;
+}
+
+.layer-kanban-card {
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.layer-kanban-card:hover {
+	border-color: var(--interactive-accent);
+}
+
+.layer-kanban-card.is-dragging {
+	opacity: 0.5;
+}
+
+/* A card that cannot move says so by not offering the grab cursor. */
+.layer-kanban-card.is-fixed {
+	cursor: default;
+}
+
+.layer-kanban-card-title {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
+.layer-kanban-empty {
+	padding: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* What the column limit left out, said once under the board. */
+.layer-kanban-omitted {
+	padding: 0 var(--size-4-3) var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.layer-kanban-missing {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-8);
+	color: var(--text-muted);
+}
+/* The strip above the columns: what it groups by, and how many columns it draws. */
+.layer-kanban-toolbar {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3) 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* What the board groups by: a label, not a control. Changing it lives in the
+ * board's fields panel, so this does not invite a click. */
+.layer-kanban-group {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: default;
+}
+
+.layer-kanban-group-icon {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.layer-kanban-toolbar-spacer {
+	flex: 1 1 auto;
+}
+
+.layer-kanban-limit {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-kanban-limit input {
+	width: 4em;
+}
+/* A toggle in the board's strip, beside the column limit. */
+.layer-kanban-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+/* ---------- Board fields panel ---------- */
+
+.layer-board-fields {
+	padding: var(--size-4-3);
+}
+
+.layer-board-fields-title {
+	margin: 0 0 var(--size-4-3);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-board-fields-heading {
+	margin: var(--size-4-3) 0 var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Scrolled rather than grown: a table of twenty columns would otherwise push the
+ * panel past the bottom of the window. */
+.layer-board-fields-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	max-height: 20rem;
+	overflow-y: auto;
+}
+
+.layer-board-fields-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.layer-board-fields-icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+.layer-board-fields-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* The grouping column is already the board's structure, so it is marked. */
+.layer-board-fields-note {
+	flex: 0 0 auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.layer-board-fields-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+
+/* The button that opens the panel, in the board's own strip. */
+.layer-kanban-fields-button {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+
+/* A field printed on a card: its name, then its value. */
+.layer-kanban-card-field {
+	display: flex;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* The type icon, aligned in a column of its own so the field names on a card line
+ * up whatever their glyphs are. */
+.layer-kanban-card-icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	width: 1em;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+}
+
+.layer-kanban-card-label {
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+.layer-kanban-card-value {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

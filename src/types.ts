@@ -176,7 +176,26 @@ export interface GridView extends BaseView {
 export interface KanbanView extends BaseView {
 	type: 'kanban';
 	groupByFieldId: string;
+	/**
+	 * The column a card is titled by. Missing means the table's primary column,
+	 * which is what a board that was never configured shows.
+	 */
+	titleFieldId?: string;
+	/** The columns shown under the title on each card, in this order. */
 	cardFieldIds: string[];
+	/**
+	 * How many columns the board draws before the rest are counted and left out.
+	 * Missing means the default, which is what a board that was never configured
+	 * uses. A board of dates can produce a column per day, so the limit is a
+	 * property of the board rather than of the table.
+	 */
+	columnLimit?: number;
+	/**
+	 * Whether a board draws the columns its grouping column could hold but no row
+	 * uses yet. Without it a board of choices only offers the values already taken,
+	 * so a card could never be dragged into a value nobody has chosen.
+	 */
+	showEmptyColumns?: boolean;
 }
 
 export type View = GridView | KanbanView;

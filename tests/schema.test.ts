@@ -140,12 +140,17 @@ describe('parseLayerDoc', () => {
 	});
 
 	describe('view validation', () => {
-		it('falls back to a grid view when the group field is not a select', () => {
+		it('keeps a board that groups by a column other than a choice', () => {
+			/*
+			 * A board may group by almost anything: a date gives one column per day, a
+			 * number one per value. Only a column that is gone sends it back to the
+			 * table, which the next case covers.
+			 */
 			const raw = JSON.parse(VALID) as Record<string, unknown>;
 			(raw.views as Record<string, unknown>[])[1]!.groupByFieldId = 'f_a';
 			const { doc } = parseLayerDoc(JSON.stringify(raw));
 
-			expect(doc.views[1]?.type).toBe('grid');
+			expect(doc.views[1]?.type).toBe('kanban');
 		});
 
 		it('falls back to a grid view when the group field is missing', () => {

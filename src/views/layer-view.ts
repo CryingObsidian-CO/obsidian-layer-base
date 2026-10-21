@@ -35,7 +35,7 @@ import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
 import {
-	cellToText,
+	copyTextFor,
 	emptyValueFor,
 	formatCell,
 	relationIds,
@@ -76,6 +76,7 @@ import {ConfirmModal} from '../ui/confirm-modal';
 import {ExportModal} from '../ui/export-modal';
 import {SortPopover} from '../ui/sort-popover';
 import {FilterPopover} from '../ui/filter-popover';
+import {BoardFieldsPopover} from '../ui/board-fields-popover';
 import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
@@ -89,6 +90,8 @@ import {
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell, type ToolbarState} from './board-shell';
 import {GridRenderer, type CellText} from './grid/grid-view';
+import {KanbanRenderer} from './kanban/kanban-view';
+import {valueForColumn, type KanbanColumn} from '../model/kanban';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -97,6 +100,7 @@ export class LayerView extends TextFileView {
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
 	private grid: GridRenderer | null = null;
+	private kanban: KanbanRenderer | null = null;
 	/** Reverse lookups for the current render pass, per source column. */
 	private readonly backIndexes = new Map<
 		string,
@@ -438,11 +442,33 @@ export class LayerView extends TextFileView {
 				},
 			});
 			this.grid = grid;
+			this.kanban = null;
 			grid.render(this.doc, view, this.orderedRecords(this.doc, view));
 		} else {
 			this.grid = null;
-			const box = mount.createDiv({cls: 'layer-base-message'});
-			box.setText(t().gridNotImplemented);
+			const kanban = new KanbanRenderer(mount, {
+				onSetGroupField: (fieldId) => {
+					this.handleGroupField(view, fieldId);
+				},
+				onMove: ({ recordId, column }) => {
+					this.handleBoardMove(view, recordId, column);
+				},
+				onOpenRecord: (recordId) => {
+					this.revealRecord(recordId);
+				},
+				onSetColumnLimit: (limit) => {
+					this.handleColumnLimit(view, limit);
+				},
+				onSetShowEmpty: (show) => {
+					this.handleShowEmptyColumns(view, show);
+				},
+				onOpenBoardFields: (anchor) => {
+					this.openBoardFields(view, anchor);
+				},
+				displayText: (field, record) => this.displayText(field, record),
+			});
+			this.kanban = kanban;
+			kanban.render(this.doc, view);
 		}
 
 		this.renderStatus(shell);
@@ -913,6 +939,11 @@ export class LayerView extends TextFileView {
 
 	/**
 	 * Copies a rectangle.
+	 *
+	 * The text comes from `displayText`, not from the stored cell, because a derived
+	 * column stores nothing: copying the stored value gave an empty string where the
+	 * screen showed a total. The stored value still travels alongside it, so pasting
+	 * back into the same table keeps what the cells actually hold.
 	 */
 	private async handleCopy(recordIds: string[], fields: Field[]): Promise<void> {
 		const doc = this.doc;
@@ -923,7 +954,13 @@ export class LayerView extends TextFileView {
 		const payload: FormattedClipboard = {
 			text: formatGrid(
 				records.map((record) =>
-					fields.map((field) => cellToText(field, record?.cells[field.id] ?? '')),
+					fields.map((field) =>
+						copyTextFor(
+							field,
+							record?.cells[field.id] ?? '',
+							record ? this.displayText(field, record) : undefined,
+						),
+					),
 				),
 			),
 			rows: records.map((record) =>
@@ -932,7 +969,11 @@ export class LayerView extends TextFileView {
 					return {
 						type: field.type,
 						value,
-						text: cellToText(field, value),
+						text: copyTextFor(
+							field,
+							value,
+							record ? this.displayText(field, record) : undefined,
+						),
 					};
 				}),
 			),
@@ -1525,6 +1566,133 @@ export class LayerView extends TextFileView {
 			this.plugin.tables.ensure(resolved);
 		}
 		return source;
+	}
+
+	/**
+	 * Moves a card to another column, by writing the value that column stands for.
+	 *
+	 * The write goes through the same `setCellValue` an edit does, so a value the
+	 * column refuses is refused here too — which is what keeps a card from landing
+	 * in a column it cannot actually belong to.
+	 */
+	private handleBoardMove(
+		view: View,
+		recordId: string,
+		column: KanbanColumn,
+	): void {
+		const doc = this.doc;
+		if (!doc || view.type !== 'kanban') {
+			return;
+		}
+		const field = doc.fields.find(
+			(candidate) => candidate.id === view.groupByFieldId,
+		);
+		/*
+		 * The ungrouped column has no value, and that is what it writes: a drop there
+		 * clears the cell. It is not refused for lacking a value, since lacking one
+		 * is the whole point of it.
+		 */
+		if (!field || !column.droppable) {
+			return;
+		}
+		const value = valueForColumn(field, column);
+		if (!setCellValue(doc, recordId, field, value)) {
+			return;
+		}
+		this.markDirty();
+		this.render();
+	}
+
+	/**
+	 * Opens the panel that chooses this board's columns.
+	 *
+	 * Reported on save rather than on every keystroke: the choice changes the whole
+	 * board, and applying it as each box is ticked would redraw under the reader's
+	 * cursor.
+	 */
+	private openBoardFields(view: View, anchor: HTMLElement): void {
+		const doc = this.doc;
+		if (!doc || view.type !== 'kanban') {
+			return;
+		}
+		new BoardFieldsPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			view,
+			fields: doc.fields,
+			primaryFieldId: doc.fields.find((field) => field.primary)?.id ?? '',
+			onSubmit: (result) => {
+				view.groupByFieldId = result.groupByFieldId;
+				if (result.titleFieldId === '') {
+					delete view.titleFieldId;
+				} else {
+					view.titleFieldId = result.titleFieldId;
+				}
+				view.cardFieldIds = result.cardFieldIds;
+				this.markDirty();
+				this.render();
+			},
+		}).open();
+	}
+
+	/** Switches which column this board groups by. */
+	private handleGroupField(view: View, fieldId: string): void {
+		if (view.type !== 'kanban') {
+			return;
+		}
+		view.groupByFieldId = fieldId;
+		this.markDirty();
+		this.render();
+	}
+
+	/** Stores whether this board draws columns no row uses yet. */
+	private handleShowEmptyColumns(view: View, show: boolean): void {
+		if (view.type !== 'kanban') {
+			return;
+		}
+		// Removed rather than set to false, so a board that was never changed keeps
+		// no key in the file.
+		if (show) {
+			view.showEmptyColumns = true;
+		} else {
+			delete view.showEmptyColumns;
+		}
+		this.markDirty();
+		this.render();
+	}
+
+	/** Stores a column limit on this board, which is a property of the board. */
+	private handleColumnLimit(view: View, limit: number): void {
+		if (view.type !== 'kanban') {
+			return;
+		}
+		view.columnLimit = limit;
+		this.markDirty();
+		this.render();
+	}
+
+	/**
+	 * Brings a row into view.
+	 *
+	 * A card carries a title and nothing else, so editing belongs in the table. The
+	 * board switches to it rather than opening an editor over the cards: the row has
+	 * many columns, and only the table has room for them.
+	 */
+	private revealRecord(recordId: string): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const grid = doc.views.find((view) => view.type === 'grid');
+		if (!grid) {
+			return;
+		}
+		this.activeViewId = grid.id;
+		this.render();
+		// Selecting it after the redraw, so the row exists to be selected.
+		window.setTimeout(() => {
+			this.grid?.revealRecord(recordId);
+		}, 0);
 	}
 
 	/**

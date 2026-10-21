@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	copyTextFor,
 	FIELD_TYPES,
 	cellFromText,
 	cellToText,
@@ -220,5 +221,42 @@ describe('what every type reads as', () => {
 
 	it('reads a ticked box as text', () => {
 		expect(formatCell(field('checkbox'), true)).toBe('true');
+	});
+});
+describe('what copying a cell puts on the clipboard', () => {
+	/** A column of the given type, with any extra settings. */
+	function field(type: FieldType, extra: Partial<Field> = {}): Field {
+		return { id: 'f', name: 'F', type, ...extra };
+	}
+
+	/*
+	 * The defect this pins: a derived column stores nothing, so copying read an
+	 * empty cell and a total arrived as a blank. The text has to come from whoever
+	 * could compute it.
+	 */
+	it('takes the stored text for a stored column', () => {
+		expect(copyTextFor(field('number'), 42)).toBe('42');
+		expect(copyTextFor(field('text'), 'hi')).toBe('hi');
+		expect(copyTextFor(field('autoNumber', { numberLength: 3 }), 7)).toBe('007');
+	});
+
+	it('takes the supplied text for a derived column', () => {
+		for (const type of ['formula', 'rollup', 'relationBack'] as const) {
+			expect(copyTextFor(field(type), '', 'from the view'), type).toBe(
+				'from the view',
+			);
+		}
+	});
+
+	it('answers nothing when a derived column has no supplied text', () => {
+		// This is the old behaviour, kept only for the case where nothing could
+		// compute the value: better an empty cell than an invented one.
+		expect(copyTextFor(field('formula'), '')).toBe('');
+	});
+
+	it('never puts a stored value in a derived cell on the clipboard', () => {
+		// A derived column stores nothing, but a hand-edited file could hold junk;
+		// what is copied must be what the grid shows, not what the file kept.
+		expect(copyTextFor(field('rollup'), 'stale junk', '350')).toBe('350');
 	});
 });

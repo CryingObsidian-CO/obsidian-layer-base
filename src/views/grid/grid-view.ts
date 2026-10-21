@@ -200,6 +200,22 @@ export class GridRenderer {
 		return {recordIds: [...this.recordOrder], fields: [...this.visible]};
 	}
 
+	/**
+	 * Selects a row and brings it into view.
+	 *
+	 * Used when a card on a board is opened: the board carries a title and nothing
+	 * else, so the row is edited where its columns are. The row may be anywhere in
+	 * a long table, so it is scrolled to rather than left to be found.
+	 */
+	revealRecord(recordId: string): void {
+		const row = this.rows.get(recordId);
+		if (!row) {
+			return;
+		}
+		this.setSelection({kind: 'row', recordId});
+		row.scrollIntoView({block: 'nearest'});
+	}
+
 	/** A column's header element, for anchoring a panel to it. */
 	headerFor(fieldId: string): HTMLElement | null {
 		return this.headers.get(fieldId) ?? null;

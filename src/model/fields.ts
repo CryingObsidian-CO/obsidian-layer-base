@@ -385,3 +385,23 @@ export function deserializeCellValue(raw: string, field: Field): CellValue {
 	}
 	return raw;
 }
+
+/**
+ * What copying a cell should put on the clipboard.
+ *
+ * A stored column contributes the text its own type gives. A derived one stores
+ * nothing, so its text has to be supplied by whoever could compute it — the view
+ * that can see the other table, or the formula's row. Passing no text for a
+ * derived column yields an empty string, which is what copying used to do for
+ * every derived column and why a total arrived as a blank cell.
+ */
+export function copyTextFor(
+	field: Field,
+	value: CellValue,
+	computed?: string,
+): string {
+	if (isDerived(field.type)) {
+		return computed ?? '';
+	}
+	return cellToText(field, value);
+}
