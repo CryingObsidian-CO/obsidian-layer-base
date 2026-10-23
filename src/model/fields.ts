@@ -391,9 +391,8 @@ export function deserializeCellValue(raw: string, field: Field): CellValue {
  *
  * A stored column contributes the text its own type gives. A derived one stores
  * nothing, so its text has to be supplied by whoever could compute it — the view
- * that can see the other table, or the formula's row. Passing no text for a
- * derived column yields an empty string, which is what copying used to do for
- * every derived column and why a total arrived as a blank cell.
+ * that can see the other table, or the formula's row. Passing no text for a derived
+ * column copies an empty cell, because there is nothing stored to copy.
  */
 export function copyTextFor(
 	field: Field,

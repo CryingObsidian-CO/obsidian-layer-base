@@ -55,7 +55,7 @@ export async function readFormatted(): Promise<FormattedClipboard | null> {
 			return null;
 		}
 	} catch {
-		// Cannot verify; the payload is still the most recent thing we wrote.
+		// Cannot verify; the payload is still the most recent one written.
 	}
 	return formatted;
 }

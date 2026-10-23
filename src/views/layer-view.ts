@@ -77,6 +77,12 @@ import {ExportModal} from '../ui/export-modal';
 import {SortPopover} from '../ui/sort-popover';
 import {FilterPopover} from '../ui/filter-popover';
 import {BoardFieldsPopover} from '../ui/board-fields-popover';
+import {
+	addBoardView,
+	canRemoveView,
+	removeView,
+	renameView,
+} from '../model/views';
 import type {Anchor} from '../ui/anchored-popover';
 import {
 	FieldEditorModal,
@@ -342,6 +348,19 @@ export class LayerView extends TextFileView {
 			onSelectView: (viewId) => {
 				this.activeViewId = viewId;
 				this.render();
+			},
+			onAddView: () => {
+				this.handleAddBoardView();
+			},
+			onRenameView: (viewId, name) => {
+				this.handleRenameView(viewId, name);
+			},
+			canDeleteView: (viewId) => {
+				const view = this.doc?.views.find((candidate) => candidate.id === viewId);
+				return view !== undefined && canRemoveView(view);
+			},
+			onDeleteView: (viewId) => {
+				this.handleDeleteView(viewId);
 			},
 			onAddRecord: () => {
 				this.handleAddRecord();
@@ -1633,6 +1652,75 @@ export class LayerView extends TextFileView {
 				this.render();
 			},
 		}).open();
+	}
+
+	/**
+	 * Adds a board view and switches to it.
+	 *
+	 * The table is left as it is: a board is another way of looking at the same
+	 * rows, so adding one changes nothing about the data.
+	 */
+	private handleAddBoardView(): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const created = addBoardView(doc, t().boardViewName);
+		if (!created) {
+			new Notice(t().noticeNoGroupField);
+			return;
+		}
+		this.activeViewId = created.id;
+		this.markDirty();
+		this.render();
+	}
+
+	/** Renames a view, which is only ever a change to the tab. */
+	private handleRenameView(viewId: string, name: string): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		if (!renameView(doc, viewId, name)) {
+			return;
+		}
+		this.markDirty();
+		this.render();
+	}
+
+	/**
+	 * Removes a view and picks another to show.
+	 *
+	 * The view being removed may be the active one, so a neighbour is chosen before
+	 * the redraw: otherwise the table would fall back to the first view and lose
+	 * the reader's place.
+	 */
+	private handleDeleteView(viewId: string): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const index = doc.views.findIndex((view) => view.id === viewId);
+		if (index === -1) {
+			return;
+		}
+		const target = doc.views[index];
+		// Said out loud rather than failing quietly: the menu greys the item out, but
+		// a keyboard or a stale menu can still reach this.
+		if (target && !canRemoveView(target)) {
+			new Notice(t().noticeTableViewKept);
+			return;
+		}
+		if (!removeView(doc, viewId)) {
+			return;
+		}
+		if (this.activeViewId === viewId) {
+			const neighbour = doc.views[Math.max(0, index - 1)];
+			this.activeViewId = neighbour?.id ?? null;
+		}
+		new Notice(t().noticeViewDeleted);
+		this.markDirty();
+		this.render();
 	}
 
 	/** Switches which column this board groups by. */

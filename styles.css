@@ -2085,3 +2085,29 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+/* The add-view button at the end of the tab row: quiet, so it does not compete
+ * with the views it sits after. */
+.layer-shell-tab-add {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--size-4-1);
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.layer-shell-tab-add:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+/* A tab being renamed: the field takes the label's place, sized to the row so the
+ * other tabs do not jump while it is open. */
+.layer-shell-tab-input {
+	width: 8em;
+	max-width: 12em;
+	padding: 0 var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}

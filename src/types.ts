@@ -124,7 +124,10 @@ export interface Record_ {
 	cells: Record<string, CellValue>;
 }
 
-/** Rename this to `LayerRecord` once the Obsidian `Record` type is no longer in scope. */
+/*
+ * A row of the board. The alias exists because Obsidian's own `Record` type is
+ * generic and would otherwise shadow this one wherever both are imported.
+ */
 export type LayerRecord = Record_;
 
 export type SortOrder = 'asc' | 'desc';

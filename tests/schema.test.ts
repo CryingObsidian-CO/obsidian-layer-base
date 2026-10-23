@@ -307,19 +307,19 @@ describe('createEmptyDoc', () => {
 		expect(warnings).toEqual([]);
 		expect(doc.name).toBe('测试');
 		expect(doc.fields.filter((f) => f.primary)).toHaveLength(1);
-		expect(doc.views.some((v) => v.type === 'kanban')).toBe(true);
+		// A new file opens as a table. Boards are added on purpose, from the row of
+		// views, so nobody is handed an empty tab they did not ask for.
+		expect(doc.views.map((v) => v.type)).toEqual(['grid']);
 	});
 
-	it('gives the board view a real select field to group by', () => {
+	it('carries the choice field a new board would group by', () => {
+		// The board is not created, but the column it would use is there, so adding
+		// one takes a single click.
 		const doc = createEmptyDoc();
-		const board = doc.views.find((v) => v.type === 'kanban');
+		const select = doc.fields.find((f) => f.type === 'select');
 
-		expect(board).toBeDefined();
-		if (board?.type === 'kanban') {
-			const field = doc.fields.find((f) => f.id === board.groupByFieldId);
-			expect(field?.type).toBe('select');
-			expect(field?.options?.length).toBeGreaterThan(0);
-		}
+		expect(select).toBeDefined();
+		expect(select?.options?.length).toBeGreaterThan(0);
 	});
 
 	it('writes the supplied seed labels into the file', () => {
@@ -336,7 +336,7 @@ describe('createEmptyDoc', () => {
 
 		expect(doc.fields.map((f) => f.name)).toContain('标题');
 		expect(doc.fields.map((f) => f.name)).toContain('状态');
-		expect(doc.views.map((v) => v.name)).toEqual(['表格', '看板']);
+		expect(doc.views.map((v) => v.name)).toEqual(['表格']);
 
 		const status = doc.fields.find((f) => f.type === 'select');
 		expect(status?.options?.map((o) => o.name)).toEqual([
@@ -349,6 +349,6 @@ describe('createEmptyDoc', () => {
 	it('uses English seed labels by default', () => {
 		const doc = createEmptyDoc();
 		expect(doc.fields.map((f) => f.name)).toEqual(['Title', 'Status']);
-		expect(doc.views.map((v) => v.name)).toEqual(['Table', 'Board']);
+		expect(doc.views.map((v) => v.name)).toEqual(['Table']);
 	});
 });

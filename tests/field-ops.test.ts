@@ -8,7 +8,8 @@ import {
 	setCellValue,
 } from '../src/model/records';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
-import type { Field, LayerDoc, SelectOption } from '../src/types';
+import { addBoardView } from '../src/model/views';
+import type { Field, KanbanView, LayerDoc, SelectOption } from '../src/types';
 
 const OPTIONS: SelectOption[] = [
 	{ id: 'o_1', name: 'To do', color: 'default' },
@@ -68,10 +69,10 @@ describe('removeField', () => {
 			type: 'select',
 			options: [],
 		});
-		const board = doc.views.find((v) => v.type === 'kanban');
-		if (board?.type === 'kanban') {
-			board.groupByFieldId = 'f_other';
-		}
+		// A new file opens as a table, so the board these cases are about has to be
+		// added the way a reader adds one.
+		const board = addBoardView(doc, 'Board') as KanbanView;
+		board.groupByFieldId = 'f_other';
 
 		removeField(doc, 'f_other');
 
@@ -87,10 +88,8 @@ describe('removeField', () => {
 		const doc = newDoc();
 		doc.fields = doc.fields.filter((f) => f.type === 'text');
 		doc.fields.push({ id: 'f_only', name: 'Only', type: 'select', options: [] });
-		const board = doc.views.find((v) => v.type === 'kanban');
-		if (board?.type === 'kanban') {
-			board.groupByFieldId = 'f_only';
-		}
+		const board = addBoardView(doc, 'Board') as KanbanView;
+		board.groupByFieldId = 'f_only';
 
 		removeField(doc, 'f_only');
 

@@ -543,16 +543,6 @@ export function createEmptyDoc(
 				columnWidths: {},
 				rowHeights: {},
 			},
-			{
-				id: generateId('v'),
-				name: seed.kanbanView,
-				type: 'kanban',
-				groupByFieldId: statusId,
-				cardFieldIds: [titleId],
-				filter: {conjunction: 'and', conditions: []},
-				sorts: [],
-				hiddenFieldIds: [],
-			},
 		],
 	};
 }

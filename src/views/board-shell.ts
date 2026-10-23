@@ -1,4 +1,4 @@
-import { Menu, setIcon } from 'obsidian';
+import { Menu, setIcon, setTooltip } from 'obsidian';
 import { t } from '../i18n';
 import type { View } from '../types';
 
@@ -6,6 +6,14 @@ export interface ShellHandlers {
 	onAddRecord(): void;
 	onAddRecordAtTop(): void;
 	onSelectView(viewId: string): void;
+	/** Adds a board view to this table. */
+	onAddView(): void;
+	/** Renames a view. */
+	onRenameView(viewId: string, name: string): void;
+	/** Whether this view may be removed, which the table may not. */
+	canDeleteView(viewId: string): boolean;
+	/** Removes a view. */
+	onDeleteView(viewId: string): void;
 	/** Writes the table out as CSV beside the board. */
 	onExportCsv(): void;
 	/** Opens the sort rules panel, anchored to the button that asked for it. */
@@ -198,13 +206,130 @@ export class BoardShell {
 			}
 			const icon = tab.createSpan({ cls: 'layer-shell-tab-icon' });
 			setIcon(icon, view.type === 'kanban' ? 'columns' : 'table');
-			tab.createSpan({ text: view.name });
+			const label = tab.createSpan({ cls: 'layer-shell-tab-name', text: view.name });
 			tab.addEventListener('click', (event) => {
 				event.preventDefault();
 				this.handlers.onSelectView(view.id);
 			});
+			/*
+			 * Renaming is reached from the context menu, not from a double press: the
+			 * first press selects the view, which redraws the row, so the element the
+			 * second press would land on is gone and `dblclick` never fires.
+			 */
+			tab.addEventListener('contextmenu', (event) => {
+				event.preventDefault();
+				this.showViewMenu(event, tab, label, view);
+			});
+			setTooltip(tab, t().viewMenuHint);
 		}
+
+		/*
+		 * Adding a board sits at the end of the row it is added to. Only boards are
+		 * offered: a second table would differ from the first only in its filter, and
+		 * more than one place still assumes a single table.
+		 */
+		const add = tabs.createEl('button', { cls: 'layer-shell-tab-add' });
+		setIcon(add.createSpan(), 'plus');
+		add.setAttribute('aria-label', t().addBoardView);
+		setTooltip(add, t().addBoardViewHint);
+		add.addEventListener('click', (event) => {
+			event.preventDefault();
+			this.handlers.onAddView();
+		});
 		return tabs;
+	}
+
+	/**
+	 * What a view's tab offers when pressed with the right button.
+	 *
+	 * A menu rather than a gesture, so every operation on a view has one place to
+	 * live instead of a new gesture each time.
+	 */
+	private showViewMenu(
+		event: MouseEvent,
+		tab: HTMLElement,
+		label: HTMLElement,
+		view: View,
+	): void {
+		const menu = new Menu();
+		menu.addItem((item) =>
+			item
+				.setTitle(view.name)
+				.setIsLabel(true),
+		);
+		menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle(t().renameView)
+				.setIcon('pencil')
+				.onClick(() => this.beginRename(tab, label, view)),
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle(t().deleteView)
+				.setIcon('trash')
+				/*
+				 * The table is the data's own view and cannot go; a board may. The rule
+				 * lives in the model, so the menu only asks rather than deciding.
+				 */
+				.setDisabled(!this.handlers.canDeleteView(view.id))
+				.onClick(() => this.handlers.onDeleteView(view.id)),
+		);
+		menu.showAtMouseEvent(event);
+	}
+
+	/**
+	 * Turns a tab's label into an input, and back again.
+	 *
+	 * Renaming happens in place rather than in a dialog: the label is short, and a
+	 * window for it would be heavier than the change. Enter or leaving the field
+	 * keeps the new name, Escape puts the old one back.
+	 */
+	private beginRename(
+		tab: HTMLElement,
+		label: HTMLElement,
+		view: View,
+	): void {
+		if (tab.querySelector('input') !== null) {
+			return;
+		}
+		const input = tab.createEl('input', { cls: 'layer-shell-tab-input' });
+		input.value = view.name;
+		label.hide();
+		input.focus();
+		input.select();
+
+		let settled = false;
+		const finish = (keep: boolean): void => {
+			if (settled) {
+				return;
+			}
+			settled = true;
+			const name = input.value.trim();
+			input.remove();
+			label.show();
+			if (keep && name !== '' && name !== view.name) {
+				this.handlers.onRenameView(view.id, name);
+			} else {
+				label.setText(view.name);
+			}
+		};
+
+		input.addEventListener('keydown', (event) => {
+			// Escape leaves it as it was; Enter keeps it. Both end the edit.
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				finish(true);
+			} else if (event.key === 'Escape') {
+				event.preventDefault();
+				event.stopPropagation();
+				finish(false);
+			}
+		});
+		input.addEventListener('blur', () => finish(true));
+		// A press inside the field is not a press on the tab.
+		input.addEventListener('click', (event) => event.stopPropagation());
+		input.addEventListener('dblclick', (event) => event.stopPropagation());
 	}
 
 	renderStatusBar(state: StatusState): HTMLElement {
