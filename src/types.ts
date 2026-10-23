@@ -1,5 +1,7 @@
 export const LAYER_FORMAT_VERSION = 1;
 
+import type { SummaryKind } from './model/summary';
+
 export type FieldType =
 	| 'text'
 	| 'longtext'
@@ -173,6 +175,11 @@ export interface GridView extends BaseView {
 	type: 'grid';
 	columnWidths: Record<string, number>;
 	rowHeights: Record<string, number>;
+	/**
+	 * What each column's footer reports, by column id. A column with no entry is not
+	 * summarised, so a table only shows figures someone asked for.
+	 */
+	summaries?: Record<string, SummaryKind>;
 }
 
 /** Board view: columns are the options of `groupByFieldId`. */

@@ -5,7 +5,6 @@ import {
 	type Filter,
 	type FilterCondition,
 	type FilterOperator,
-	type GridView,
 	type KanbanView,
 	LAYER_FORMAT_VERSION,
 	type LayerDoc,

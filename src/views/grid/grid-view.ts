@@ -1,4 +1,4 @@
-import {setIcon, setTooltip} from 'obsidian';
+import {Menu, setIcon, setTooltip} from 'obsidian';
 import {t} from '../../i18n';
 import {
 	HEADER_HEIGHT,
@@ -18,6 +18,13 @@ import {
 	serializeCellValue,
 	specFor,
 } from '../../model/fields';
+import {
+	canSummarize,
+	summarize,
+	summaryChoicesFor,
+	type SummaryKind,
+} from '../../model/summary';
+import {summaryLabel} from '../../ui/summary-text';
 import type {RelationCandidate} from '../../model/relation';
 import type {
 	CellValue,
@@ -57,6 +64,9 @@ export interface GridHandlers {
 	onDeleteRecords(recordIds: string[]): void;
 
 	onClearRecord(recordId: string): void;
+
+	/** Stores what a column's footer reports. */
+	onSetSummary(fieldId: string, kind: SummaryKind): void;
 
 	onEditField(field: Field, at: { x: number; y: number } | null): void;
 
@@ -109,6 +119,64 @@ export class GridRenderer {
 	private headers = new Map<string, HTMLElement>();
 	private cols = new Map<string, HTMLTableColElement>();
 	private fit: HTMLElement | null = null;
+	/** The scrolling element, so its offset can be carried across a redraw. */
+	private scroller: HTMLElement | null = null;
+	/**
+	 * An offset to apply after the next redraw, handed over by whoever is about to
+	 * replace this renderer. Held rather than applied immediately because the table's
+	 * width is not settled yet.
+	 */
+	private pendingOffset: { left: number; top: number } | null = null;
+
+	/** How far the table is scrolled across, for whoever is about to tear it down. */
+	offset(): { left: number; top: number } {
+		return { left: this.scrollLeft(), top: this.scrollTop() };
+	}
+
+	/**
+	 * Asks for the table to be scrolled to an offset once it has been laid out.
+	 *
+	 * Called before `render`, because rendering empties the host: an offset applied
+	 * afterwards would race the redraw it belongs to.
+	 */
+	restoreTo(left: number, top: number): void {
+		this.pendingOffset = { left, top };
+	}
+
+	/** How far the table is scrolled across. */
+	private scrollLeft(): number {
+		return this.scroller?.scrollLeft ?? 0;
+	}
+
+	/** How far the table is scrolled down. */
+	private scrollTop(): number {
+		return this.scroller?.scrollTop ?? 0;
+	}
+
+	/**
+	 * Puts the table back where it was before the redraw.
+	 *
+	 * Deferred to the next frame: the table's width is only settled once it has been
+	 * laid out, and a browser clamps an offset larger than the current scroll range,
+	 * so restoring too early would silently land at the start.
+	 */
+	private restoreScroll(left: number, top: number): void {
+		if (left === 0 && top === 0) {
+			return;
+		}
+		window.requestAnimationFrame(() => {
+			const scroller = this.scroller;
+			if (!scroller) {
+				return;
+			}
+			if (left !== 0) {
+				scroller.scrollLeft = left;
+			}
+			if (top !== 0) {
+				scroller.scrollTop = top;
+			}
+		});
+	}
 	private visible: Field[] = [];
 	private tailHead: HTMLElement | null = null;
 	private ignoreNextColumnClick = false;
@@ -132,6 +200,17 @@ export class GridRenderer {
 	}
 
 	render(doc: LayerDoc, view: GridView, order?: readonly LayerRecord[]): void {
+		/*
+		 * An offset handed over by the previous renderer wins; otherwise this table keeps
+		 * its own. Both are read before the host is emptied, since that throws the
+		 * scroller away.
+		 */
+		const kept = this.pendingOffset ?? {
+			left: this.scrollLeft(),
+			top: this.scrollTop(),
+		};
+		this.pendingOffset = null;
+
 		// The cell an editor was in is gone, so the handle must not outlive it.
 		this.openEdit = null;
 		this.host.empty();
@@ -161,6 +240,7 @@ export class GridRenderer {
 		}
 
 		const scroll = this.host.createDiv({cls: 'layer-grid-scroll'});
+		this.scroller = scroll;
 		const fit = scroll.createDiv({cls: 'layer-grid-fit'});
 		this.fit = fit;
 		this.marqueeHost = fit;
@@ -190,6 +270,11 @@ export class GridRenderer {
 		this.renderColgroup(table, fields, view);
 		this.renderHead(table, doc, fields, view);
 		this.renderBody(table, doc, fields, view, order);
+		// The footer adds up the rows on screen, so a filtered table totals what the
+		// reader is looking at rather than everything stored.
+		this.renderFoot(table, fields, view, order ?? doc.records);
+
+		this.restoreScroll(kept.left, kept.top);
 
 		this.marquee = fit.createDiv({cls: 'layer-grid-marquee'});
 
@@ -487,6 +572,76 @@ export class GridRenderer {
 			header.removeClass('is-drop-before');
 		}
 		this.tailHead?.removeClass('is-drop-before');
+	}
+
+	/**
+	 * The totals under the last row.
+	 *
+	 * A real `tfoot` rather than a detached strip, so it scrolls and lines up with
+	 * the columns without any measuring. Only numeric and date columns say anything
+	 * more than a count: a column of names has no total worth reading.
+	 */
+	private renderFoot(
+		table: HTMLTableElement,
+		fields: Field[],
+		view: GridView,
+		rows: readonly LayerRecord[],
+	): void {
+		const foot = table.createTFoot();
+		const row = foot.insertRow();
+		row.addClass('layer-grid-foot-row');
+
+		// Under the row-number column: nothing to report, but it keeps the row aligned.
+		const label = row.insertCell();
+		label.addClass('layer-grid-foot-label');
+
+		for (const field of fields) {
+			const cell = row.insertCell();
+			cell.addClass('layer-grid-foot', 'is-clickable');
+			const kind = this.currentKind(view, field);
+			const text = summarize(field, rows, kind);
+			cell.setText(kind === 'none' ? t().summaryNone : text);
+			setTooltip(
+				cell,
+				kind === 'none' ? t().summaryChoose : t().summaryFor(summaryLabel(kind)),
+			);
+			// Pressing the cell offers the ways this column can be summarised, which is
+			// where the choice belongs: on the figure being chosen.
+			cell.addEventListener('click', (event) => {
+				event.preventDefault();
+				this.showSummaryMenu(cell, field, view);
+			});
+		}
+
+		// Under the trailing add-column cell, which has nothing to add up.
+		row.insertCell().addClass('layer-grid-foot');
+	}
+
+	/** The summary a column is set to, defaulting to none. */
+	private summaryChoices(field: Field): readonly SummaryKind[] {
+		return summaryChoicesFor(field);
+	}
+
+	/** What a column's footer is currently set to report. */
+	private currentKind(view: GridView, field: Field): SummaryKind {
+		const chosen = view.summaries?.[field.id];
+		return chosen !== undefined && canSummarize(field, chosen) ? chosen : 'none';
+	}
+
+	/** Offers the ways this column can be summarised. */
+	private showSummaryMenu(cell: HTMLElement, field: Field, view: GridView): void {
+		const current = this.currentKind(view, field);
+		const menu = new Menu();
+		for (const kind of this.summaryChoices(field)) {
+			menu.addItem((item) =>
+				item
+					.setTitle(summaryLabel(kind))
+					.setChecked(kind === current)
+					.onClick(() => this.handlers.onSetSummary(field.id, kind)),
+			);
+		}
+		const box = cell.getBoundingClientRect();
+		menu.showAtPosition({ x: box.left, y: box.top });
 	}
 
 	private renderBody(

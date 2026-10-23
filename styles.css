@@ -2111,3 +2111,43 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	padding: 0 var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 }
+/* ---------- Column totals ---------- */
+
+/*
+ * The footer sits under the last row and sticks to the bottom of the pane, so a
+ * total stays readable while the table scrolls — which is the only reason to have
+ * one.
+ */
+.layer-grid-foot-row {
+	position: sticky;
+	bottom: 0;
+	z-index: 2;
+	background: var(--background-secondary);
+}
+
+.layer-grid-foot {
+	padding: var(--size-4-1) var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-align: right;
+	white-space: nowrap;
+}
+
+/* What the totals are totals of, under the row numbers. */
+/* The footer cell is the control: pressing it chooses what the column reports. */
+.layer-grid-foot.is-clickable {
+	cursor: pointer;
+}
+
+.layer-grid-foot.is-clickable:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.layer-grid-foot-label {
+	padding: var(--size-4-1) var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}

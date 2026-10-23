@@ -98,6 +98,7 @@ import {BoardShell, type ToolbarState} from './board-shell';
 import {GridRenderer, type CellText} from './grid/grid-view';
 import {KanbanRenderer} from './kanban/kanban-view';
 import {valueForColumn, type KanbanColumn} from '../model/kanban';
+import type {SummaryKind} from '../model/summary';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -327,6 +328,13 @@ export class LayerView extends TextFileView {
 	}
 
 	private render(): void {
+		/*
+		 * Where the table was scrolled to, read before the tree is torn down. The
+		 * renderer is built fresh on every redraw, so it cannot carry this itself: the
+		 * instance that knows the offset is the one being discarded.
+		 */
+		const offset = this.grid?.offset() ?? { left: 0, top: 0 };
+
 		// The reverse lookups belong to the tree about to be thrown away.
 		this.backIndexes.clear();
 		this.backRows.clear();
@@ -459,9 +467,14 @@ export class LayerView extends TextFileView {
 				onRowResize: (recordId, height) => {
 					this.handleRowResize(recordId, height);
 				},
+				onSetSummary: (fieldId, kind) => {
+					this.handleSetSummary(fieldId, kind);
+				},
 			});
 			this.grid = grid;
 			this.kanban = null;
+			// Handed over before the first render, which is what applies it.
+			grid.restoreTo(offset.left, offset.top);
 			grid.render(this.doc, view, this.orderedRecords(this.doc, view));
 		} else {
 			this.grid = null;
@@ -917,6 +930,25 @@ export class LayerView extends TextFileView {
 		if (!this.doc || duplicateRecords(this.doc, recordIds) === 0) {
 			return;
 		}
+		this.markDirty();
+		this.render();
+	}
+
+	/** Stores what a column's footer reports, which belongs to the view. */
+	private handleSetSummary(fieldId: string, kind: SummaryKind): void {
+		const view = this.activeView();
+		if (!view || view.type !== 'grid') {
+			return;
+		}
+		// Removed rather than stored as 'none', so a column that was never touched
+		// leaves no entry in the file.
+		const summaries = view.summaries ?? {};
+		if (kind === 'none') {
+			delete summaries[fieldId];
+		} else {
+			summaries[fieldId] = kind;
+		}
+		view.summaries = summaries;
 		this.markDirty();
 		this.render();
 	}
