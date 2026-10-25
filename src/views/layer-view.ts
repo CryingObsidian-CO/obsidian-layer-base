@@ -99,6 +99,8 @@ import {GridRenderer, type CellText} from './grid/grid-view';
 import {KanbanRenderer} from './kanban/kanban-view';
 import {valueForColumn, type KanbanColumn} from '../model/kanban';
 import type {SummaryKind} from '../model/summary';
+import {setHidden} from '../model/visibility';
+import {ColumnVisibilityPopover} from '../ui/column-visibility-popover';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -370,6 +372,9 @@ export class LayerView extends TextFileView {
 			onDeleteView: (viewId) => {
 				this.handleDeleteView(viewId);
 			},
+			onOpenViewFields: (anchor) => {
+				this.openViewFields(anchor);
+			},
 			onAddRecord: () => {
 				this.handleAddRecord();
 			},
@@ -493,9 +498,6 @@ export class LayerView extends TextFileView {
 				},
 				onSetShowEmpty: (show) => {
 					this.handleShowEmptyColumns(view, show);
-				},
-				onOpenBoardFields: (anchor) => {
-					this.openBoardFields(view, anchor);
 				},
 				displayText: (field, record) => this.displayText(field, record),
 			});
@@ -1661,6 +1663,64 @@ export class LayerView extends TextFileView {
 	 * board, and applying it as each box is ticked would redraw under the reader's
 	 * cursor.
 	 */
+	/**
+	 * Opens the panel for whatever this view's columns mean.
+	 *
+	 * A table hides and shows columns; a board chooses the grouping column, the card's
+	 * title and what a card carries. One button, because both answer the same question
+	 * — what does this view show.
+	 */
+	private openViewFields(anchor: HTMLElement): void {
+		const view = this.activeView();
+		if (!view) {
+			return;
+		}
+		if (view.type === 'kanban') {
+			this.openBoardFields(view, anchor);
+			return;
+		}
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		new ColumnVisibilityPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			view,
+			fields: doc.fields,
+			onToggle: (fieldId, hidden) => {
+				this.handleToggleColumn(view, fieldId, hidden);
+			},
+		}).open();
+	}
+
+	/**
+	 * Hides or shows a column, rejecting the last visible one.
+	 *
+	 * The rule lives in the model, so the panel and any other caller agree on what a
+	 * table may be reduced to.
+	 */
+	private handleToggleColumn(
+		view: View,
+		fieldId: string,
+		hidden: boolean,
+	): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const field = doc.fields.find((candidate) => candidate.id === fieldId);
+		if (!field) {
+			return;
+		}
+		if (!setHidden(view, field, doc.fields, hidden)) {
+			new Notice(t().viewFieldsLastColumn);
+			return;
+		}
+		this.markDirty();
+		this.render();
+	}
+
 	private openBoardFields(view: View, anchor: HTMLElement): void {
 		const doc = this.doc;
 		if (!doc || view.type !== 'kanban') {

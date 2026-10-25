@@ -2151,3 +2151,51 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+/* ---------- Column visibility panel ---------- */
+
+.layer-visibility {
+	padding: var(--size-4-3);
+}
+
+.layer-visibility-title {
+	margin: 0 0 var(--size-4-1);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-visibility-heading {
+	margin-bottom: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Scrolled rather than grown: a table of twenty columns would push the panel past
+ * the bottom of the window. */
+.layer-visibility-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	max-height: 22rem;
+	overflow-y: auto;
+}
+
+.layer-visibility-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.layer-visibility-icon {
+	display: inline-flex;
+	flex: 0 0 auto;
+	color: var(--text-faint);
+}
+
+.layer-visibility-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}

@@ -20,8 +20,6 @@ export interface KanbanHandlers {
 	onSetColumnLimit(limit: number): void;
 	/** Stores whether the board shows columns no row uses yet. */
 	onSetShowEmpty(show: boolean): void;
-	/** Opens the panel that chooses the board's columns. */
-	onOpenBoardFields(anchor: HTMLElement): void;
 	/** Writes a new value into the grouping column, moving the card. */
 	onMove(index: { recordId: string; column: KanbanColumn }): void;
 	/** Opens a card, which means opening its row in the table. */
@@ -129,15 +127,6 @@ export class KanbanRenderer {
 	private renderHead(view: KanbanView, groupField: Field): void {
 		const head = this.host.createDiv({ cls: 'layer-kanban-toolbar' });
 
-		const fieldsButton = head.createEl('button', {
-			cls: 'layer-kanban-fields-button',
-		});
-		setIcon(fieldsButton.createSpan({ cls: 'layer-kanban-group-icon' }), 'settings-2');
-		fieldsButton.createSpan({ text: t().boardFieldsTitle });
-		setTooltip(fieldsButton, t().boardFieldsHint);
-		fieldsButton.addEventListener('click', () => {
-			this.handlers.onOpenBoardFields(fieldsButton);
-		});
 
 		/*
 		 * The grouping column is shown, not offered: changing it belongs in the

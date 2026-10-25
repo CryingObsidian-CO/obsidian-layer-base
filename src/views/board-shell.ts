@@ -4,6 +4,8 @@ import type { View } from '../types';
 
 export interface ShellHandlers {
 	onAddRecord(): void;
+	/** Opens whatever chooses this view's columns. */
+	onOpenViewFields(anchor: HTMLElement): void;
 	onAddRecordAtTop(): void;
 	onSelectView(viewId: string): void;
 	/** Adds a board view to this table. */
@@ -89,6 +91,23 @@ export class BoardShell {
 		 * than in place of the name: a button whose label turns into a column name
 		 * stops reading as an action and starts looking like a value.
 		 */
+		/*
+		 * What this view shows, beside the button that adds a row: one place for the
+		 * shape of the view, whichever kind it is. In a table it chooses which columns
+		 * are visible, on a board which column groups and what a card carries.
+		 */
+		const fieldsButton = bar.createEl('button', { cls: 'layer-shell-button' });
+		setIcon(
+			fieldsButton.createSpan({ cls: 'layer-shell-button-icon' }),
+			'columns-3',
+		);
+		fieldsButton.createSpan({ text: t().viewFieldsButton });
+		fieldsButton.setAttribute('aria-label', t().viewFieldsHint);
+		fieldsButton.addEventListener('click', (event) => {
+			event.preventDefault();
+			this.handlers.onOpenViewFields(fieldsButton);
+		});
+
 		const sortButton = bar.createEl('button', { cls: 'layer-shell-button' });
 		sortButton.toggleClass('is-active', state.sort.columns.length > 0);
 		setIcon(
