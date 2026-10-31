@@ -25,6 +25,7 @@ import {
 	type SummaryKind,
 } from '../../model/summary';
 import {summaryLabel} from '../../ui/summary-text';
+import {noteLabel} from '../../model/note-path';
 import type {RelationCandidate} from '../../model/relation';
 import type {
 	CellValue,
@@ -32,6 +33,7 @@ import type {
 	GridView,
 	LayerDoc,
 	LayerRecord,
+	NoteLabelStyle,
 	SelectOption,
 	View,
 } from '../../types';
@@ -77,6 +79,15 @@ export interface GridHandlers {
 	onDeleteField(field: Field): void;
 
 	onClearCells(recordIds: string[], fields: Field[]): void;
+
+	/**
+	 * Opens the note a `note` cell names, creating it when the vault has no such file.
+	 * The grid cannot reach the vault itself.
+	 */
+	onOpenNote(path: string): void;
+
+	/** What a `note` cell shows: the file's name, or the path it lives at. */
+	noteLabelStyle(): NoteLabelStyle;
 
 	/** Creates an option on a select field for a name typed into a cell. */
 	onCreateOption(field: Field, name: string): SelectOption | null;
@@ -858,7 +869,15 @@ export class GridRenderer {
 		recordId: string,
 		value: CellValue,
 	): void {
-		renderCellValue(cell, field, value, this.formatter(), recordId);
+		renderCellValue(
+			cell,
+			field,
+			value,
+			this.formatter(),
+			recordId,
+			(path) => this.handlers.onOpenNote(path),
+			this.handlers.noteLabelStyle(),
+		);
 		// `dataset` holds strings only; `fillRange` parses this back.
 		cell.dataset.value = serializeCellValue(value);
 
@@ -1028,7 +1047,16 @@ export class GridRenderer {
 				latest = next;
 				this.commit(cell, field, recordId, next);
 			},
-			restore: () => renderCellValue(cell, field, latest, this.formatter(), recordId),
+			restore: () =>
+				renderCellValue(
+					cell,
+					field,
+					latest,
+					this.formatter(),
+					recordId,
+					(path) => this.handlers.onOpenNote(path),
+					this.handlers.noteLabelStyle(),
+				),
 			createOption: (name) => this.handlers.onCreateOption(field, name),
 			relationCandidates: () => this.handlers.relationCandidates(field),
 		});
@@ -1189,6 +1217,8 @@ export function renderCellValue(
 	value: CellValue,
 	format: CellFormatter = plainFormatter,
 	recordId = '',
+	onOpenNote?: (path: string) => void,
+	noteStyle: NoteLabelStyle = 'name',
 ): void {
 	cell.empty();
 	cell.removeClass('is-editing');
@@ -1265,8 +1295,40 @@ export function renderCellValue(
 			return;
 		}
 	}
+	/*
+	 * A note cell is a way into the file it names, so it is drawn as a link rather than
+	 * as text that happens to hold a path. Answered before the span at the bottom, which
+	 * would otherwise paint it as plain text.
+	 */
+	if (field.type === 'note' && typeof value === 'string' && value !== '') {
+		renderNoteLink(cell, value, noteLabel(value, noteStyle), onOpenNote);
+		return;
+	}
 	// The class on the value is what lets CSS tell the two textual types apart.
 	paintResolved(cell, field, format(field, value, recordId));
+}
+
+/**
+ * The cell that names a note, drawn as a link.
+ *
+ * The anchor is only as wide as its text, so the rest of the cell still belongs to the
+ * cell: a click out there selects as any other cell does, and a double click edits the
+ * path. Clicking the text itself opens the note, and that click is kept from the cell
+ * underneath, which would otherwise read it as a selection.
+ */
+function renderNoteLink(
+	cell: HTMLElement,
+	path: string,
+	label: string,
+	open?: (path: string) => void,
+): void {
+	const link = cell.createEl('a', {cls: 'layer-grid-note', text: label});
+	link.setAttribute('href', '#');
+	link.addEventListener('click', (event) => {
+		event.preventDefault();
+		event.stopPropagation();
+		open?.(path);
+	});
 }
 
 /** The option a stored cell value refers to; ids are unique per field. */

@@ -91,6 +91,19 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
+	/*
+	 * A link to a note in the vault, held as its path. It reads and writes like text
+	 * because the value is a path; what earns it a type of its own is that the view
+	 * offers a picker and can open the note it names.
+	 */
+	note: {
+		type: 'note',
+		icon: 'file-text',
+		toText: (_field, value) => (typeof value === 'string' ? value : ''),
+		fromText: (_field, text) => accept(text.trim()),
+		isEmpty: (value) => value === '',
+	},
+
 	number: {
 		type: 'number',
 		icon: 'hash',
@@ -253,6 +266,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'select',
 	'multiSelect',
 	'checkbox',
+	'note',
 ];
 
 export function specFor(type: FieldType): FieldTypeSpec {

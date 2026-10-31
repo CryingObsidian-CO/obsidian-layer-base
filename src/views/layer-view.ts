@@ -1,9 +1,10 @@
 import {
+	FileView,
 	Notice,
 	Scope,
+	TFile,
 	TextFileView,
 	type TFolder,
-	type TFile,
 	type WorkspaceLeaf,
 } from 'obsidian';
 import {LAYER_EXTENSION, VIEW_TYPE_LAYER} from '../constants';
@@ -470,6 +471,85 @@ export class LayerView extends TextFileView {
 	}
 
 	/**
+	 * Opens the note a value names, making the file when the vault has none.
+	 *
+	 * Creating rather than refusing is the point of the field: a path typed into a cell
+	 * says where a note should live, and an empty note that opens is more useful than an
+	 * error that leaves the reader to make it by hand.
+	 */
+	private openNotePath(path: string): void {
+		const existing = this.resolveNote(path);
+		if (existing) {
+			this.showFile(existing);
+			return;
+		}
+		const target = path.endsWith('.md') ? path : `${path}.md`;
+		void this.createNote(target, path);
+	}
+
+	/**
+	 * Shows the file, reusing the tab that already holds it.
+	 *
+	 * A new tab rather than this one: the table is what the reader was looking at, and
+	 * replacing it would cost them their place. Reusing an open tab keeps repeated
+	 * clicks from stacking copies of the same note.
+	 */
+	private showFile(file: TFile): void {
+		const shown = this.app.workspace.getLeavesOfType('markdown').find((leaf) => {
+			const view = leaf.view;
+			return view instanceof FileView && view.file?.path === file.path;
+		});
+		if (shown) {
+			void this.app.workspace.revealLeaf(shown);
+			return;
+		}
+		void this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	private async createNote(target: string, shown: string): Promise<void> {
+		try {
+			const slash = target.lastIndexOf('/');
+			if (slash > 0) {
+				await this.ensureFolder(target.slice(0, slash));
+			}
+			const file = await this.app.vault.create(target, '');
+			new Notice(t().noticeNoteCreated(shown));
+			this.showFile(file);
+		} catch {
+			new Notice(t().noticeNoteCreateFailed(shown));
+		}
+	}
+
+	/** Makes every folder along a path, so a note can land where none exists yet. */
+	private async ensureFolder(path: string): Promise<void> {
+		let current = '';
+		for (const part of path.split('/')) {
+			current = current === '' ? part : `${current}/${part}`;
+			if (!this.app.vault.getAbstractFileByPath(current)) {
+				await this.app.vault.createFolder(current);
+			}
+		}
+	}
+
+	/**
+	 * The file a stored value names.
+	 *
+	 * A path is written by hand as often as it is picked, so every form a link may take
+	 * is tried — with and without the extension, and finally as a link that resolves
+	 * against the vault rather than the filesystem.
+	 */
+	private resolveNote(path: string): TFile | null {
+		for (const candidate of [path, `${path}.md`]) {
+			const file = this.app.vault.getAbstractFileByPath(candidate);
+			if (file instanceof TFile) {
+				return file;
+			}
+		}
+		return this.app.metadataCache.getFirstLinkpathDest(path, '');
+	}
+
+
+	/**
 	 * Asks where the export goes, then writes it, and says where it landed.
 	 *
 	 * The text is built from the view rather than the stored document so it holds
@@ -663,6 +743,8 @@ export class LayerView extends TextFileView {
 				onClearCells: (recordIds, fields) => {
 					this.handleClearCells(recordIds, fields);
 				},
+				onOpenNote: (path) => this.openNotePath(path),
+				noteLabelStyle: () => this.plugin.settings.noteLabel,
 				onCreateOption: (field, name) =>
 					this.handleCreateOption(field, name),
 				relationCandidates: (field) =>
@@ -707,6 +789,8 @@ export class LayerView extends TextFileView {
 				onOpenRecord: (recordId) => {
 					this.revealRecord(recordId);
 				},
+				onOpenNote: (path) => this.openNotePath(path),
+				noteLabelStyle: () => this.plugin.settings.noteLabel,
 				onSetColumnLimit: (limit) => {
 					this.handleColumnLimit(view, limit);
 				},

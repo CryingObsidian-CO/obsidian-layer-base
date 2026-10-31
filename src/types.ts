@@ -15,7 +15,11 @@ export type FieldType =
 	| 'formula'
 	| 'select'
 	| 'multiSelect'
-	| 'checkbox';
+	| 'checkbox'
+	| 'note';
+
+/** What a `note` cell shows: the file's own name, or the path it lives at. */
+export type NoteLabelStyle = 'name' | 'path';
 
 /**
  * How a `number` field shows its value. The stored number is always what was

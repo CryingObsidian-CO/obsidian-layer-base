@@ -117,6 +117,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	select: () => t().typeSelect,
 	multiSelect: () => t().typeMultiSelect,
 	checkbox: () => t().typeCheckbox,
+	note: () => t().typeNote,
 };
 
 /** Whether a column's text form can stand in for a row's name. */

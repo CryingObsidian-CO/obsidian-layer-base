@@ -274,6 +274,28 @@ body.layer-grid-resizing.is-row-resize * {
 }
 
 /*
+ * A note cell is a way into the file it names, so it is drawn as a link: same colour
+ * as a link elsewhere in the app, underlined on hover, and no drag-selection so a
+ * click reads as a click rather than as a text selection.
+ */
+.layer-grid-note {
+	display: inline-block;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: bottom;
+	color: var(--link-color);
+	text-decoration: none;
+	cursor: pointer;
+	user-select: none;
+}
+
+.layer-grid-note:hover {
+	text-decoration: underline;
+}
+
+/*
  * Long text keeps its line breaks, and the row keeps the height it was given.
  *
  * A table row grows to fit its content, and `overflow: hidden` on the cell does
@@ -2084,6 +2106,27 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/*
+ * A note line on a card is a way into the file it names, so it reads as a link. It
+ * takes the same room as a value so the lines stay aligned, and keeps its click from
+ * the card underneath, which reads one as "open this row".
+ */
+.layer-kanban-card-link {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--link-color);
+	text-decoration: none;
+	cursor: pointer;
+	user-select: none;
+}
+
+.layer-kanban-card-link:hover {
+	text-decoration: underline;
 }
 /* The add-view button at the end of the tab row: quiet, so it does not compete
  * with the views it sits after. */

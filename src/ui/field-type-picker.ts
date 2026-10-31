@@ -22,6 +22,7 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 		select: s.typeSelect,
 		multiSelect: s.typeMultiSelect,
 		checkbox: s.typeCheckbox,
+		note: s.typeNote,
 	};
 	const hint: Record<FieldType, string> = {
 		text: s.typeTextHint,
@@ -37,6 +38,7 @@ function fieldTypeChoices(): FieldTypeChoice[] {
 		select: s.typeSelectHint,
 		multiSelect: s.typeMultiSelectHint,
 		checkbox: s.typeCheckboxHint,
+		note: s.typeNoteHint,
 	};
 	return FIELD_TYPES.map((type) => ({
 		type,

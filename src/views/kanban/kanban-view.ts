@@ -1,7 +1,8 @@
 import { Menu, setIcon, setTooltip } from 'obsidian';
 import { t } from '../../i18n';
-import type { Field, KanbanView, LayerDoc, LayerRecord } from '../../types';
+import type { Field, KanbanView, LayerDoc, LayerRecord, NoteLabelStyle } from '../../types';
 import type { CardColumns } from '../../model/kanban';
+import { noteLabel } from '../../model/note-path';
 import {
 	cardColumnsFor,
 	columnLimitOf,
@@ -24,6 +25,14 @@ export interface KanbanHandlers {
 	onMove(index: { recordId: string; column: KanbanColumn }): void;
 	/** Opens a card, which means opening its row in the table. */
 	onOpenRecord(recordId: string): void;
+	/**
+	 * Opens the note a `note` line names, creating it when the vault has none. The
+	 * board cannot reach the vault itself.
+	 */
+	onOpenNote(path: string): void;
+
+	/** What a `note` line shows: the file's name, or the path it lives at. */
+	noteLabelStyle(): NoteLabelStyle;
 	/** What a cell reads as, for grouping and for card titles. */
 	displayText(field: Field, record: LayerRecord): string;
 }
@@ -276,7 +285,25 @@ export class KanbanRenderer {
 			const icon = line.createSpan({ cls: 'layer-kanban-card-icon' });
 			setIcon(icon, specFor(field.type).icon);
 			line.createSpan({ cls: 'layer-kanban-card-label', text: field.name });
-			line.createSpan({ cls: 'layer-kanban-card-value', text });
+			if (field.type === 'note') {
+				/*
+				 * A note line is a way into the file it names, so it reads as a link. The
+				 * click is kept from the card underneath, which would otherwise take it as
+				 * "open this row" and cost the reader their place in the board.
+				 */
+				const link = line.createEl('a', {
+					cls: 'layer-kanban-card-link',
+					text: noteLabel(text, this.handlers.noteLabelStyle()),
+				});
+				link.setAttribute('href', '#');
+				link.addEventListener('click', (event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					this.handlers.onOpenNote(text);
+				});
+			} else {
+				line.createSpan({ cls: 'layer-kanban-card-value', text });
+			}
 		}
 
 		// A card only drags when its drop would write somewhere: a computed column

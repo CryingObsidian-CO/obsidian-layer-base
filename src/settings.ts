@@ -1,17 +1,21 @@
 import { App, PluginSettingTab, type SettingDefinitionItem } from 'obsidian';
 import { t } from './i18n';
 import LayerBasePlugin from './main';
+import type { NoteLabelStyle } from './types';
 
 export interface LayerBaseSettings {
 	/** Folder for newly created boards. Empty means the vault root. */
 	defaultFolder: string;
 	/** Base name for newly created boards; a numeric suffix is added if taken. */
 	defaultFileName: string;
+	/** What a `note` cell shows: the file's own name, or the path it lives at. */
+	noteLabel: NoteLabelStyle;
 }
 
 export const DEFAULT_SETTINGS: LayerBaseSettings = {
 	defaultFolder: '',
 	defaultFileName: 'Untitled board',
+	noteLabel: 'name',
 };
 
 /** Keys of the settings object, used as control keys in the declarative API. */
@@ -31,8 +35,14 @@ export class LayerBaseSettingTab extends PluginSettingTab {
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
-		const typed = value as LayerBaseSettings[SettingsKey];
-		this.plugin.settings[key as SettingsKey] = typed;
+		/*
+		 * Written through an index rather than by the key's own type: the settings hold
+		 * values of different types, and a union of keys narrows to what every one of
+		 * them accepts — which is only the narrowest, so a plain string would not be
+		 * assignable to the dropdown's two spellings.
+		 */
+		const settings = this.plugin.settings as unknown as Record<string, unknown>;
+		settings[key] = value;
 		await this.plugin.saveSettings();
 	}
 
@@ -55,6 +65,18 @@ export class LayerBaseSettingTab extends PluginSettingTab {
 					type: 'text',
 					key: 'defaultFileName',
 					placeholder: s.placeholderBoard,
+				},
+			},
+			{
+				name: s.settingNoteLabelName,
+				desc: s.settingNoteLabelDesc,
+				control: {
+					type: 'dropdown',
+					key: 'noteLabel',
+					options: {
+						name: s.noteLabelName,
+						path: s.noteLabelPath,
+					},
 				},
 			},
 		];

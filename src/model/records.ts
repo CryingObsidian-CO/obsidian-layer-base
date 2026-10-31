@@ -72,6 +72,7 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 		case 'select':
 		case 'text':
 		case 'longtext':
+		case 'note':
 		case 'date':
 		case 'datetime':
 			return typeof value === 'string';
