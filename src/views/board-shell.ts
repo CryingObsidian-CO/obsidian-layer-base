@@ -22,6 +22,14 @@ export interface ShellHandlers {
 	onOpenSort(anchor: HTMLElement): void;
 	/** Opens the filter rules panel, anchored to the button that asked for it. */
 	onOpenFilter(anchor: HTMLElement): void;
+	/** Whether there is a step to take back. */
+	canUndo(): boolean;
+	/** Whether there is a step to take forward. */
+	canRedo(): boolean;
+	/** Takes one edit back. */
+	onUndo(): void;
+	/** Puts back what was taken back. */
+	onRedo(): void;
 }
 
 /** What the toolbar says about the current order, if there is one. */
@@ -187,6 +195,23 @@ export class BoardShell {
 
 	private showBoardMenu(anchor: HTMLElement): void {
 		const menu = new Menu();
+		// Undo and redo are here as well as on the keys, so the feature can be found
+		// without knowing the shortcut.
+		menu.addItem((item) =>
+			item
+				.setTitle(t().undoEdit)
+				.setIcon('undo-2')
+				.setDisabled(!this.handlers.canUndo())
+				.onClick(() => this.handlers.onUndo()),
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle(t().redoEdit)
+				.setIcon('redo-2')
+				.setDisabled(!this.handlers.canRedo())
+				.onClick(() => this.handlers.onRedo()),
+		);
+		menu.addSeparator();
 		menu.addItem((item) =>
 			item
 				.setTitle(t().exportCsv)

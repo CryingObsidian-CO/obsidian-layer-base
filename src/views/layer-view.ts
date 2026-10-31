@@ -1,5 +1,6 @@
 import {
 	Notice,
+	Scope,
 	TextFileView,
 	type TFolder,
 	type TFile,
@@ -99,15 +100,20 @@ import {GridRenderer, type CellText} from './grid/grid-view';
 import {KanbanRenderer} from './kanban/kanban-view';
 import {valueForColumn, type KanbanColumn} from '../model/kanban';
 import type {SummaryKind} from '../model/summary';
+import {History, type Snapshot} from '../model/history';
 import {setHidden} from '../model/visibility';
 import {ColumnVisibilityPopover} from '../ui/column-visibility-popover';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
-	private pendingSelfWrite = false;
+	/** The text handed to the file on the last save, to recognise its echo. */
+	private lastSaved = '';
 	private activeViewId: string | null = null;
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
+	private readonly history = new History();
+	/** The copy taken before an edit, waiting to be recorded once it lands. */
+	private pendingEdit: { label: string; before: Snapshot } | null = null;
 	private grid: GridRenderer | null = null;
 	private kanban: KanbanRenderer | null = null;
 	/** Reverse lookups for the current render pass, per source column. */
@@ -145,12 +151,24 @@ export class LayerView extends TextFileView {
 	}
 
 	async onLoadFile(file: TFile): Promise<void> {
-		this.pendingSelfWrite = false;
+		this.lastSaved = '';
+		// Another file is another document: steps taken in the old one must not be
+		// replayed onto this one.
+		this.history.clear();
 		await super.onLoadFile(file);
 	}
 
 	onload(): void {
 		super.onload();
+		/*
+		 * Undo and redo belong to this view, so they are bound to a scope of its own that
+		 * sits on the key stack only while the view has focus. Binding them as a
+		 * command's default hotkey did not work out: a hotkey is global, and Obsidian
+		 * takes the key before it decides the command is unavailable — so Ctrl+Z in a
+		 * note stopped reaching the editor.
+		 */
+		this.registerUndoScope();
+
 		/*
 		 * The last edit has to survive the app closing.
 		 *
@@ -218,17 +236,46 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return '';
 		}
-		return serializeLayerDoc(this.doc);
+		const text = serializeLayerDoc(this.doc);
+		// Remembered so the file echoing this save can be told from a real outside
+		// change. Comparing the stored document instead would not work: reading a file
+		// normalises it — a primary flag added, a created stamp filled in — so the
+		// text that comes back is never byte-equal to what the document would write.
+		this.lastSaved = text;
+		return text;
 	}
 
 	setViewData(data: string, _clear: boolean): void {
-		if (this.pendingSelfWrite) {
-			this.pendingSelfWrite = false;
+		/*
+		 * Whether this is the file echoing our own save. Two tests, either of which is
+		 * enough:
+		 *
+		 * 1. The text is exactly what we last wrote.
+		 * 2. Reading the text yields the rows and columns we already hold — the same
+		 *    change said differently, which happens when the write is normalised on the
+		 *    way to disk.
+		 *
+		 * Both are needed because clearing the undo steps is destructive: a wrong
+		 * "this came from outside" throws away everything the reader could have taken
+		 * back, and it is invisible when it happens.
+		 */
+		if (this.lastSaved !== '' && data === this.lastSaved) {
+			this.lastSaved = '';
+			return;
+		}
+		if (data !== '' && this.doc && this.sameContent(data)) {
 			return;
 		}
 
 		const {doc, warnings} = parseLayerDoc(data);
 		this.doc = doc;
+		this.lastSaved = '';
+		/*
+		 * The document was replaced from outside — synced in, or edited elsewhere. The
+		 * steps recorded against the previous contents no longer describe it, and
+		 * replaying one would write stale rows over what just arrived.
+		 */
+		this.history.clear();
 
 		if (warnings.length > 0) {
 			new Notice(t().noticeParseWarnings(warnings.length));
@@ -243,16 +290,179 @@ export class LayerView extends TextFileView {
 
 	clear(): void {
 		this.doc = null;
-		this.pendingSelfWrite = false;
+		this.lastSaved = '';
 		this.contentEl.empty();
 	}
-
+	/**
+	 * Applies an edit to the in-memory document and asks Obsidian to persist it.
+	 *
+	 * A label marks the edit as one worth being able to undo, and names the kind so a
+	 * run of the same kind collapses into one step. Edits that leave the data alone —
+	 * a column widened, a filter changed — pass no label and never take a step.
+	 */
 	markDirty(): void {
 		if (!this.doc) {
 			return;
 		}
-		this.pendingSelfWrite = true;
 		this.requestSave();
+	}
+
+	/**
+	 * Takes a copy of the data before an edit, for undoing it later.
+	 *
+	 * Called before the change is made, because the copy has to hold the table as it
+	 * was. An edit that turns out to change nothing never calls `commitEdit`, so no
+	 * step is left behind for a delete that matched no rows.
+	 */
+	private beginEdit(label: string): string {
+		this.pendingEdit = this.doc
+			? { label, before: this.history.snapshot(this.doc) }
+			: null;
+		return label;
+	}
+
+	/** Records the copy taken by `beginEdit`, now that the edit has happened. */
+	private commitEdit(): void {
+		const pending = this.pendingEdit;
+		this.pendingEdit = null;
+		if (!pending) {
+			return;
+		}
+		this.history.push(pending.label, pending.before);
+		this.markDirty();
+	}
+
+	/** Takes one edit back, for the plugin's command. */
+	runUndo(): void {
+		this.handleUndo();
+	}
+
+	/** Puts back what the last undo took back, for the plugin's command. */
+	runRedo(): void {
+		this.handleRedo();
+	}
+
+	/**
+	 * Puts undo and redo on the key stack while this view has focus, and takes them off
+	 * again when it does not.
+	 *
+	 * A scope of the view's own rather than the view's `this.scope`: that property is
+	 * null until something creates a scope, and a binding made against it never fires.
+	 * Push and pop matter as much as the binding — a scope left on the stack would keep
+	 * swallowing the key for every other tab.
+	 */
+	private registerUndoScope(): void {
+		const scope = new Scope(this.app.scope);
+		/*
+		 * A text field keeps an undo of its own, over the characters being typed. Taking
+		 * the key there left the text alone and took back an earlier row instead, which
+		 * is not what someone halfway through editing a cell is asking for. Handing the
+		 * key back is enough for the browser to do its own thing.
+		 */
+		const undo = (event: KeyboardEvent): false | undefined => {
+			if (isTextEntry(event.target)) {
+				return undefined;
+			}
+			event.preventDefault();
+			this.handleUndo();
+			return false;
+		};
+		const redo = (event: KeyboardEvent): false | undefined => {
+			if (isTextEntry(event.target)) {
+				return undefined;
+			}
+			event.preventDefault();
+			this.handleRedo();
+			return false;
+		};
+		scope.register(['Mod'], 'z', undo);
+		scope.register(['Mod', 'Shift'], 'z', redo);
+		// Ctrl+Y redoes too, the habit on Windows.
+		scope.register(['Mod'], 'y', redo);
+
+		// Focus is what decides ownership: the view that was last clicked owns the key,
+		// and a view that merely exists in a background tab owns nothing.
+		this.registerDomEvent(this.contentEl, 'focusin', () => {
+			this.app.keymap.pushScope(scope);
+		});
+		this.registerDomEvent(this.contentEl, 'pointerdown', () => {
+			this.app.keymap.pushScope(scope);
+		});
+		this.registerDomEvent(this.contentEl, 'focusout', (event) => {
+			// Only when focus leaves the view entirely, not when it moves between two
+			// cells inside it.
+			const next = event.relatedTarget as Node | null;
+			if (next && this.contentEl.contains(next)) {
+				return;
+			}
+			this.app.keymap.popScope(scope);
+		});
+		// A view closed while focused must not leave its scope on the stack.
+		this.register(() => this.app.keymap.popScope(scope));
+	}
+
+	/** Takes one edit back. */
+	private handleUndo(): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const restored = this.history.undo({ fields: doc.fields, records: doc.records });
+		if (!restored) {
+			return;
+		}
+		this.restoreData(restored);
+	}
+
+	/** Puts back what was taken back. */
+	private handleRedo(): void {
+		const doc = this.doc;
+		if (!doc) {
+			return;
+		}
+		const restored = this.history.redo({ fields: doc.fields, records: doc.records });
+		if (!restored) {
+			return;
+		}
+		this.restoreData(restored);
+	}
+
+	/**
+	 * Replaces the rows and columns, leaving the views alone.
+	 *
+	 * The views are the reader's current way of looking at the table; undoing a row's
+	 * deletion should not also put a column width or a filter back. Saving is asked
+	 * for without a label, so the restoration is not itself a step to undo.
+	 */
+	private restoreData(restored: { fields: Field[]; records: LayerRecord[] }): void {
+		if (!this.doc) {
+			return;
+		}
+		this.doc.fields = restored.fields;
+		this.doc.records = restored.records;
+		// Ids in the selection may belong to rows that no longer exist.
+		this.selection = null;
+		this.markDirty();
+		this.render();
+	}
+
+	/**
+	 * Whether reading this text would give the rows and columns already held.
+	 *
+	 * Only the parts a reader can change count: a row's creation stamp and a column's
+	 * default flags are filled in on the way in, so they differ between what was
+	 * written and what comes back even when nothing has actually changed.
+	 */
+	private sameContent(data: string): boolean {
+		const doc = this.doc;
+		if (!doc) {
+			return false;
+		}
+		const incoming = parseLayerDoc(data).doc;
+		return (
+			stableJson(incoming.fields) === stableJson(doc.fields) &&
+			stableJson(incoming.records) === stableJson(doc.records)
+		);
 	}
 
 	getDocument(): LayerDoc | null {
@@ -387,6 +597,10 @@ export class LayerView extends TextFileView {
 			onOpenSort: (anchor) => {
 				this.openSortPanel(anchor);
 			},
+			canUndo: () => this.history.canUndo,
+			canRedo: () => this.history.canRedo,
+			onUndo: () => this.handleUndo(),
+			onRedo: () => this.handleRedo(),
 			onOpenFilter: (anchor) => {
 				this.openFilterPanel(anchor);
 			},
@@ -590,8 +804,9 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		this.beginEdit('add-record');
 		addRecord(this.doc);
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -600,8 +815,9 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		this.beginEdit('add-record');
 		addRecordAtTop(this.doc);
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -635,6 +851,10 @@ export class LayerView extends TextFileView {
 		if (!doc) {
 			return;
 		}
+
+		// A field edit can add a column, change a type (which clears the column) or
+		// renumber it, so the whole application is one step to take back.
+		this.beginEdit(field === null ? 'add-field' : 'field-edit');
 
 		if (field === null) {
 			const created: Field = {
@@ -685,7 +905,7 @@ export class LayerView extends TextFileView {
 			this.applyBackSettings(field, result.back);
 		}
 
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -895,10 +1115,12 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		if (recordIds.length === 1) {
+			this.beginEdit('delete-records');
 			if (removeRecords(doc, recordIds) === 0) {
+				this.pendingEdit = null;
 				return;
 			}
-			this.markDirty();
+			this.commitEdit();
 			this.render();
 			return;
 		}
@@ -908,10 +1130,12 @@ export class LayerView extends TextFileView {
 			message: t().recordsDeleteConfirm(recordIds.length),
 			confirmText: t().menuDeleteRow,
 			onConfirm: () => {
+				this.beginEdit('delete-records');
 				if (removeRecords(doc, recordIds) === 0) {
+					this.pendingEdit = null;
 					return;
 				}
-				this.markDirty();
+				this.commitEdit();
 				this.render();
 			},
 		}).open();
@@ -922,17 +1146,23 @@ export class LayerView extends TextFileView {
 		if (!this.doc || count < 1) {
 			return;
 		}
+		this.beginEdit('insert-records');
 		insertRecordsAfter(this.doc, recordId, count);
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
 	/** Copies the selected rows, each copy landing below its source. */
 	private handleDuplicateRecords(recordIds: string[]): void {
-		if (!this.doc || duplicateRecords(this.doc, recordIds) === 0) {
+		if (!this.doc) {
 			return;
 		}
-		this.markDirty();
+		this.beginEdit('duplicate-records');
+		if (duplicateRecords(this.doc, recordIds) === 0) {
+			this.pendingEdit = null;
+			return;
+		}
+		this.commitEdit();
 		this.render();
 	}
 
@@ -1097,6 +1327,7 @@ export class LayerView extends TextFileView {
 				new Notice(t().noticePasteNoRoom);
 				return;
 			}
+			this.beginEdit('paste');
 			this.reportPaste(
 				pasteFormatted(doc, target.recordIds, target.fields, payload.rows),
 				t().noticePasteTypesMismatch,
@@ -1122,6 +1353,7 @@ export class LayerView extends TextFileView {
 			new Notice(t().noticePasteNoRoom);
 			return;
 		}
+		this.beginEdit('paste');
 		this.reportPaste(
 			pasteCells(doc, target.recordIds, target.fields, rows),
 			t().noticePasteFailed,
@@ -1136,7 +1368,7 @@ export class LayerView extends TextFileView {
 		if (report.refused > 0) {
 			new Notice(t().noticePastePartial(report.written, report.refused));
 		}
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -1146,10 +1378,12 @@ export class LayerView extends TextFileView {
 		if (!doc) {
 			return;
 		}
+		this.beginEdit('clear-cells');
 		if (clearCells(doc, recordIds, fields) === 0) {
+			this.pendingEdit = null;
 			return;
 		}
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -1158,8 +1392,9 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		this.beginEdit('clear-record');
 		if (clearRecord(this.doc, recordId)) {
-			this.markDirty();
+			this.commitEdit();
 			this.render();
 		}
 	}
@@ -1169,8 +1404,9 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		this.beginEdit('duplicate-field');
 		if (duplicateField(this.doc, field.id)) {
-			this.markDirty();
+			this.commitEdit();
 			this.render();
 		}
 	}
@@ -1186,8 +1422,9 @@ export class LayerView extends TextFileView {
 			message: t().fieldDeleteConfirm(field.name, affected),
 			confirmText: t().fieldDelete,
 			onConfirm: () => {
+				this.beginEdit('delete-field');
 				if (removeField(doc, field.id)) {
-					this.markDirty();
+					this.commitEdit();
 					this.render();
 				}
 			},
@@ -1649,10 +1886,12 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		const value = valueForColumn(field, column);
+		this.beginEdit('cell');
 		if (!setCellValue(doc, recordId, field, value)) {
+			this.pendingEdit = null;
 			return;
 		}
-		this.markDirty();
+		this.commitEdit();
 		this.render();
 	}
 
@@ -1886,14 +2125,17 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		// The copy is taken first: it has to hold the table before the edit.
+		this.beginEdit('cell');
 		if (!setCellValue(this.doc, recordId, field, value)) {
+			this.pendingEdit = null;
 			console.warn(
 				`[obsidian-layer-base] Edit ignored for a record that no longer exists: ${recordId}`,
 			);
 			this.render();
 			return;
 		}
-		this.markDirty();
+		this.commitEdit();
 		/*
 		 * A value that is part of the order has to be allowed to move its row. The
 		 * grid repaints the one cell it changed, which is right for every other
@@ -1952,4 +2194,50 @@ export function createLayerView(
 	plugin: LayerBasePlugin,
 ): LayerView {
 	return new LayerView(leaf, plugin);
+}
+
+/**
+ * JSON with the keys in a fixed order, for comparing two values by content.
+ *
+ * Object key order is not meaningful but does reach the serialised text, so two
+ * equal documents can stringify differently. Sorting makes the comparison answer the
+ * question actually being asked — is this the same data — rather than whether two
+ * writers happened to emit keys in the same order.
+ */
+/**
+ * Whether a key pressed in this element belongs to a text field rather than the table.
+ *
+ * The distinction matters for undo: in a field the browser already remembers the
+ * characters typed there, and that is the history someone wants while editing. A
+ * checkbox or a slider has no text to take back, so the table keeps the key there.
+ */
+function isTextEntry(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) {
+		return false;
+	}
+	if (target.isContentEditable) {
+		return true;
+	}
+	if (target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+		return true;
+	}
+	if (target.tagName !== 'INPUT') {
+		return false;
+	}
+	const type = (target as HTMLInputElement).type;
+	return !['button', 'checkbox', 'color', 'file', 'radio', 'range', 'submit'].includes(type);
+}
+
+function stableJson(value: unknown): string {
+	return JSON.stringify(value, (_key, inner: unknown) => {
+		if (inner === null || typeof inner !== 'object' || Array.isArray(inner)) {
+			return inner;
+		}
+		const record = inner as Record<string, unknown>;
+		const sorted: Record<string, unknown> = {};
+		for (const key of Object.keys(record).sort()) {
+			sorted[key] = record[key];
+		}
+		return sorted;
+	});
 }

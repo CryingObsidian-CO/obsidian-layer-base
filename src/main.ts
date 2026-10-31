@@ -1,6 +1,8 @@
 import { Notice, Plugin, TFolder } from 'obsidian';
 import {
 	COMMAND_CREATE_FILE,
+	COMMAND_REDO,
+	COMMAND_UNDO,
 	LAYER_EXTENSION,
 	VIEW_TYPE_LAYER,
 } from './constants';
@@ -11,7 +13,7 @@ import {
 	LayerBaseSettingTab,
 	type LayerBaseSettings,
 } from './settings';
-import { createLayerView } from './views/layer-view';
+import { createLayerView, LayerView } from './views/layer-view';
 import { TableIndex } from './io/table-index';
 
 export default class LayerBasePlugin extends Plugin {
@@ -41,10 +43,56 @@ export default class LayerBasePlugin extends Plugin {
 			},
 		});
 
+		/*
+		 * Undo and redo are commands rather than keys bound to the view's own scope.
+		 * `ItemView.scope` is null unless something creates one, and a scope-less
+		 * binding never fires — which is why pressing the key did nothing. A command
+		 * also gives them a place in the command palette and lets Obsidian own the key
+		 * handling, so a shortcut the editor wants does not swallow them silently.
+		 *
+		 * `checkCallback` decides availability per active view, so the command is only
+		 * offered while a table or board is in front.
+		 */
+		this.addCommand({
+			id: COMMAND_UNDO,
+			name: t().undoEdit,
+			checkCallback: (checking) => this.runOnActiveLayerView(checking, (view) => {
+				view.runUndo();
+			}),
+		});
+		this.addCommand({
+			id: COMMAND_REDO,
+			name: t().redoEdit,
+			checkCallback: (checking) => this.runOnActiveLayerView(checking, (view) => {
+				view.runRedo();
+			}),
+		});
+
 		this.addSettingTab(new LayerBaseSettingTab(this.app, this));
 	}
 
 	onunload(): void {}
+
+	/**
+	 * Runs an action on the layer view in front, answering whether there is one.
+	 *
+	 * Returning false from `checkCallback` keeps the command out of the palette when
+	 * no layer view is active, rather than offering it and doing nothing.
+	 */
+	runOnActiveLayerView(
+		checking: boolean,
+		run: (view: LayerView) => void,
+	): boolean {
+		const view = this.app.workspace.getActiveViewOfType(LayerView);
+		if (!view) {
+			return false;
+		}
+		if (!checking) {
+			run(view);
+		}
+		return true;
+	}
+
 
 	async loadSettings(): Promise<void> {
 		this.settings = Object.assign(
