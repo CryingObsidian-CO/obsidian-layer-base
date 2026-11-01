@@ -104,6 +104,20 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
+	/*
+	 * A value that lives in another file's frontmatter. Nothing is stored in the table:
+	 * the view reads it from the note the row's `note` column names, and writes an edit
+	 * back to that file. So this type answers text with nothing and refuses text, and
+	 * every cell of it is empty as far as the document is concerned.
+	 */
+	noteProp: {
+		type: 'noteProp',
+		icon: 'file-cog',
+		toText: () => '',
+		fromText: () => REFUSED,
+		isEmpty: () => true,
+	},
+
 	number: {
 		type: 'number',
 		icon: 'hash',
@@ -267,6 +281,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'multiSelect',
 	'checkbox',
 	'note',
+	'noteProp',
 ];
 
 export function specFor(type: FieldType): FieldTypeSpec {
@@ -319,11 +334,21 @@ export function isMissingRequired(field: Field, value: CellValue): boolean {
 
 /** Whether a type's values are computed rather than stored. */
 export function isDerived(type: FieldType): boolean {
-	return type === 'relationBack' || type === 'rollup' || type === 'formula';
+	return (
+		type === 'relationBack' ||
+		type === 'rollup' ||
+		type === 'formula' ||
+		type === 'noteProp'
+	);
 }
 
 /** Whether the table fills this cell in, so nothing here can be typed into. */
 export function isReadOnly(type: FieldType): boolean {
+	// A `noteProp` cell is answered by its note rather than by the document, but it is
+	// still the reader's to change: an edit goes to that file's frontmatter.
+	if (type === 'noteProp') {
+		return false;
+	}
 	return isDerived(type) || type === 'autoNumber';
 }
 

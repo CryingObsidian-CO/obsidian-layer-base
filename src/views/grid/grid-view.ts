@@ -89,6 +89,9 @@ export interface GridHandlers {
 	/** What a `note` cell shows: the file's name, or the path it lives at. */
 	noteLabelStyle(): NoteLabelStyle;
 
+	/** What a note property row reads from the linked note's frontmatter. */
+	notePropText(field: Field, recordId: string): CellText;
+
 	/** Creates an option on a select field for a name typed into a cell. */
 	onCreateOption(field: Field, name: string): SelectOption | null;
 
@@ -693,7 +696,12 @@ export class GridRenderer {
 				const cell = row.insertCell();
 				cell.addClass('layer-grid-td', `is-${field.type}`);
 				cell.dataset.fieldId = field.id;
-				if (isDerived(field.type)) {
+				/*
+				 * Asked of `isReadOnly`, not `isDerived`, so the two agree with the header:
+				 * a note property is answered by its note rather than by this document, but
+				 * it is still the reader's to change, and must not look like a locked cell.
+				 */
+				if (isReadOnly(field.type)) {
 					cell.addClass('is-derived');
 				}
 				if (field.primary) {
@@ -1040,9 +1048,18 @@ export class GridRenderer {
 		// multi-select needs: its toggles commit while the panel stays open, and
 		// restoring from the value captured at open would undo them.
 		let latest = value;
+		/*
+		 * A note property holds nothing in the document, so its editor starts from what
+		 * the note says. Starting blank would let the first keystroke replace a value the
+		 * reader never saw.
+		 */
+		const startValue =
+			field.type === 'noteProp'
+				? this.handlers.notePropText(field, recordId).text
+				: value;
 		this.openEdit = beginCellEdit(cell, {
 			field,
-			value,
+			value: startValue,
 			commit: (next) => {
 				latest = next;
 				this.commit(cell, field, recordId, next);
@@ -1082,6 +1099,9 @@ export class GridRenderer {
 			}
 			if (field.type === 'rollup') {
 				return this.handlers.rollupText(field, recordId);
+			}
+			if (field.type === 'noteProp') {
+				return this.handlers.notePropText(field, recordId);
 			}
 			return {text: formatCell(field, value), broken: 0};
 		};

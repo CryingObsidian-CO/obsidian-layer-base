@@ -77,6 +77,8 @@ export interface FieldEditorResult {
 	autoNumber: AutoNumberSettings;
 	/** How a rollup gathers and reduces, when the type is `rollup`. */
 	rollup: RollupSettings;
+	/** Which note column a `noteProp` reads, and which key it reads there. */
+	noteProp: { sourceFieldId: string; key: string };
 	/** How that result is presented; null to follow whatever it computed. */
 	formulaType: FormulaResultType | null;
 	typeChanged: boolean;
@@ -118,6 +120,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	multiSelect: () => t().typeMultiSelect,
 	checkbox: () => t().typeCheckbox,
 	note: () => t().typeNote,
+	noteProp: () => t().typeNoteProp,
 };
 
 /** Whether a column's text form can stand in for a row's name. */
@@ -140,6 +143,8 @@ export class FieldEditorModal extends AnchoredPopover {
 	private max: number | null;
 	private linkPath: string;
 	private linkFieldId: string;
+	private noteSourceId: string;
+	private noteKey: string;
 	private backPath: string;
 	private backFieldId: string;
 	private backTitleFieldId: string;
@@ -159,6 +164,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private relationEl: HTMLElement | null = null;
 	private rollupEl: HTMLElement | null = null;
 	private autoNumberEl: HTMLElement | null = null;
+	private notePropEl: HTMLElement | null = null;
 	private formulaEl: HTMLElement | null = null;
 	private requiredEl: HTMLElement | null = null;
 	private errorEl: HTMLElement | null = null;
@@ -184,6 +190,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.rollupSourceFieldId = config.field?.rollupSourceFieldId ?? '';
 		this.rollupFieldId = config.field?.rollupFieldId ?? '';
 		this.rollupAggregate = config.field?.rollupAggregate ?? 'sum';
+		this.noteSourceId = config.field?.noteFieldId ?? '';
+		this.noteKey = config.field?.frontmatterKey ?? '';
 		this.numberLength = config.field?.numberLength ?? 1;
 		this.numberGroupFieldId = config.field?.numberGroupFieldId ?? '';
 		this.formula = config.field?.formula ?? '';
@@ -253,6 +261,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.formulaEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderFormulaSettings();
 
+		this.notePropEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderNotePropSettings();
+
 		this.requiredEl = contentEl.createDiv({ cls: 'layer-field-required-host' });
 		this.renderRequiredToggle();
 
@@ -298,6 +309,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.renderNumberSettings();
 			this.renderRelationSettings();
 			this.renderFormulaSettings();
+			this.renderNotePropSettings();
 			this.renderRequiredToggle();
 		});
 	}
@@ -406,6 +418,55 @@ export class FieldEditorModal extends AnchoredPopover {
 	 * The column list belongs to another file, so it is filled in once that file
 	 * has been read — the table itself is only a list of paths, which is cheap.
 	 */
+	/** Which note a `noteProp` reads, and which key of its frontmatter it reads. */
+	private renderNotePropSettings(): void {
+		const host = this.notePropEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+		if (this.type !== 'noteProp') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().typeNoteProp });
+		const grid = host.createDiv({ cls: 'layer-field-grid' });
+
+		grid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldNoteSourceLabel,
+		});
+		const source = grid.createEl('select', { cls: 'layer-field-number-format' });
+		const none = source.createEl('option', { text: '—' });
+		none.value = '';
+		for (const field of this.config.selfFields) {
+			if (field.type !== 'note') {
+				continue;
+			}
+			const option = source.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		source.value = this.noteSourceId;
+		source.addEventListener('change', () => {
+			this.noteSourceId = source.value;
+		});
+
+		grid.createDiv({
+			cls: 'layer-field-label',
+			text: t().fieldFrontmatterKeyLabel,
+		});
+		const key = grid.createEl('input', {
+			type: 'text',
+			cls: 'layer-field-number-format',
+		});
+		// An empty key means the field's own name, which is what the placeholder shows.
+		key.placeholder = this.name.trim();
+		key.value = this.noteKey;
+		key.addEventListener('input', () => {
+			this.noteKey = key.value;
+		});
+	}
+
 	private renderRelationSettings(): void {
 		const host = this.relationEl;
 		if (!host) {
@@ -1061,6 +1122,10 @@ export class FieldEditorModal extends AnchoredPopover {
 			},
 			formula: this.formula.trim(),
 			formulaType: this.formulaType,
+			noteProp: {
+				sourceFieldId: this.noteSourceId,
+				key: this.noteKey,
+			},
 			typeChanged: this.originalType !== null && this.originalType !== this.type,
 		});
 		this.close();

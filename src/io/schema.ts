@@ -130,6 +130,9 @@ function parseField(
 	if (typeof raw.frontmatterKey === 'string' && raw.frontmatterKey.trim()) {
 		field.frontmatterKey = raw.frontmatterKey.trim();
 	}
+	if (typeof raw.noteFieldId === 'string' && raw.noteFieldId.trim()) {
+		field.noteFieldId = raw.noteFieldId.trim();
+	}
 	// Asked of the model, not listed here: a type that stores choices by option id
 	// must keep them through a save, or the next parse drops them and writes the
 	// field back without them.

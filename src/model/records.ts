@@ -56,6 +56,7 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 		case 'relationBack':
 		case 'rollup':
 		case 'formula':
+		case 'noteProp':
 			// Derived, never stored: there is no value a caller could set here.
 			return false;
 		case 'autoNumber':

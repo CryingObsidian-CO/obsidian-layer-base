@@ -16,7 +16,8 @@ export type FieldType =
 	| 'select'
 	| 'multiSelect'
 	| 'checkbox'
-	| 'note';
+	| 'note'
+	| 'noteProp';
 
 /** What a `note` cell shows: the file's own name, or the path it lives at. */
 export type NoteLabelStyle = 'name' | 'path';
@@ -46,6 +47,11 @@ export interface Field {
 	 */
 	required?: boolean;
 	frontmatterKey?: string;
+	/**
+	 * `noteProp` fields only: the `note` column whose file is read. The value of the
+	 * cell lives in that file's frontmatter, under `frontmatterKey`.
+	 */
+	noteFieldId?: string;
 	options?: SelectOption[];
 	/** `number` fields only: the display format. Missing means plain. */
 	numberFormat?: NumberFormat;

@@ -483,7 +483,7 @@ export class LayerView extends TextFileView {
 			this.showFile(existing);
 			return;
 		}
-		const target = path.endsWith('.md') ? path : `${path}.md`;
+		const target = noteTarget(path);
 		void this.createNote(target, path);
 	}
 
@@ -506,7 +506,8 @@ export class LayerView extends TextFileView {
 		void this.app.workspace.getLeaf(true).openFile(file);
 	}
 
-	private async createNote(target: string, shown: string): Promise<void> {
+	/** Makes the note, reporting what happened, and answers the file or null. */
+	private async createNoteFile(target: string, shown: string): Promise<TFile | null> {
 		try {
 			const slash = target.lastIndexOf('/');
 			if (slash > 0) {
@@ -514,9 +515,17 @@ export class LayerView extends TextFileView {
 			}
 			const file = await this.app.vault.create(target, '');
 			new Notice(t().noticeNoteCreated(shown));
-			this.showFile(file);
+			return file;
 		} catch {
 			new Notice(t().noticeNoteCreateFailed(shown));
+			return null;
+		}
+	}
+
+	private async createNote(target: string, shown: string): Promise<void> {
+		const file = await this.createNoteFile(target, shown);
+		if (file) {
+			this.showFile(file);
 		}
 	}
 
@@ -745,6 +754,7 @@ export class LayerView extends TextFileView {
 				},
 				onOpenNote: (path) => this.openNotePath(path),
 				noteLabelStyle: () => this.plugin.settings.noteLabel,
+				notePropText: (field, recordId) => this.notePropText(field, recordId),
 				onCreateOption: (field, name) =>
 					this.handleCreateOption(field, name),
 				relationCandidates: (field) =>
@@ -955,6 +965,7 @@ export class LayerView extends TextFileView {
 			this.applyAutoNumberSettings(created, result.autoNumber);
 			this.applyRollupSettings(created, result.rollup);
 			this.applyFormulaSettings(created, result.formula, result.formulaType);
+			this.applyNotePropSettings(created, result.noteProp);
 			this.applyBackSettings(created, result.back);
 			if (after) {
 				insertFieldAfter(doc, after.id, created);
@@ -986,6 +997,7 @@ export class LayerView extends TextFileView {
 			this.applyAutoNumberSettings(field, result.autoNumber);
 			this.applyRollupSettings(field, result.rollup);
 			this.applyFormulaSettings(field, result.formula, result.formulaType);
+			this.applyNotePropSettings(field, result.noteProp);
 			this.applyBackSettings(field, result.back);
 		}
 
@@ -1730,7 +1742,117 @@ export class LayerView extends TextFileView {
 		if (field.type === 'formula') {
 			return this.formulaText(field, record.id).text;
 		}
+		if (field.type === 'noteProp') {
+			return this.notePropValue(field, record.id);
+		}
 		return formatCell(field, value);
+	}
+
+	/**
+	 * Stores where a note property reads from.
+	 *
+	 * Both parts are removed when the type is anything else, so a column that stopped
+	 * being a note property does not keep pointing into someone's frontmatter.
+	 */
+	private applyNotePropSettings(
+		field: Field,
+		settings: { sourceFieldId: string; key: string },
+	): void {
+		if (field.type !== 'noteProp') {
+			delete field.noteFieldId;
+			delete field.frontmatterKey;
+			return;
+		}
+		if (settings.sourceFieldId === '') {
+			delete field.noteFieldId;
+		} else {
+			field.noteFieldId = settings.sourceFieldId;
+		}
+		const key = settings.key.trim();
+		if (key === '') {
+			delete field.frontmatterKey;
+		} else {
+			field.frontmatterKey = key;
+		}
+	}
+
+	/** The cell reading of a note property, in the shape the grid asks for. */
+	private notePropText(field: Field, recordId: string): CellText {
+		return { text: this.notePropValue(field, recordId), broken: 0 };
+	}
+
+	/**
+	 * The value a note property row reads.
+	 *
+	 * It is not in this document: it lives in the frontmatter of the note the row's note
+	 * column names. A row with no note, a note that is not there, or a note without that
+	 * key all read as nothing, which is what an empty cell already means.
+	 */
+	private notePropValue(field: Field, recordId: string): string {
+		const doc = this.doc;
+		const record = doc ? findRecord(doc, recordId) : undefined;
+		if (!doc || !record) {
+			return '';
+		}
+		const source = doc.fields.find((candidate) => candidate.id === field.noteFieldId);
+		if (!source || source.type !== 'note') {
+			return '';
+		}
+		const path = record.cells[source.id];
+		if (typeof path !== 'string' || path === '') {
+			return '';
+		}
+		const file = this.resolveNote(path);
+		if (!file) {
+			return '';
+		}
+		const key = field.frontmatterKey ?? field.name;
+		return frontmatterText(this.app.metadataCache.getFileCache(file)?.frontmatter?.[key]);
+	}
+
+	/**
+	 * Writes a value into the note a row names, making the note when it is missing.
+	 *
+	 * Deliberately outside the undo steps: those hold a copy of this document, and the
+	 * value being changed lives in another file. An undo would restore the table and
+	 * leave the note as it now is.
+	 */
+	private writeNoteProp(field: Field, recordId: string, value: CellValue): void {
+		const doc = this.doc;
+		const record = doc ? findRecord(doc, recordId) : undefined;
+		if (!doc || !record) {
+			return;
+		}
+		const source = doc.fields.find((candidate) => candidate.id === field.noteFieldId);
+		if (!source || source.type !== 'note') {
+			return;
+		}
+		const path = record.cells[source.id];
+		if (typeof path !== 'string' || path === '') {
+			return;
+		}
+		const text = typeof value === 'string' ? value : '';
+		void this.applyNoteProp(path, field.frontmatterKey ?? field.name, text);
+	}
+
+	private async applyNoteProp(path: string, key: string, text: string): Promise<void> {
+		const file =
+			this.resolveNote(path) ?? (await this.createNoteFile(noteTarget(path), path));
+		if (!file) {
+			return;
+		}
+		try {
+			await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+				if (text === '') {
+					delete frontmatter[key];
+				} else {
+					frontmatter[key] = text;
+				}
+			});
+		} catch {
+			new Notice(t().noticeNoteCreateFailed(path));
+		}
+		this.render();
 	}
 
 	/**
@@ -2209,6 +2331,15 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		/*
+		 * A note property is answered by another file, so an edit belongs there and not
+		 * in this document. Answered before the copy is taken: nothing here changes, so
+		 * there is no step to take back.
+		 */
+		if (field.type === 'noteProp') {
+			this.writeNoteProp(field, recordId, value);
+			return;
+		}
 		// The copy is taken first: it has to hold the table before the edit.
 		this.beginEdit('cell');
 		if (!setCellValue(this.doc, recordId, field, value)) {
@@ -2295,6 +2426,33 @@ export function createLayerView(
  * characters typed there, and that is the history someone wants while editing. A
  * checkbox or a slider has no text to take back, so the table keeps the key there.
  */
+/** The file path a stored note value names, with the extension the vault expects. */
+function noteTarget(path: string): string {
+	return path.endsWith('.md') ? path : `${path}.md`;
+}
+
+/**
+ * How a frontmatter value reads in a cell.
+ *
+ * Lists join with commas, scalars print as they are, and a nested object is left out:
+ * a cell has room for one line, and its JSON would be noise rather than a value.
+ */
+function frontmatterText(raw: unknown): string {
+	if (raw === null || raw === undefined) {
+		return '';
+	}
+	if (Array.isArray(raw)) {
+		return raw
+			.map((item) => frontmatterText(item))
+			.filter((text) => text !== '')
+			.join(', ');
+	}
+	if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
+		return String(raw);
+	}
+	return '';
+}
+
 function isTextEntry(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) {
 		return false;
