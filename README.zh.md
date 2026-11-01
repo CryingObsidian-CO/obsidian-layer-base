@@ -1,0 +1,234 @@
+<p align="center">
+  <img src="https://img.shields.io/badge/AI--generated-d1242f?style=for-the-badge" alt="AI 生成">
+</p>
+
+> ### 🚨 本插件的大量代码由 AI 生成
+>
+> **本插件在人工指导下、由 AI 大量辅助编写。**
+> 如果你介意任何形式的 AI 生成内容，请停止使用并卸载本插件。
+> 本插件按「现状」提供，不附带任何形式的担保。
+
+[English](README.md) | **简体中文**
+
+# Layer Base 多维表格
+
+Obsidian 的多维表格插件。一个 `.layer` 文件就是一份自包含的数据库——字段定义、
+记录和多个视图——既可以当表格用，也可以当看板用，与仓库的目录结构无关。
+
+## 能做什么
+
+- **表格视图** — 就地编辑、从电子表格粘贴、拖动列、调整行高列宽、筛选排序。
+- **看板视图** — 任意列分组、拖动卡片换列、选卡片显示哪些列、一个文件可放多个看板。
+- **15 种字段类型** — 文本、长文本、数字、日期、日期时间、关联、反向关联、自增编号、
+  汇总、公式、单选、多选、勾选、笔记、笔记属性。
+- **列合计** — 每列可单独开启的列脚：已填写、未填写、唯一值、求和、平均值、最小值、
+  最大值、日期范围。
+- **撤销与重做** — 覆盖所有改数据的操作。视图设置（列宽、筛选、排序、合计、隐藏列）
+  刻意不进撤销栈。
+- **笔记联动** — `note` 列把一行关联到某个笔记，笔记不存在时会自动创建；
+  `note property` 列读写那篇笔记 frontmatter 里的一个键。
+- **AI 接入** — 可选的 MCP 服务器，让 AI 通过结构化调用编辑表格。见下文
+  [AI 接入](#ai-接入mcp)。
+
+## 安装
+
+到 **Releases** 页面下载文件即可，**不需要编译任何东西**。
+
+1. 在最新版本里下载 `main.js`、`manifest.json`、`styles.css`。
+2. 放进 `<仓库>/.obsidian/plugins/obsidian-layer-base/`（目录不存在就新建）。
+3. 重启 Obsidian，然后在 **设置 → 第三方插件** 里启用 **Layer Base**。
+
+升级也是同样三步，换成新版本的文件即可。
+
+**第一次使用前请先备份你的仓库。** `.layer` 就是纯 JSON 文件，备份等于复制一份。
+
+还需要 AI 接入的话，在同一次发布里把 `mcp-server.cjs` 也下载下来——
+见下文 [AI 接入](#ai-接入mcp)。
+
+## 怎么用
+
+新建方式：功能区图标、命令面板，或在左侧文件列表里右键文件夹 → **新建看板**。
+
+- **字段** — 工具栏的 **字段** 按钮决定这个视图显示什么。表格里是隐藏/显示列；
+  看板里是分组列、卡片标题、卡片列出的那几列。
+- **列合计** — 点某一列的列脚，选它统计什么。你不选，它就什么也不统计。
+- **撤销** — `Ctrl/Cmd+Z`、`Ctrl/Cmd+Shift+Z`、`Ctrl/Cmd+Y`，仅在表格或看板内生效。
+  这些键绑在**视图自己**身上、不是全局热键，所以不会干扰编辑器。命令面板里仍有对应
+  条目，因此 **设置 → 快捷键** 会把它们显示为**未分配**——这是预期现象，不是故障。
+
+## 文件格式
+
+`.layer` 就是磁盘上的纯 JSON：可读、可 diff、可手改，也能正常配合 Obsidian Sync
+与文件历史。
+
+```jsonc
+{
+  "version": 1,
+  "name": "项目看板",
+  "fields": [
+    { "id": "f_a", "name": "标题", "type": "text", "primary": true },
+    { "id": "f_b", "name": "状态", "type": "select",
+      "options": [{ "id": "o_1", "name": "待办", "color": "default" }] }
+  ],
+  "records": [
+    { "id": "r_1", "created": "2026-01-01T00:00:00.000Z",
+      "cells": { "f_a": "写方案", "f_b": "o_1" } }
+  ],
+  "views": [
+    { "id": "v_1", "name": "表格", "type": "grid" },
+    { "id": "v_2", "name": "看板", "type": "kanban", "groupByFieldId": "f_b" }
+  ]
+}
+```
+
+四条规则保证了改来改去也不会丢数据：
+
+- `cells` 按**字段 id** 存，改列名不会让值失去归属。
+- `select` 存的是**选项 id**，改选项名或换颜色都不会让值失去归属。
+- 派生列（公式、汇总、反向关联、笔记属性）**不存任何值**。
+- `note property` 的值存在那篇笔记的 frontmatter 里，不在 `.layer` 里。
+
+## AI 接入（MCP）
+
+`mcp-server.cjs` 是一个 [Model Context Protocol](https://modelcontextprotocol.io)
+服务器，让 AI 通过**结构化调用**改表格，而不是手写 JSON。它是独立的 Node 进程，
+走 stdio，所以**不需要 Obsidian 开着**——文件变了 Obsidian 会自己重载。
+
+它刻意**没有**做成插件内置。
+
+运行 AI 的那台机器上需要 **Node 18 或更新版本**。
+
+### 1. 拿到文件
+
+在同一次发布里下载 `mcp-server.cjs`，放在一个稳定的位置，比如插件旁边：
+
+```
+<仓库>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs
+```
+
+### 2. 让客户端指向它
+
+任何 MCP 客户端都可以使用下面这种配置：
+
+```json
+{
+	"mcpServers": {
+		"layer-base": {
+			"command": "node",
+			"args": [
+				"C:/Vault/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"
+			],
+			"env": {
+				"LAYER_VAULT": "C:/Vault"
+			}
+		}
+	}
+}
+```
+
+两个路径都写**绝对路径**：
+
+| 字段            | 含义                   |
+|---------------|----------------------|
+| `args[0]`     | `mcp-server.cjs` 的位置 |
+| `LAYER_VAULT` | 仓库根目录——服务器唯一允许碰的文件夹  |
+
+正斜杠在所有平台都能用，Windows 也一样。如果你要粘带反斜杠的 Windows 路径，
+JSON 里每个反斜杠都要写成双份（`C:\\Vault`）。
+
+**Claude Desktop 及其他客户端** — 把上面的 JSON 粘进客户端的配置文件
+（Claude Desktop 是 `claude_desktop_config.json`），然后重启客户端。
+
+**DeepSeek Harness** — 连接器对话框里填同样的几项：
+
+- 名称：`Layer Base`
+- 传输方式：`stdio`
+- 命令：`node`
+- 参数：`["<仓库>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"]`
+- 环境变量：`{"LAYER_VAULT":"<仓库>"}`
+
+### 3. 使用
+
+> 「在 `项目/任务.layer` 里，把所有状态为待办的行改成完成。」
+
+助手先读（`list_tables` → `read_table`）再写（`update_cells`）。**不会静默写入**：
+列装不下的值会出现在 `refused` 里。
+
+### 工具清单
+
+| 工具               | 作用                                 |
+|------------------|------------------------------------|
+| `list_tables`    | 列出仓库里所有 `.layer`，并给出路径所相对的仓库根目录    |
+| `read_table`     | 读列、视图（含每个视图的筛选、排序、隐藏列）和行           |
+| `add_records`    | 按列名追加行                             |
+| `update_cells`   | 按行 id 改单个单元格                       |
+| `delete_records` | 按 id 删行                            |
+| `add_field`      | 加列，单选类可一并给选项                       |
+| `delete_field`   | 删列及其值                              |
+| `add_view`       | 加看板视图                              |
+| `update_view`    | 改视图的名字、筛选、排序、隐藏列；看板另可改分组列、卡片列、列数上限 |
+| `delete_view`    | 删看板视图（表格视图不可删）                     |
+
+### 两点必须知道
+
+- **路径相对 `LAYER_VAULT`。** `list_tables` 会把根目录一并返回，并给出可直接回传的
+  路径。越界路径会被拒绝。
+- **视图必须按名字指定，没有「屏幕上那个」。** 文件里不记录哪个视图正开着，服务器也
+  看不到 Obsidian，所以要传视图名或 id。先用 `read_table` 把视图读出来。
+
+值是「人怎么打字就怎么写」的文本——数字写 `"42"`、勾选写 `"true"`、日期写
+`"2026-01-31"`、单选写选项**名**、多选写 `"红, 蓝"`。由列类型自己解析；每次保存都走
+插件同一套解析与序列化，所以无论调用方要什么，文件都始终合法。
+
+### 出问题时
+
+| 现象                  | 原因                                |
+|---------------------|-----------------------------------|
+| `No table at "..."` | 路径不是相对仓库根目录——先跑 `list_tables`     |
+| `Outside the vault` | 路径跑出了 `LAYER_VAULT`               |
+| 客户端看不到任何工具          | `node` 不在 `PATH`，或 `args[0]` 路径不对 |
+| Obsidian 里看不到改动     | 表格正开着且有未保存状态；重新打开                 |
+
+## 已知限制
+
+- 看板能显示笔记属性，但不能编辑；编辑是表格里的操作。
+- 对公式列做筛选或排序，每次比较都会重算公式，大表上会有可感知的延迟。
+- 笔记属性在视图打开时读一次。在别处改了那篇笔记，要重新打开表格才看得到。
+
+## 多语言
+
+界面跟随 Obsidian 的语言，内置英文、简体中文、繁体中文。
+
+## 隐私
+
+不发起网络请求，也不收集任何遥测。插件只读写你打开的 `.layer` 文件，以及你用
+`note property` 列关联到的那些笔记的 frontmatter。MCP 服务器不碰 `LAYER_VAULT`
+以外的任何东西。
+
+## 许可证
+
+GNU General Public License v3.0 —— 版权所有 (C) 2026 CryingObsidian-CO。
+
+你可以依据 GPL-3.0 的条款使用、修改与再分发本插件。若你分发修改后的版本，它必须
+以同一许可证发布，并提供源码。完整条文见 [LICENSE](LICENSE)。
+
+本程序分发时希望它有用，但不提供任何担保；甚至不保证适销性或适用于某一特定用途。
+详见 GNU 通用公共许可证。
+
+## 从源码构建
+
+只有想改插件的人需要这一段。正式版本直接挂在 Releases 页面，不需要任何构建。
+
+```bash
+npm install
+npm run dev        # 监视构建 main.js
+npm run build      # 类型检查 + 生产构建
+npm run build:mcp  # 打包 MCP 服务器
+npm test           # 单元测试
+npm run lint
+npm run check:i18n
+npm run verify:css
+```
+
+文案集中在一个带类型的目录（`src/i18n`），每个键在每种语言里必须恰好出现一次，
+由 `npm run check:i18n` 强制检查。面向开发者的输出（console、解析警告）保持英文。

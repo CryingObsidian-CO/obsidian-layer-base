@@ -12,6 +12,9 @@ node_modules
 # They should be uploaded to GitHub releases instead.
 main.js
 
+# Built from mcp/, so it is generated the same way as main.js.
+mcp-server.cjs
+
 # Exclude sourcemaps
 *.map
 

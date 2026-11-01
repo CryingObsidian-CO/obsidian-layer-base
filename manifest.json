@@ -1,9 +1,9 @@
 {
 	"id": "obsidian-layer-base",
 	"name": "Layer Base",
-	"version": "0.1.0",
 	"minAppVersion": "1.13.0",
 	"description": "Multi-dimensional board and table views stored in self-contained .layer files.",
 	"author": "CryingObsidian-CO",
-	"isDesktopOnly": false
+	"isDesktopOnly": false,
+	"version": "0.1.0"
 }

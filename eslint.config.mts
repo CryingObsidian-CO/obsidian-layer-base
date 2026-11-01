@@ -10,6 +10,8 @@ export default defineConfig(
 		'version-bump.mjs',
 		'versions.json',
 		'main.js',
+		// Built from mcp/, and not part of the plugin bundle.
+		'mcp-server.cjs',
 		'package.json',
 		'package-lock.json',
 		'tsconfig.json',
@@ -31,4 +33,21 @@ export default defineConfig(
 		},
 	},
 	...obsidianmd.configs.recommended,
+	{
+		/*
+		 * The MCP server is a standalone Node program: it runs outside Obsidian, so the
+		 * plugin's rules about mobile support and the config folder do not apply to it.
+		 * Last on purpose — the shared rules would otherwise switch them back on.
+		 */
+		files: ['mcp/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
+		rules: {
+			'obsidianmd/no-nodejs-modules': 'off',
+			'obsidianmd/hardcoded-config-path': 'off',
+		},
+	},
 );
