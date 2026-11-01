@@ -1,0 +1,65 @@
+name: Feature request / 功能建议
+description: Suggest something Layer Base should do / 建议插件增加或改进什么
+title: '[Feature] '
+labels: [ 'enhancement' ]
+body:
+    -   type: markdown
+        attributes:
+            value: |
+                **English or 中文 are both fine. 英文、中文都可以写。**
+                
+                Which features would you like to see added?
+                
+                您希望加入哪些功能？
+
+    -   type: textarea
+        id: problem
+        attributes:
+            label: What are you trying to do / 你想做成什么事
+            description: Where does it get stuck today, and what feels wrong in the plugin? / 现在这件事卡在哪？插件哪里不顺手？
+            placeholder: |
+                I track tasks across three projects and want to see what is due this week in one place.
+                我在三个项目里都记了任务，想一眼看到「这周到期」的有哪些，不分项目。
+        validations:
+            required: true
+
+    -   type: textarea
+        id: idea
+        attributes:
+            label: How you would like it to work / 你希望它怎么用
+            description: Rough is fine — where you would click, and what you would expect to see. / 说个大概就行：你会点哪里，希望看到什么。
+        validations:
+            required: false
+
+    -   type: textarea
+        id: why
+        attributes:
+            label: Why do you think this is needed / 为什么您觉得需要这个功能
+            description: What would get easier with it, or what cannot be done today? / 有了它什么会变简单？或者现在有什么做不了？
+        validations:
+            required: false
+
+    -   type: dropdown
+        id: area
+        attributes:
+            label: Which part / 跟哪部分有关
+            options:
+                - Table view / 表格视图
+                - Board view / 看板视图
+                - A column type / 某类字段（公式、汇总、笔记等）
+                - Filters or sorts / 筛选或排序
+                - Column totals / 列合计
+                - Undo and redo / 撤销与重做
+                - The AI access (MCP) / AI 接入（MCP）
+                - Something else / 其他
+        validations:
+            required: true
+
+    -   type: checkboxes
+        id: before-submit
+        attributes:
+            label: Before you submit / 提交前
+            description: One box only, but please read it before ticking. / 只有一条，麻烦真看一眼再勾。
+            options:
+                -   label: I searched the existing requests and did not find this one. / 我搜过已有建议，没有找到重复的。
+                    required: true

@@ -1,0 +1,144 @@
+name: CI
+
+# Runs on every branch and every pull request, so a change is verified whether it is
+# pushed straight to a long-lived branch or proposed through a PR.
+on:
+    push:
+        branches: ['**']
+    pull_request:
+    workflow_dispatch:
+
+# A newer push to the same ref makes the older run pointless.
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    verify:
+        name: Checks
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: 'npm'
+
+            - name: Install
+              run: npm ci
+
+            # Each gate is its own step so a failure names the thing that broke,
+            # rather than one long red step.
+            - name: Types
+              run: npx tsc -noEmit -skipLibCheck
+
+            - name: Lint
+              run: npm run lint
+
+            - name: Translations
+              run: npm run check:i18n
+
+            - name: Styles
+              run: npm run verify:css
+
+            - name: Version files agree
+              run: npm run check:version
+
+            - name: Tests
+              run: npm test
+
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 22
+                  cache: 'npm'
+
+            - name: Install
+              run: npm ci
+
+            - name: Bundle the plugin
+              run: npm run build
+
+            - name: Bundle the MCP server
+              run: npm run build:mcp
+
+            # The release attaches exactly these, so a missing one is caught here.
+            - name: Every release artifact exists
+              run: |
+                  for file in main.js manifest.json styles.css mcp-server.cjs; do
+                    if [ ! -f "$file" ]; then
+                      echo "::error::$file was not produced by the build"
+                      exit 1
+                    fi
+                  done
+                  echo "main.js is $(wc -c < main.js) bytes"
+
+            # The MCP server is a process with no unit tests; this drives it over stdio
+            # and checks the files it leaves behind.
+            - name: MCP server smoke test
+              run: npm run test:mcp
+
+            - name: Keep the build for inspection
+              uses: actions/upload-artifact@v4
+              with:
+                  name: build
+                  path: |
+                      main.js
+                      manifest.json
+                      styles.css
+                      mcp-server.cjs
+                  retention-days: 7
+
+    flow:
+        name: Branch flow
+        runs-on: ubuntu-latest
+        # master holds what has been released; develop holds what is being written.
+        # The one mistake this flow allows is forgetting to merge a release back, so
+        # it is checked instead of remembered.
+        #
+        # Only these two events have anything to check, so no runner starts otherwise.
+        if: >-
+            github.event_name == 'pull_request' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/develop')
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+
+            - name: develop contains everything master has
+              if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+              run: |
+                  git fetch --quiet origin master develop
+                  if ! git rev-parse --verify --quiet origin/master > /dev/null; then
+                    echo "No master branch yet; nothing to compare."
+                    exit 0
+                  fi
+                  if git merge-base --is-ancestor origin/master origin/develop; then
+                    echo "develop contains every commit on master."
+                  else
+                    echo "::error::master has commits that develop does not. Merge master back into develop."
+                    exit 1
+                  fi
+
+            - name: Pull requests into master come from develop
+              if: github.event_name == 'pull_request' && github.base_ref == 'master'
+              run: |
+                  head="${{ github.head_ref }}"
+                  case "$head" in
+                    develop | hotfix/*)
+                      echo "Coming from $head, as the flow expects."
+                      ;;
+                    *)
+                      echo "::error::A pull request into master must come from develop (or hotfix/*), not from $head."
+                      exit 1
+                      ;;
+                  esac

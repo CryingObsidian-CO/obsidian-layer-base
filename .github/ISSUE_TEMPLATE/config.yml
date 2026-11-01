@@ -1,0 +1,10 @@
+# Blank issues are turned off so that every report arrives with the details needed to
+# act on it. The links below answer the questions that would otherwise become issues.
+blank_issues_enabled: false
+contact_links:
+    - name: How to install and use Layer Base / 安装与使用说明
+      url: https://github.com/CryingObsidian-CO/obsidian-layer-base#install
+      about: Download the release, where the files go, and how to connect the AI access. / 下载哪个文件、放到哪里、AI 接入怎么配。
+    - name: Known limitations / 已知限制
+      url: https://github.com/CryingObsidian-CO/obsidian-layer-base#known-limitations
+      about: Please check this list before reporting — some behaviour is deliberate. / 反馈前先看这里，有些行为是刻意的。

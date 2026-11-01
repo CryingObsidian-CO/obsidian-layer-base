@@ -1,0 +1,119 @@
+name: Bug report / 问题反馈
+description: Something in Layer Base does not work as described / 插件的行为与说明不符
+title: '[Bug] '
+labels: [ 'bug' ]
+body:
+    -   type: markdown
+        attributes:
+            value: |
+                **English or 中文 are both fine. 英文、中文都可以写。**
+                
+                Write down what you clicked and what happened. "The board is broken" cannot be investigated; "I dragged a card into the empty column and it bounced back" can be reproduced at once.
+                
+                请写清楚「你点了什么、发生了什么」。「看板坏了」这种描述没法查；「把卡片拖进空列，卡片又弹回去了」会更详细。
+
+    -   type: textarea
+        id: what-happened
+        attributes:
+            label: What happened / 发生了什么
+            description: What the plugin did, and what you expected it to do. / 插件实际做了什么？你本以为它会怎么做？
+            placeholder: |
+                I dragged a card from "Todo" to "Done" and it went back to Todo.
+                我把卡片从「待办」拖到「完成」，结果它又弹回「待办」了。
+        validations:
+            required: true
+
+    -   type: textarea
+        id: steps
+        attributes:
+            label: Steps to reproduce / 复现步骤
+            description: How to reproduce.  / 如何复现。
+            placeholder: |
+                1. Open a table with a board view grouped by Status
+                2. Drag a card from Todo to Done
+                3. Close the table and open it again
+                
+                1. 打开一张带看板视图的表格，按「状态」分组
+                2. 把一张卡片从「待办」拖到「完成」
+                3. 关掉这张表格再打开
+        validations:
+            required: true
+
+    -   type: input
+        id: plugin-version
+        attributes:
+            label: Layer Base version / 插件版本
+            description: Shown in Settings → Community plugins, or the release you downloaded. / 在**设置 → 第三方插件**里能看到，也可以是你下载的那个 release 号。
+            placeholder: 0.1.0
+        validations:
+            required: true
+
+    -   type: input
+        id: obsidian-version
+        attributes:
+            label: Obsidian version / Obsidian 版本
+            description: Shown in Settings → About. / 在**设置 → 关于**里能看到。
+            placeholder: 1.14.5
+        validations:
+            required: true
+
+    -   type: dropdown
+        id: platform
+        attributes:
+            label: Where does this happen / 出现在哪个平台
+            options:
+                - Windows
+                - macOS
+                - Linux
+                - iOS
+                - Android
+                - More than one / 多个平台都有
+        validations:
+            required: true
+
+    -   type: dropdown
+        id: area
+        attributes:
+            label: Which part / 跟哪部分有关
+            description: Pick "Not sure" if you cannot tell. / 拿不准就选「不确定」。
+            options:
+                - Table view / 表格视图
+                - Board view / 看板视图
+                - A column type / 某类字段（公式、汇总、笔记等）
+                - Filters or sorts / 筛选或排序
+                - Undo and redo / 撤销与重做
+                - The AI access (MCP) / AI 接入（MCP）
+                - Opening or creating .layer files / 打开或新建 .layer 文件
+                - Not sure / 不确定
+        validations:
+            required: false
+
+    -   type: textarea
+        id: console
+        attributes:
+            label: Console output / 控制台报错
+            description: |
+                Press `Ctrl/Cmd+Shift+I`, open the **Console** tab, and paste anything red. Leave it empty if nothing is there — no need to write "none".
+                按 `Ctrl/Cmd+Shift+I` 打开开发者工具，切到 **Console**，把红色的部分贴过来。没有报错就空着，不用写「没有」。
+            render: shell
+        validations:
+            required: false
+
+    -   type: textarea
+        id: extra
+        attributes:
+            label: Anything else / 其他补充
+            description: Screenshots, or the .layer file with private rows removed. / 截图，或者把 .layer 文件里涉及隐私的行删掉后发上来。
+        validations:
+            required: false
+
+    -   type: checkboxes
+        id: before-submit
+        attributes:
+            label: Before you submit / 提交前
+            description: Two boxes only, but please read them before ticking. / 只有两条，麻烦真看一眼再勾。
+            options:
+                -   label: I searched the open and closed issues for the same problem. / 我搜过已有 issue（包括已关闭的），没有找到同样的问题。
+                    required: true
+                -   label: I am on the latest release. / 我用的已经是最新版本。
+                    required: true

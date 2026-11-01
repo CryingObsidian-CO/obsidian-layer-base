@@ -177,6 +177,7 @@ back in `refused`.
 | Tool             | What it does                                                                                    |
 |------------------|-------------------------------------------------------------------------------------------------|
 | `list_tables`    | Every `.layer` in the vault, plus the vault root the paths are relative to                      |
+| `create_table`   | Create an empty `.layer` file; an existing file is never overwritten                            |
 | `read_table`     | Columns, views (with each view's filter, sorts, hidden columns) and rows                        |
 | `add_records`    | Append rows, keyed by column name                                                               |
 | `update_cells`   | Set single cells by row id                                                                      |

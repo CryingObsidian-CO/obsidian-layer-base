@@ -12,6 +12,9 @@
     "lint": "eslint .",
     "verify:css": "node scripts/verify-css-vars.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:version": "node scripts/check-version.mjs",
+    "test:mcp": "node scripts/mcp-smoke.mjs",
+    "verify": "npm run lint && npm run check:i18n && npm run verify:css && npm run check:version && npm test",
     "build:mcp": "esbuild mcp/server.ts --bundle --outfile=mcp-server.cjs --format=cjs --target=node18 --platform=node"
   },
   "keywords": [],

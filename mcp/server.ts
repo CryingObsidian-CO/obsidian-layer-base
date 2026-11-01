@@ -9,8 +9,8 @@
  * The vault is named by `LAYER_VAULT` (or the first argument). Only files inside it
  * are touched.
  */
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { FIELD_TYPES, isDerived } from '../src/model/fields';
 import {
@@ -21,6 +21,7 @@ import {
 	setCellFromText,
 } from '../src/model/records';
 import { addBoardView, removeView, renameView } from '../src/model/views';
+import { LAYER_FORMAT_VERSION } from '../src/types';
 import type {
 	CellValue,
 	Field,
@@ -28,6 +29,7 @@ import type {
 	Filter,
 	FilterCondition,
 	FilterOperator,
+	GridView,
 	LayerDoc,
 	LayerRecord,
 	Sort,
@@ -296,6 +298,22 @@ const tools = [
 		inputSchema: { type: 'object', properties: {} },
 	},
 	{
+		name: 'create_table',
+		description:
+			'Create a new, empty .layer table at a path inside the vault. It starts with no columns and one table view, so add columns with add_field before adding rows. A file already at that path is never overwritten — the call fails instead.',
+		inputSchema: {
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: PATH_HINT },
+				name: {
+					type: 'string',
+					description: 'Display name for the table. Defaults to the file name.',
+				},
+			},
+			required: ['path'],
+		},
+	},
+	{
 		name: 'read_table',
 		description:
 			'Read a table: its columns, its views, and its rows. Cells are keyed by column name and select values read as option names, so what comes back can be sent straight to update_cells or add_records. Every view is reported with its own filter, sorts and hidden columns — read them before changing a view, because a view is named, not "the one on screen".',
@@ -500,6 +518,46 @@ const tools = [
 
 function runTool(name: string, args: Record<string, unknown>): unknown {
 	switch (name) {
+		case 'create_table': {
+			const file = vaultFile(args.path);
+			if (!file.endsWith('.layer')) {
+				throw new Error('A table file has to end with .layer');
+			}
+			let exists = true;
+			try {
+				statSync(file);
+			} catch {
+				exists = false;
+			}
+			if (exists) {
+				throw new Error(
+					`Something is already at "${String(args.path)}"; choose another path. Nothing was written.`,
+				);
+			}
+			const given = typeof args.name === 'string' ? args.name.trim() : '';
+			const view: GridView = {
+				id: newId('v', []),
+				// The one label this server writes; a caller can rename it with update_view.
+				name: 'Table',
+				type: 'grid',
+				columnWidths: {},
+				rowHeights: {},
+				filter: { conjunction: 'and', conditions: [] },
+				sorts: [],
+				hiddenFieldIds: [],
+			};
+			const doc: LayerDoc = {
+				version: LAYER_FORMAT_VERSION,
+				name: given === '' ? basename(file, '.layer') : given,
+				fields: [],
+				records: [],
+				views: [view],
+			};
+			mkdirSync(dirname(file), { recursive: true });
+			writeFileSync(file, serializeLayerDoc(doc), 'utf8');
+			return { path: args.path, name: doc.name, fields: 0, records: 0, views: 1 };
+		}
+
 		case 'list_tables': {
 			// The vault is named in the answer so every path below reads as what it is.
 			return {
