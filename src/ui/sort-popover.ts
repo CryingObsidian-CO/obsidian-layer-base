@@ -1,7 +1,6 @@
 import { setIcon } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, Sort } from '../types';
-import { isSortable } from '../model/sort';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 
 const SORT_POPOVER_WIDTH = '22rem';
@@ -112,9 +111,9 @@ export class SortPopover extends AnchoredPopover {
 		});
 	}
 
-	/** The columns this panel may offer: everything the model can read. */
+	/** The columns this panel may offer: every one, computed ones included. */
 	private sortableFields(): readonly Field[] {
-		return this.config.fields.filter((field) => isSortable(field));
+		return this.config.fields;
 	}
 
 	private addRule(): void {

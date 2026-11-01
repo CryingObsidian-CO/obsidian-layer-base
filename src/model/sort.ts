@@ -1,5 +1,5 @@
 import type { CellValue, Field, LayerRecord, Sort, SortOrder } from '../types';
-import { formatCell, isDerived } from './fields';
+import { formatCell } from './fields';
 
 /**
  * Ordering rows by one or more columns.
@@ -10,17 +10,33 @@ import { formatCell, isDerived } from './fields';
  */
 
 /** The text a record holds in a field, as the reader would see it. */
-function textOf(field: Field, record: LayerRecord): string {
-	return formatCell(field, record.cells[field.id] ?? '');
+function textOf(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): string {
+	return cellText?.(field, record) ?? formatCell(field, record.cells[field.id] ?? '');
 }
 
+/**
+ * How the caller resolves a cell's text for a type this layer cannot read itself.
+ *
+ * `null` means "not mine to answer", and the plain rules take over — so a caller that
+ * knows nothing about these types changes nothing by leaving it out.
+ */
+export type CellTextResolver = (field: Field, record: LayerRecord) => string | null;
+
 /** The number a cell stands for, or null when it does not stand for one. */
-function numberOrNull(field: Field, record: LayerRecord): number | null {
+function numberOrNull(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): number | null {
 	const value: CellValue = record.cells[field.id] ?? '';
 	if (typeof value === 'number') {
 		return Number.isFinite(value) ? value : null;
 	}
-	const text = textOf(field, record).trim().replace(/%$/, '');
+	const text = textOf(field, record, cellText).trim().replace(/%$/, '');
 	if (text === '') {
 		return null;
 	}
@@ -34,8 +50,12 @@ function numberOrNull(field: Field, record: LayerRecord): number | null {
  * The time of day is kept so two values on the same day still order sensibly; a
  * date-only value counts as the start of that day.
  */
-function dayOrNull(field: Field, record: LayerRecord): number | null {
-	const text = textOf(field, record).trim();
+function dayOrNull(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): number | null {
+	const text = textOf(field, record, cellText).trim();
 	if (text === '') {
 		return null;
 	}
@@ -61,10 +81,15 @@ function dayOrNull(field: Field, record: LayerRecord): number | null {
 }
 
 /** How one record compares to another under one column's rule. */
-function compareOne(field: Field, a: LayerRecord, b: LayerRecord): number {
+function compareOne(
+	field: Field,
+	a: LayerRecord,
+	b: LayerRecord,
+	cellText?: CellTextResolver,
+): number {
 	if (field.type === 'number' || field.type === 'autoNumber') {
-		const left = numberOrNull(field, a);
-		const right = numberOrNull(field, b);
+		const left = numberOrNull(field, a, cellText);
+		const right = numberOrNull(field, b, cellText);
 		// An empty cell sorts below every number, whichever way the column is
 		// ordered: "nothing" is not a small value, it is an absence.
 		if (left === null && right === null) {
@@ -80,8 +105,8 @@ function compareOne(field: Field, a: LayerRecord, b: LayerRecord): number {
 	}
 
 	if (field.type === 'date' || field.type === 'datetime') {
-		const left = dayOrNull(field, a);
-		const right = dayOrNull(field, b);
+		const left = dayOrNull(field, a, cellText);
+		const right = dayOrNull(field, b, cellText);
 		if (left === null && right === null) {
 			return 0;
 		}
@@ -103,7 +128,7 @@ function compareOne(field: Field, a: LayerRecord, b: LayerRecord): number {
 	// Everything else compares as the text it shows, which is also what a reader
 	// would do by eye. `localeCompare` with a numeric option keeps `item 2` before
 	// `item 10` instead of after it.
-	return textOf(field, a).localeCompare(textOf(field, b), undefined, {
+	return textOf(field, a, cellText).localeCompare(textOf(field, b, cellText), undefined, {
 		numeric: true,
 		sensitivity: 'base',
 	});
@@ -121,6 +146,7 @@ export function sortRecords(
 	records: readonly LayerRecord[],
 	fields: readonly Field[],
 	sorts: readonly Sort[],
+	cellText?: CellTextResolver,
 ): readonly LayerRecord[] {
 	const rules = sorts
 		.map((sort) => ({ sort, field: fields.find((f) => f.id === sort.fieldId) }))
@@ -134,7 +160,7 @@ export function sortRecords(
 	ordered.sort((a, b) => {
 		for (const { sort, field } of rules) {
 			const order: SortOrder = sort.order;
-			const result = compareOne(field, a, b);
+			const result = compareOne(field, a, b, cellText);
 			if (result !== 0) {
 				return order === 'desc' ? -result : result;
 			}
@@ -142,11 +168,4 @@ export function sortRecords(
 		return 0;
 	});
 	return ordered;
-}
-
-/** Whether a column can be sorted at all. */
-export function isSortable(field: Field): boolean {
-	// A derived column sorts by what it shows, which the view computes; the model
-	// cannot see it, so offering the column would sort a column of blanks.
-	return !isDerived(field.type);
 }

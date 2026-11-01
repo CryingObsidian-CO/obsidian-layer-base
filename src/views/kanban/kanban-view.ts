@@ -33,6 +33,9 @@ export interface KanbanHandlers {
 
 	/** What a `note` line shows: the file's name, or the path it lives at. */
 	noteLabelStyle(): NoteLabelStyle;
+
+	/** Reads a cell the model cannot read by itself; null means "not mine". */
+	cellText(field: Field, record: LayerRecord): string | null;
 	/** What a cell reads as, for grouping and for card titles. */
 	displayText(field: Field, record: LayerRecord): string;
 }
@@ -74,14 +77,21 @@ export class KanbanRenderer {
 		// the table would: two views of one table should not disagree about which
 		// rows exist.
 		const visible = sortRecords(
-			filterRecords(doc.records, doc.fields, view.filter, (field, value) => {
-				const record = { id: '', created: '', cells: { [field.id]: value } };
-				return this.handlers.displayText(field, record)
-					.split(', ')
-					.filter((name) => name !== '');
-			}),
+			filterRecords(
+				doc.records,
+				doc.fields,
+				view.filter,
+				(field, value) => {
+					const record = { id: '', created: '', cells: { [field.id]: value } };
+					return this.handlers.displayText(field, record)
+						.split(', ')
+						.filter((name) => name !== '');
+				},
+				(field, record) => this.handlers.cellText(field, record),
+			),
 			doc.fields,
 			view.sorts,
+			(field, record) => this.handlers.cellText(field, record),
 		);
 
 		const columns = groupRecords(

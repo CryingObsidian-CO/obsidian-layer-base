@@ -801,6 +801,7 @@ export class LayerView extends TextFileView {
 				},
 				onOpenNote: (path) => this.openNotePath(path),
 				noteLabelStyle: () => this.plugin.settings.noteLabel,
+				cellText: (field, record) => this.cellTextOf(field, record),
 				onSetColumnLimit: (limit) => {
 					this.handleColumnLimit(view, limit);
 				},
@@ -1715,10 +1716,39 @@ export class LayerView extends TextFileView {
 	private orderedRecords(doc: LayerDoc, view: View | null): readonly LayerRecord[] {
 		// Filtering first, then ordering: sorting rows that are about to be hidden is
 		// work nobody sees, and it keeps "the visible rows" as one idea.
-		const visible = filterRecords(doc.records, doc.fields, view?.filter, (field, value) =>
-			this.relationNames(field, value),
+		const visible = filterRecords(
+			doc.records,
+			doc.fields,
+			view?.filter,
+			(field, value) => this.relationNames(field, value),
+			(field, record) => this.cellTextOf(field, record),
 		);
-		return sortRecords(visible, doc.fields, view?.sorts ?? []);
+		return sortRecords(visible, doc.fields, view?.sorts ?? [], (field, record) =>
+			this.cellTextOf(field, record),
+		);
+	}
+
+	/**
+	 * Reads a cell the model cannot read by itself.
+	 *
+	 * Only a note property needs this: its value lives in another file, which the model
+	 * has no way to open. Answering null leaves every other type to the plain rules.
+	 */
+	private cellTextOf(field: Field, record: LayerRecord): string | null {
+		switch (field.type) {
+			case 'noteProp':
+				return this.notePropValue(field, record.id);
+			case 'relationBack':
+				return this.backText(field, record.id).text;
+			case 'formula':
+				return this.formulaText(field, record.id).text;
+			case 'rollup':
+				return this.rollupText(field, record.id).text;
+			default:
+				// A relation answers through its own resolver, and every stored type is
+				// read by the document itself.
+				return null;
+		}
 	}
 
 	/**

@@ -7,6 +7,7 @@ export type Locale = 'zh' | 'zh-TW' | 'en';
 const en = {
 	ribbonNewBoard: 'New board',
 	commandCreateFile: 'Create a new board file',
+	menuCreateBoard: 'New board',
 	boardMenu: 'More',
 	undoEdit: 'Undo',
 	redoEdit: 'Redo',
@@ -385,6 +386,7 @@ const en = {
 const zh = {
 	ribbonNewBoard: '新建多维看板',
 	commandCreateFile: '新建多维看板文件',
+	menuCreateBoard: '新建看板',
 	boardMenu: '更多',
 	undoEdit: '撤销',
 	redoEdit: '重做',
@@ -760,6 +762,7 @@ const zh = {
 const zhTW = {
 	ribbonNewBoard: '新建多維看板',
 	commandCreateFile: '新建多維看板檔案',
+	menuCreateBoard: '新建看板',
 	boardMenu: '更多',
 	undoEdit: '復原',
 	redoEdit: '重做',

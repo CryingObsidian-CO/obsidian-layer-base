@@ -68,6 +68,31 @@ export default class LayerBasePlugin extends Plugin {
 			}),
 		});
 
+		/*
+		 * The file explorer already offers "new note" where the reader is pointing, so a
+		 * new board belongs in the same place. The folder right-clicked wins over the
+		 * configured one: that is the folder the reader meant.
+		 *
+		 * `setSection('action-primary')` is what puts it next to "new note" rather than at
+		 * the bottom of the menu. The file explorer orders its sections as
+		 * title, open, action-primary, action, info, view, system, "", danger — so a plain
+		 * 'action' lands in the duplicate/move group below.
+		 */
+		this.registerEvent(
+			this.app.workspace.on('file-menu', (menu, file) => {
+				const folder = file instanceof TFolder ? file : file.parent;
+				menu.addItem((item) =>
+					item
+						.setTitle(t().menuCreateBoard)
+						.setIcon('layout-grid')
+						.setSection('action-primary')
+						.onClick(() => {
+							void this.createLayerFile(folder);
+						}),
+				);
+			}),
+		);
+
 		this.addSettingTab(new LayerBaseSettingTab(this.app, this));
 	}
 
@@ -106,16 +131,24 @@ export default class LayerBasePlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	/** Creates a `.layer` file in the configured folder and opens it. */
-	async createLayerFile(): Promise<void> {
-		const folderPath = this.settings.defaultFolder.trim();
-		const folder = folderPath ? this.resolveFolder(folderPath) : null;
-		if (folderPath && !folder) {
-			new Notice(t().noticeFolderMissing(folderPath));
-			console.warn(
-				`[obsidian-layer-base] Configured folder does not exist: ${folderPath}`,
-			);
-			return;
+	/**
+	 * Creates a `.layer` file and opens it.
+	 *
+	 * A folder passed in comes from the file explorer's menu, and it wins over the
+	 * configured default: the reader pointed at the place they want it.
+	 */
+	async createLayerFile(targetFolder?: TFolder | null): Promise<void> {
+		let folder: TFolder | null = targetFolder ?? null;
+		if (!folder) {
+			const folderPath = this.settings.defaultFolder.trim();
+			folder = folderPath ? this.resolveFolder(folderPath) : null;
+			if (folderPath && !folder) {
+				new Notice(t().noticeFolderMissing(folderPath));
+				console.warn(
+					`[obsidian-layer-base] Configured folder does not exist: ${folderPath}`,
+				);
+				return;
+			}
 		}
 
 		try {

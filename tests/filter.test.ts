@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
 	filterRecords,
-	isFilterable,
 	needsValue,
 	operatorsFor,
 } from '../src/model/filter';
@@ -188,10 +187,25 @@ describe('a filter that should keep everything', () => {
 });
 
 describe('what may be filtered on', () => {
-	it('refuses the computed columns', () => {
-		expect(isFilterable({ id: 'x', name: 'X', type: 'formula' })).toBe(false);
-		expect(isFilterable({ id: 'x', name: 'X', type: 'rollup' })).toBe(false);
-		expect(isFilterable({ id: 'x', name: 'X', type: 'relationBack' })).toBe(false);
+	/*
+	 * A computed column used to be refused here, because the model cannot work out its
+	 * value. It can now be filtered: the view hands that text in through a resolver.
+	 */
+	it('filters a computed column through the text handed in', () => {
+		const computed: Field = { id: 'f_c', name: 'C', type: 'formula' };
+		const rows = [row('r1', {}), row('r2', {})];
+		const kept = filterRecords(
+			rows,
+			[computed],
+			{
+				conjunction: 'and',
+				conditions: [{ fieldId: 'f_c', operator: 'is', value: 'yes' }],
+			},
+			undefined,
+			(field, record) =>
+				field.id === 'f_c' ? (record.id === 'r1' ? 'yes' : 'no') : null,
+		);
+		expect(kept.map((entry) => entry.id)).toEqual(['r1']);
 	});
 
 	it('offers only the operators a column can answer', () => {

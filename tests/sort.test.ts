@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isSortable, sortRecords } from '../src/model/sort';
+import { sortRecords } from '../src/model/sort';
 import type { CellValue, Field, LayerRecord, Sort } from '../src/types';
 
 /** A record holding the given cells. */
@@ -161,17 +161,23 @@ describe('the order that comes out', () => {
 });
 
 describe('which columns may be sorted', () => {
-	it('refuses the ones the model cannot read', () => {
-		// A computed column sorts by what the view works out, which this layer cannot
-		// see, so offering it would sort a column of blanks.
-		expect(isSortable({ id: 'x', name: 'X', type: 'formula' })).toBe(false);
-		expect(isSortable({ id: 'x', name: 'X', type: 'rollup' })).toBe(false);
-		expect(isSortable({ id: 'x', name: 'X', type: 'relationBack' })).toBe(false);
-	});
-
-	it('allows the ones it can read', () => {
-		expect(isSortable(text)).toBe(true);
-		expect(isSortable(serial)).toBe(true);
+	/*
+	 * A computed column used to be refused here, because the model cannot work out its
+	 * value. It can now be sorted: the view hands that text in through a resolver, so
+	 * the column is no longer a column of blanks.
+	 */
+	it('sorts a computed column through the text handed in', () => {
+		const computed: Field = { id: 'f_c', name: 'C', type: 'formula' };
+		const rows = [row('r1', {}), row('r2', {})];
+		const text = (record: LayerRecord): string =>
+			record.id === 'r1' ? 'b' : 'a';
+		const ordered = sortRecords(
+			rows,
+			[computed],
+			[{ fieldId: 'f_c', order: 'asc' }],
+			(field, record) => (field.id === 'f_c' ? text(record) : null),
+		);
+		expect(ordered.map((entry) => entry.id)).toEqual(['r2', 'r1']);
 	});
 });
 

@@ -1,7 +1,7 @@
 import { setIcon } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, Filter, FilterCondition, FilterOperator } from '../types';
-import { isFilterable, needsValue, operatorsFor } from '../model/filter';
+import { needsValue, operatorsFor } from '../model/filter';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 
 const FILTER_POPOVER_WIDTH = '26rem';
@@ -221,7 +221,8 @@ export class FilterPopover extends AnchoredPopover {
 	}
 
 	private filterableFields(): readonly Field[] {
-		return this.config.fields.filter((field) => isFilterable(field));
+		// Every column, computed ones included: the view hands their text to the filter.
+		return this.config.fields;
 	}
 
 	private addCondition(): void {

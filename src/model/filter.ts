@@ -6,7 +6,7 @@ import type {
 	FilterOperator,
 	LayerRecord,
 } from '../types';
-import { formatCell, isDerived } from './fields';
+import { formatCell } from './fields';
 
 /**
  * Deciding which rows a view keeps.
@@ -24,9 +24,21 @@ import { formatCell, isDerived } from './fields';
  * `relationTexts`, so what is filtered on is what the grid shows rather than the
  * row ids it stores underneath.
  */
-function textOf(field: Field, record: LayerRecord): string {
-	return formatCell(field, record.cells[field.id] ?? '');
+function textOf(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): string {
+	return cellText?.(field, record) ?? formatCell(field, record.cells[field.id] ?? '');
 }
+
+/**
+ * How the caller resolves a cell's text for a type this layer cannot read itself.
+ *
+ * `null` means "not mine to answer", and the plain rules take over — so a caller that
+ * knows nothing about these types changes nothing by leaving it out.
+ */
+export type CellTextResolver = (field: Field, record: LayerRecord) => string | null;
 
 /** How the caller resolves the row names a relation cell points at. */
 export type RelationTextResolver = (
@@ -51,12 +63,16 @@ function namesOf(
 }
 
 /** The number a cell stands for, or null when it does not stand for one. */
-function numberOf(field: Field, record: LayerRecord): number | null {
+function numberOf(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): number | null {
 	const raw: CellValue = record.cells[field.id] ?? '';
 	if (typeof raw === 'number') {
 		return Number.isFinite(raw) ? raw : null;
 	}
-	const text = textOf(field, record).trim().replace(/%$/, '');
+	const text = textOf(field, record, cellText).trim().replace(/%$/, '');
 	if (text === '') {
 		return null;
 	}
@@ -65,8 +81,12 @@ function numberOf(field: Field, record: LayerRecord): number | null {
 }
 
 /** A day count for a date or date-time cell, or null. */
-function dayOf(field: Field, record: LayerRecord): number | null {
-	const text = textOf(field, record).trim();
+function dayOf(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): number | null {
+	const text = textOf(field, record, cellText).trim();
 	const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
 	if (!match) {
 		return null;
@@ -81,7 +101,11 @@ function dayOf(field: Field, record: LayerRecord): number | null {
 }
 
 /** Whether the cell holds nothing, by the same rule the grid draws with. */
-function emptyIn(field: Field, record: LayerRecord): boolean {
+function emptyIn(
+	field: Field,
+	record: LayerRecord,
+	cellText?: CellTextResolver,
+): boolean {
 	const raw = record.cells[field.id] ?? '';
 	if (Array.isArray(raw)) {
 		return raw.length === 0;
@@ -89,7 +113,7 @@ function emptyIn(field: Field, record: LayerRecord): boolean {
 	if (field.type === 'checkbox') {
 		return raw !== true;
 	}
-	return textOf(field, record).trim() === '';
+	return textOf(field, record, cellText).trim() === '';
 }
 
 /** The value a condition compares against, as text. */
@@ -114,15 +138,16 @@ export function matchesCondition(
 	record: LayerRecord,
 	condition: FilterCondition,
 	resolve?: RelationTextResolver,
+	cellText?: CellTextResolver,
 ): boolean {
 	const operator: FilterOperator = condition.operator;
 	const wanted = wantedText(condition);
 
 	if (operator === 'isEmpty') {
-		return emptyIn(field, record);
+		return emptyIn(field, record, cellText);
 	}
 	if (operator === 'isNotEmpty') {
-		return !emptyIn(field, record);
+		return !emptyIn(field, record, cellText);
 	}
 	if (operator === 'checked') {
 		return record.cells[field.id] === true;
@@ -160,17 +185,17 @@ export function matchesCondition(
 		return false;
 	}
 
-	const shown = textOf(field, record);
+	const shown = textOf(field, record, cellText);
 
 	if (operator === 'is') {
 		if (field.type === 'number' || field.type === 'autoNumber') {
-			return numberOf(field, record) === Number(wanted);
+			return numberOf(field, record, cellText) === Number(wanted);
 		}
 		return shown.trim().toLowerCase() === wanted.trim().toLowerCase();
 	}
 	if (operator === 'isNot') {
 		if (field.type === 'number' || field.type === 'autoNumber') {
-			return numberOf(field, record) !== Number(wanted);
+			return numberOf(field, record, cellText) !== Number(wanted);
 		}
 		return shown.trim().toLowerCase() !== wanted.trim().toLowerCase();
 	}
@@ -184,7 +209,7 @@ export function matchesCondition(
 	// The four comparisons need an order, which dates and numbers have and text
 	// does not: comparing words by size says nothing a reader means.
 	if (field.type === 'date' || field.type === 'datetime') {
-		const left = dayOf(field, record);
+		const left = dayOf(field, record, cellText);
 		const right = dayOf(field, { id: '', created: '', cells: { [field.id]: wanted } });
 		if (left === null || right === null) {
 			return false;
@@ -192,7 +217,7 @@ export function matchesCondition(
 		return compareBy(operator, left, right);
 	}
 
-	const left = numberOf(field, record);
+	const left = numberOf(field, record, cellText);
 	const right = Number(wanted);
 	if (left === null || Number.isNaN(right)) {
 		return false;
@@ -223,6 +248,7 @@ export function filterRecords(
 	fields: readonly Field[],
 	filter: Filter | undefined,
 	resolve?: RelationTextResolver,
+	cellText?: CellTextResolver,
 ): readonly LayerRecord[] {
 	if (!filter || filter.conditions.length === 0) {
 		return records;
@@ -238,19 +264,12 @@ export function filterRecords(
 	return records.filter((record) => {
 		const results = usable.map((condition) => {
 			const field = fields.find((candidate) => candidate.id === condition.fieldId);
-			return field ? matchesCondition(field, record, condition, resolve) : true;
+			return field ? matchesCondition(field, record, condition, resolve, cellText) : true;
 		});
 		return filter.conjunction === 'or'
 			? results.some(Boolean)
 			: results.every(Boolean);
 	});
-}
-
-/** Whether a column can be filtered on at all. */
-export function isFilterable(field: Field): boolean {
-	// A computed column is worked out by the view, which this layer cannot see, so
-	// offering it would filter on a column of blanks.
-	return !isDerived(field.type);
 }
 
 /** The operators a column's type can answer. */
