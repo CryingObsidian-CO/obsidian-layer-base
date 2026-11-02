@@ -9,6 +9,7 @@ export type FieldType =
 	| 'date'
 	| 'datetime'
 	| 'relation'
+	| 'lookup'
 	| 'relationBack'
 	| 'autoNumber'
 	| 'rollup'
@@ -101,6 +102,16 @@ export interface Field {
 	rollupFieldId?: string;
 	/** `rollup` fields only: how the gathered values are reduced to one. */
 	rollupAggregate?: RollupAggregate;
+	/**
+	 * `lookup` fields only: the relation column in this table whose rows are read.
+	 * Same idea as `rollupSourceFieldId`, without the reduction.
+	 */
+	lookupSourceFieldId?: string;
+	/**
+	 * `lookup` fields only: the column in the other table whose values are shown,
+	 * one per row found through the relation. Nothing is stored in this document.
+	 */
+	lookupFieldId?: string;
 	/** `autoNumber` fields only: how many digits the number is padded to; missing means one. */
 	numberLength?: number;
 	/** `autoNumber` fields only: the column whose values are numbered separately. */

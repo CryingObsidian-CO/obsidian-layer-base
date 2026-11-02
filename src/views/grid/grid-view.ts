@@ -111,6 +111,8 @@ export interface GridHandlers {
 
 	/** What a rollup gathered from the rows this row is linked to. */
 	rollupText(field: Field, recordId: string): CellText;
+	/** The values a lookup read from the linked rows, one chip each. */
+	lookupText(field: Field, recordId: string): CellText;
 
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 
@@ -1121,6 +1123,9 @@ export class GridRenderer {
 			}
 			if (field.type === 'rollup') {
 				return this.handlers.rollupText(field, recordId);
+			}
+			if (field.type === 'lookup') {
+				return this.handlers.lookupText(field, recordId);
 			}
 			if (field.type === 'noteProp') {
 				return this.handlers.notePropText(field, recordId);

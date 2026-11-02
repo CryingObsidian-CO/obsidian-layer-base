@@ -176,6 +176,17 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => relationIds(value).length === 0,
 	},
 
+	lookup: {
+		type: 'lookup',
+		icon: 'search',
+		// Nothing to read: the values are gathered from other rows, which this
+		// module cannot see.
+		toText: () => '',
+		fromText: () => REFUSED,
+		// Always "empty": it stores nothing, so there is nothing here to be full.
+		isEmpty: () => true,
+	},
+
 	relationBack: {
 		type: 'relationBack',
 		icon: 'git-fork',
@@ -273,6 +284,7 @@ export const FIELD_TYPES: readonly FieldType[] = [
 	'date',
 	'datetime',
 	'relation',
+	'lookup',
 	'relationBack',
 	'autoNumber',
 	'rollup',
@@ -337,6 +349,7 @@ export function isDerived(type: FieldType): boolean {
 	return (
 		type === 'relationBack' ||
 		type === 'rollup' ||
+		type === 'lookup' ||
 		type === 'formula' ||
 		type === 'noteProp'
 	);

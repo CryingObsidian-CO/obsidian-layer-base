@@ -55,6 +55,7 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 	switch (field.type) {
 		case 'relationBack':
 		case 'rollup':
+		case 'lookup':
 		case 'formula':
 		case 'noteProp':
 			// Derived, never stored: there is no value a caller could set here.
@@ -488,6 +489,12 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	if (source.rollupAggregate) {
 		copy.rollupAggregate = source.rollupAggregate;
 	}
+	if (source.lookupSourceFieldId) {
+		copy.lookupSourceFieldId = source.lookupSourceFieldId;
+	}
+	if (source.lookupFieldId) {
+		copy.lookupFieldId = source.lookupFieldId;
+	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
@@ -663,6 +670,10 @@ export function changeFieldType(
 		delete field.rollupSourceFieldId;
 		delete field.rollupFieldId;
 		delete field.rollupAggregate;
+	}
+	if (nextType !== 'lookup') {
+		delete field.lookupSourceFieldId;
+		delete field.lookupFieldId;
 	}
 
 	return dropped;

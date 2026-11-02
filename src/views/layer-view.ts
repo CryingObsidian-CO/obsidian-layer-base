@@ -54,6 +54,7 @@ import {
 	relationBackIndex,
 	relationBackRows,
 	type BacklinkRow,
+	lookupChips,
 	relationCandidates as candidatesOf,
 	relationText as textOf,
 	repairRelationPaths,
@@ -100,6 +101,7 @@ import {
 	type NumberSettings,
 	type RelationSettings,
 	type RollupSettings,
+	type LookupSettings,
 } from '../ui/field-editor-modal';
 import type {GridSelection, RangeSize} from './grid/selection';
 import {BoardShell, type ToolbarState} from './board-shell';
@@ -776,6 +778,7 @@ export class LayerView extends TextFileView {
 				relationText: (field, value) => this.relationText(field, value),
 				backText: (field, recordId) => this.backText(field, recordId),
 				rollupText: (field, recordId) => this.rollupText(field, recordId),
+				lookupText: (field, recordId) => this.lookupText(field, recordId),
 				formulaText: (field, recordId) =>
 					this.formulaText(field, recordId),
 				onSelectionChange: (selection, range) => {
@@ -980,6 +983,7 @@ export class LayerView extends TextFileView {
 			this.applyRelationSettings(doc, created, result.relation);
 			this.applyAutoNumberSettings(created, result.autoNumber);
 			this.applyRollupSettings(created, result.rollup);
+			this.applyLookupSettings(created, result.lookup);
 			this.applyFormulaSettings(created, result.formula, result.formulaType);
 			this.applyNotePropSettings(created, result.noteProp);
 			this.applyBackSettings(created, result.back);
@@ -1012,6 +1016,7 @@ export class LayerView extends TextFileView {
 			this.applyRelationSettings(doc, field, result.relation);
 			this.applyAutoNumberSettings(field, result.autoNumber);
 			this.applyRollupSettings(field, result.rollup);
+			this.applyLookupSettings(field, result.lookup);
 			this.applyFormulaSettings(field, result.formula, result.formulaType);
 			this.applyNotePropSettings(field, result.noteProp);
 			this.applyBackSettings(field, result.back);
@@ -1077,6 +1082,27 @@ export class LayerView extends TextFileView {
 			field.rollupFieldId = settings.fieldId;
 		}
 		field.rollupAggregate = settings.aggregate;
+		// Derived, so it holds nothing and cannot be required.
+		delete field.required;
+	}
+
+	/** Writes a lookup's two settings. Like a rollup, it stores no values. */
+	private applyLookupSettings(field: Field, settings: LookupSettings): void {
+		if (field.type !== 'lookup') {
+			delete field.lookupSourceFieldId;
+			delete field.lookupFieldId;
+			return;
+		}
+		if (settings.sourceFieldId === '') {
+			delete field.lookupSourceFieldId;
+		} else {
+			field.lookupSourceFieldId = settings.sourceFieldId;
+		}
+		if (settings.fieldId === '') {
+			delete field.lookupFieldId;
+		} else {
+			field.lookupFieldId = settings.fieldId;
+		}
 		// Derived, so it holds nothing and cannot be required.
 		delete field.required;
 	}
@@ -1848,6 +1874,8 @@ export class LayerView extends TextFileView {
 				return this.formulaText(field, record.id).text;
 			case 'rollup':
 				return this.rollupText(field, record.id).text;
+			case 'lookup':
+				return this.lookupText(field, record.id).text;
 			default:
 				// A relation answers through its own resolver, and every stored type is
 				// read by the document itself.
@@ -1872,6 +1900,9 @@ export class LayerView extends TextFileView {
 		}
 		if (field.type === 'rollup') {
 			return this.rollupText(field, record.id).text;
+		}
+		if (field.type === 'lookup') {
+			return this.lookupText(field, record.id).text;
 		}
 		if (field.type === 'formula') {
 			return this.formulaText(field, record.id).text;
@@ -2063,7 +2094,12 @@ export class LayerView extends TextFileView {
 			return {text: '', broken: 0};
 		}
 
-		const gathered = this.gatheredValues(sourceField, target, record, recordId);
+		const gathered = this.gatheredValues(
+			sourceField,
+			target.rollupFieldId,
+			record,
+			recordId,
+		);
 		if (gathered === null) {
 			return {text: '', broken: 0};
 		}
@@ -2075,6 +2111,63 @@ export class LayerView extends TextFileView {
 	}
 
 	/**
+	 * What a lookup read from the rows this row is linked to.
+	 *
+	 * One chip per value, in the order the link lists the rows. Values that repeat
+	 * stay repeated: dropping one would silently forget that a linked row exists.
+	 * Nothing about it is stored, so it cannot go stale when the other table moves.
+	 */
+	private lookupText(field: Field, recordId: string): CellText {
+		const doc = this.doc;
+		if (!doc) {
+			return {text: '', broken: 0};
+		}
+		const record = findRecord(doc, recordId);
+		const target = doc.fields.find((candidate) => candidate.id === field.id);
+		if (!record || !target) {
+			return {text: '', broken: 0};
+		}
+		const sourceField = doc.fields.find(
+			(candidate) => candidate.id === target.lookupSourceFieldId,
+		);
+		const columnId = target.lookupFieldId ?? '';
+		// Not set up yet, or pointing at a column that is gone: an unconfigured
+		// column reads as empty, not as a failure in every row.
+		if (!sourceField || columnId === '') {
+			return {text: '', broken: 0};
+		}
+		const other =
+			sourceField.type === 'relation'
+				? this.targetDoc(sourceField)
+				: this.sourceDoc(sourceField);
+		const gathered = this.gatheredValues(
+			sourceField,
+			columnId,
+			record,
+			recordId,
+		);
+		if (!other || gathered === null) {
+			return {text: '', broken: 0};
+		}
+		/*
+		 * Read through the formatter of the column the values came from, not
+		 * through a link reader: a gathered value is the value itself, while a
+		 * link reader expects a cell holding a list of row ids and answers
+		 * with nothing for anything else.
+		 */
+		const column = other.fields.find(
+			(candidate) => candidate.id === columnId,
+		);
+		if (!column) {
+			return {text: '', broken: 0};
+		}
+		const chips = lookupChips(column, gathered, (linked, value) =>
+			this.relationText(linked, value).chips ?? [],
+		);
+		return {text: chips.join(', '), broken: 0, chips};
+	}
+
+	/**
 	 * The values a rollup reduces, or null when the other table cannot be read.
 	 *
 	 * Null is not the same as an empty list: an empty list means the other table was
@@ -2082,12 +2175,10 @@ export class LayerView extends TextFileView {
 	 */
 	private gatheredValues(
 		sourceField: Field,
-		rollup: Field,
+		columnId: string,
 		record: LayerRecord,
 		recordId: string,
 	): readonly CellValue[] | null {
-		const columnId = rollup.rollupFieldId ?? '';
-
 		if (sourceField.type === 'relation') {
 			const other = this.targetDoc(sourceField);
 			if (!other) {

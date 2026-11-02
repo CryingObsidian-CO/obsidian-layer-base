@@ -189,6 +189,16 @@ function parseField(
 			field.rollupAggregate = how;
 		}
 	}
+	if (field.type === 'lookup') {
+		const source = asString(raw.lookupSourceFieldId);
+		if (source !== '') {
+			field.lookupSourceFieldId = source;
+		}
+		const target = asString(raw.lookupFieldId);
+		if (target !== '') {
+			field.lookupFieldId = target;
+		}
+	}
 	return field;
 }
 

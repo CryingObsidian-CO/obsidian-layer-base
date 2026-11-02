@@ -63,6 +63,19 @@ export interface RollupSettings {
 	aggregate: RollupAggregate;
 }
 
+/**
+ * A lookup's two settings.
+ *
+ * The same pair a rollup has, minus the reduction: this one shows every value it
+ * finds instead of turning them into one number.
+ */
+export interface LookupSettings {
+	/** The relation column in this table whose rows are read; `''` for none. */
+	sourceFieldId: string;
+	/** The column read from those rows; `''` for none. */
+	fieldId: string;
+}
+
 export interface FieldEditorResult {
 	name: string;
 	type: FieldType;
@@ -77,6 +90,8 @@ export interface FieldEditorResult {
 	autoNumber: AutoNumberSettings;
 	/** How a rollup gathers and reduces, when the type is `rollup`. */
 	rollup: RollupSettings;
+	/** Which values a lookup shows, when the type is `lookup`. */
+	lookup: LookupSettings;
 	/** Which note column a `noteProp` reads, and which key it reads there. */
 	noteProp: { sourceFieldId: string; key: string };
 	/** How that result is presented; null to follow whatever it computed. */
@@ -115,6 +130,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	relationBack: () => t().typeRelationBack,
 	autoNumber: () => t().typeAutoNumber,
 	rollup: () => t().typeRollup,
+	lookup: () => t().typeLookup,
 	formula: () => t().typeFormula,
 	select: () => t().typeSelect,
 	multiSelect: () => t().typeMultiSelect,
@@ -151,6 +167,8 @@ export class FieldEditorModal extends AnchoredPopover {
 	private rollupSourceFieldId: string;
 	private rollupFieldId: string;
 	private rollupAggregate: RollupAggregate;
+	private lookupSourceFieldId: string;
+	private lookupFieldId: string;
 	private numberLength: number;
 	private numberGroupFieldId: string;
 	private renumberRequested = false;
@@ -163,6 +181,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
 	private rollupEl: HTMLElement | null = null;
+	private lookupEl: HTMLElement | null = null;
 	private autoNumberEl: HTMLElement | null = null;
 	private notePropEl: HTMLElement | null = null;
 	private formulaEl: HTMLElement | null = null;
@@ -189,6 +208,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.backTitleFieldId = config.field?.backTitleFieldId ?? '';
 		this.rollupSourceFieldId = config.field?.rollupSourceFieldId ?? '';
 		this.rollupFieldId = config.field?.rollupFieldId ?? '';
+		this.lookupSourceFieldId = config.field?.lookupSourceFieldId ?? '';
+		this.lookupFieldId = config.field?.lookupFieldId ?? '';
 		this.rollupAggregate = config.field?.rollupAggregate ?? 'sum';
 		this.noteSourceId = config.field?.noteFieldId ?? '';
 		this.noteKey = config.field?.frontmatterKey ?? '';
@@ -255,6 +276,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.rollupEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderRollupSettings();
 
+		this.lookupEl = contentEl.createDiv({ cls: 'layer-field-number' });
+		this.renderLookupSettings();
+
 		this.autoNumberEl = contentEl.createDiv({ cls: 'layer-field-number' });
 		this.renderAutoNumberSettings();
 
@@ -308,6 +332,9 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.renderOptions();
 			this.renderNumberSettings();
 			this.renderRelationSettings();
+			this.renderRollupSettings();
+			this.renderLookupSettings();
+			this.renderAutoNumberSettings();
 			this.renderFormulaSettings();
 			this.renderNotePropSettings();
 			this.renderRequiredToggle();
@@ -658,7 +685,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			return;
 		}
 
-		const columns = this.rollupColumns(sourceField);
+		const columns = this.linkedColumns(sourceField);
 		const fieldGrid = host.createDiv({ cls: 'layer-field-grid' });
 		fieldGrid.createDiv({ cls: 'layer-field-label', text: t().fieldRollupField });
 		const fieldSelect = fieldGrid.createEl('select', {
@@ -714,6 +741,117 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 
 		host.createDiv({ cls: 'layer-field-number-hint', text: t().fieldRollupHint });
+	}
+
+	/**
+	 * Which values a lookup shows: a link column in this table, and a column of the
+	 * table that link points at.
+	 *
+	 * The same two choices a rollup makes, minus "how to combine" — nothing here
+	 * is combined, so nothing has to be chosen about it.
+	 */
+	private renderLookupSettings(): void {
+		const host = this.lookupEl;
+		if (!host) {
+			return;
+		}
+		host.empty();
+
+		if (this.type !== 'lookup') {
+			return;
+		}
+
+		host.createEl('h3', { text: t().fieldLookupLabel });
+
+		const links = this.config.selfFields.filter(
+			(field) =>
+				(field.type === 'relation' || field.type === 'relationBack') &&
+				field.id !== this.config.field?.id,
+		);
+
+		const sourceGrid = host.createDiv({ cls: 'layer-field-grid' });
+		sourceGrid.createDiv({ cls: 'layer-field-label', text: t().fieldLookupSource });
+		const sourceSelect = sourceGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		const none = sourceSelect.createEl('option', { text: t().fieldRollupNone });
+		none.value = '';
+		for (const field of links) {
+			const option = sourceSelect.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		sourceSelect.value = this.lookupSourceFieldId;
+		sourceSelect.addEventListener('change', () => {
+			this.lookupSourceFieldId = sourceSelect.value;
+			/*
+			 * Starts from the column the link column already shows: both name a
+			 * column of the same other table, so the reader has usually made this
+			 * choice once already. It is a starting point, not a rule — any other
+			 * column can still be picked below.
+			 */
+			const chosen = links.find((field) => field.id === sourceSelect.value);
+			this.lookupFieldId = chosen ? this.defaultLinkColumn(chosen) : '';
+			this.renderLookupSettings();
+		});
+
+		const sourceField = links.find(
+			(field) => field.id === this.lookupSourceFieldId,
+		);
+		if (!sourceField) {
+			host.createDiv({
+				cls: 'layer-field-number-hint',
+				text: links.length > 0 ? t().fieldLookupHint : t().fieldLookupNoRelation,
+			});
+			return;
+		}
+
+		const columns = this.linkedColumns(sourceField);
+		const fieldGrid = host.createDiv({ cls: 'layer-field-grid' });
+		fieldGrid.createDiv({ cls: 'layer-field-label', text: t().fieldLookupField });
+		const fieldSelect = fieldGrid.createEl('select', {
+			cls: 'layer-field-number-format',
+		});
+		const noColumn = fieldSelect.createEl('option', {
+			text: t().fieldRollupNone,
+		});
+		noColumn.value = '';
+		for (const field of columns ?? []) {
+			if (isDerived(field.type)) {
+				// A computed column cannot be read from here: it would mean running
+				// every formula of every linked row, and could chain back into this one.
+				continue;
+			}
+			const option = fieldSelect.createEl('option', { text: field.name });
+			option.value = field.id;
+		}
+		fieldSelect.value = this.lookupFieldId;
+		fieldSelect.addEventListener('change', () => {
+			this.lookupFieldId = fieldSelect.value;
+			this.renderLookupSettings();
+		});
+
+		host.createDiv({ cls: 'layer-field-number-hint', text: t().fieldLookupHint });
+	}
+
+	/**
+	 * The column a lookup shows by default: the one its link column already shows.
+	 *
+	 * A `relation` names it in `linkFieldId`, a `relationBack` in
+	 * `backTitleFieldId`; both are columns of the same other table, and both are
+	 * what that column's own cells read as. Only a column that is still there and
+	 * can be read from here is offered.
+	 */
+	private defaultLinkColumn(sourceField: Field): string {
+		const wanted =
+			sourceField.type === 'relation'
+				? sourceField.linkFieldId
+				: sourceField.backTitleFieldId;
+		if (wanted === undefined || wanted === '') {
+			return '';
+		}
+		const columns = this.linkedColumns(sourceField) ?? [];
+		const column = columns.find((field) => field.id === wanted);
+		return column && !isDerived(column.type) ? column.id : '';
 	}
 
 	/** What one aggregate is called in the reader's language. */
@@ -842,7 +980,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		if (!sourceField) {
 			return;
 		}
-		const target = this.rollupColumns(sourceField)?.find(
+		const target = this.linkedColumns(sourceField)?.find(
 			(field) => field.id === this.rollupFieldId,
 		);
 		if (!target) {
@@ -854,8 +992,8 @@ export class FieldEditorModal extends AnchoredPopover {
 		}
 	}
 
-	/** The columns a rollup may read, from the table its source column points at. */
-	private rollupColumns(sourceField: Field): readonly Field[] | null {
+	/** The columns a lookup or a rollup may read, from the table its source points at. */
+	private linkedColumns(sourceField: Field): readonly Field[] | null {
 		const path =
 			sourceField.type === 'relation'
 				? (sourceField.linkPath ?? '')
@@ -1119,6 +1257,10 @@ export class FieldEditorModal extends AnchoredPopover {
 				sourceFieldId: this.rollupSourceFieldId,
 				fieldId: this.rollupFieldId,
 				aggregate: this.rollupAggregate,
+			},
+			lookup: {
+				sourceFieldId: this.lookupSourceFieldId,
+				fieldId: this.lookupFieldId,
 			},
 			formula: this.formula.trim(),
 			formulaType: this.formulaType,

@@ -292,6 +292,14 @@ function fieldConfig(
 				aggregate: field.rollupAggregate ?? null,
 			};
 		}
+		case 'lookup': {
+			const source = doc.fields.find((one) => one.id === field.lookupSourceFieldId);
+			const other = tableFor(source?.linkPath);
+			return {
+				readsThrough: source?.name ?? null,
+				shows: nameIn(other, field.lookupFieldId),
+			};
+		}
 		case 'noteProp':
 			return {
 				noteColumn: nameIn(doc, field.noteFieldId),
@@ -401,6 +409,12 @@ function unwritable(field: Field): { reason: string; tellUser: string } {
 				reason: 'a rollup column totals rows reached through a relation column',
 				tellUser:
 					'A rollup value is computed from the related rows and cannot be typed in.',
+			};
+		case 'lookup':
+			return {
+				reason: 'a lookup column shows a column of the rows reached through a relation',
+				tellUser:
+					'A lookup value is read from the related rows and cannot be typed in.',
 			};
 		default:
 			return {
@@ -519,7 +533,7 @@ const tools = [
 	{
 		name: 'add_records',
 		description:
-			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, backlinks, note property) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
+			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -579,9 +593,9 @@ Choosing the type is the part that goes wrong, so read this before deciding:
 - \`select\` and \`multiSelect\` are for a fixed list of labels that exist only inside this column, typed or picked by hand. If the choices are rows of a table that also has a name, an id and other columns, it is \`relation\`, not \`multiSelect\`.
 - \`select\` holds one label; \`multiSelect\` holds several.
 - \`note\` holds a vault path to a note; \`noteProp\` reads or writes one frontmatter key of the note a \`note\` column points at.
-- \`formula\` computes from other columns; \`rollup\` totals a related table through a relation column; \`relationBack\` lists the rows that point back here.
+- \`formula\` computes from other columns; \`rollup\` totals a related table through a relation column; \`relationBack\` lists the rows that point back here; \`lookup\` shows one column of those rows as it reads over there, without totalling anything.
 
-Every type that computes from something else needs that something named, and the call fails rather than storing a column that cannot work: \`relation\` needs \`linkField\` (plus \`targetTable\` when the rows are in another file), \`formula\` needs \`formula\`, \`rollup\` needs \`rollupSource\`, \`rollupField\` and \`rollupAggregate\`, \`noteProp\` needs \`noteField\`.
+Every type that computes from something else needs that something named, and the call fails rather than storing a column that cannot work: \`relation\` needs \`linkField\` (plus \`targetTable\` when the rows are in another file), \`formula\` needs \`formula\`, \`rollup\` needs \`rollupSource\`, \`rollupField\` and \`rollupAggregate\`, \`lookup\` needs \`lookupSource\` and \`lookupField\`, \`noteProp\` needs \`noteField\`.
 
 **If the type is not obvious from what the reader said, do not guess.** Name two or three candidates, say in one line what each would store for this data, and ask which one they mean. A wrong type silently produces a column that looks right and behaves wrong, which costs far more than one question.
 
@@ -629,6 +643,16 @@ Two limits you have to pass on rather than work around:
 					type: 'string',
 					enum: ['sum', 'average', 'min', 'max', 'count', 'countAll'],
 					description: 'rollup only: how the gathered values become one number.',
+				},
+				lookupSource: {
+					type: 'string',
+					description:
+						'lookup only: the relation column to read rows through.',
+				},
+				lookupField: {
+					type: 'string',
+					description:
+						'lookup only: the column of the other table to show, one value per linked row.',
 				},
 				noteField: {
 					type: 'string',
@@ -1109,6 +1133,30 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				field.rollupSourceFieldId = source.id;
 				field.rollupFieldId = fieldOf(other, readName).id;
 				field.rollupAggregate = aggregate;
+			}
+
+			if (type === 'lookup') {
+				const sourceName = asText(args.lookupSource).trim();
+				if (sourceName === '') {
+					throw new Error(
+						'A lookup reads rows through a relation column, so it needs `lookupSource`: the name of that column.',
+					);
+				}
+				const source = fieldOf(doc, sourceName);
+				if (source.type !== 'relation') {
+					throw new Error(
+						`A lookup reads rows through a relation column, and "${source.name}" is ${source.type}.`,
+					);
+				}
+				const readName = asText(args.lookupField).trim();
+				if (readName === '') {
+					throw new Error(
+						'A lookup needs `lookupField`: the column of the other table to show, such as its owner column.',
+					);
+				}
+				const other = source.linkPath ? loadTable(source.linkPath).doc : doc;
+				field.lookupSourceFieldId = source.id;
+				field.lookupFieldId = fieldOf(other, readName).id;
 			}
 
 			if (type === 'noteProp') {

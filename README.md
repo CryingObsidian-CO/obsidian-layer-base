@@ -23,9 +23,9 @@ table or a board, independent of your vault's folder structure.
   resize rows and columns, filter and sort.
 - **Board view** — group by any column, drag cards between columns, choose
   which columns a card shows, several boards per file.
-- **15 column types** — text, long text, number, date, date and time, relation,
-  backlinks, auto number, rollup, formula, select, multi-select, checkbox,
-  note, note property.
+- **16 column types** — text, long text, number, date, date and time, relation,
+  lookup, backlinks, auto number, rollup, formula, select, multi-select,
+  checkbox, note, note property.
 - **Column totals** — an opt-in footer per column: filled, empty, unique,
   sum, average, min, max, or a date range.
 - **Undo and redo** — for everything that changes data. View settings
@@ -99,7 +99,8 @@ Four rules keep the data safe across edits:
 
 - `cells` is keyed by **field id**, so renaming a column never orphans values.
 - `select` cells store **option ids**, so renaming an option never orphans values.
-- A computed column (formula, rollup, backlinks, note property) stores nothing.
+- A computed column (formula, rollup, lookup, backlinks, note property) stores
+  nothing.
 - A `note property` value lives in that note's frontmatter, not in the `.layer`.
 
 ## AI access (MCP)
@@ -182,7 +183,7 @@ back in `refused`.
 | `add_records`    | Append rows, keyed by column name                                                               |
 | `update_cells`   | Set single cells by row id                                                                      |
 | `delete_records` | Remove rows by id                                                                               |
-| `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather |
+| `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there |
 | `delete_field`   | Remove a column and its values                                                                  |
 | `add_view`       | Add a board view                                                                                |
 | `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit |

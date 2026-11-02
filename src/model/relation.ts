@@ -104,6 +104,43 @@ export function canLinkTo(target: LayerDoc): boolean {
 }
 
 /**
+ * The values a lookup shows, one chip per value gathered from a linked row.
+ *
+ * Each value is read through the formatter of the column it came from, so a
+ * choice shows its name rather than the id it stores and a number keeps its
+ * format. It must not go through `relationText`: that reads a cell holding a list
+ * of row ids, and a plain value is not one — it answers with nothing, which looks
+ * exactly like an empty column.
+ *
+ * A value that reads as blank contributes no chip: an empty pill would be a
+ * value the cell does not really hold.
+ */
+export function lookupChips(
+	column: Field,
+	values: readonly CellValue[],
+	/**
+	 * How to read a column that itself points at other rows. Only the view can
+	 * answer that, because the names live in another table; without it such a
+	 * column falls back to what it stores, which is its row ids.
+	 */
+	readLinks?: (column: Field, value: CellValue) => readonly string[],
+): string[] {
+	const chips: string[] = [];
+	for (const value of values) {
+		const texts =
+			column.type === 'relation' && readLinks !== undefined
+				? readLinks(column, value)
+				: [formatCell(column, value)];
+		for (const text of texts) {
+			if (text.trim() !== '') {
+				chips.push(text);
+			}
+		}
+	}
+	return chips;
+}
+
+/**
  * Which rows point at each row of the target table, built in one pass.
  *
  * Built once and reused for every cell of the column: asking the same question
