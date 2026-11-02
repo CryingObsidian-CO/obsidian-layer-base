@@ -19,6 +19,12 @@
 	 */
 	--layer-inset: var(--size-4-3);
 
+	/*
+	 * Written per row by the renderer. Declared here so the stylesheet owns every
+	 * name it reads, even the ones it never sets itself.
+	 */
+	--layer-row-tint: transparent;
+
 	padding: 0;
 	overflow: hidden;
 	height: 100%;
@@ -198,6 +204,25 @@ body.layer-grid-resizing.is-row-resize * {
 	background: var(--background-modifier-hover);
 }
 
+/*
+ * A row tinted by a colour rule.
+ *
+ * The wash goes on the CELLS rather than on the row: the row's own background is
+ * what the hover state paints, and a cell that painted nothing would let that
+ * show through and swallow the tint. Hover is then a second, see-through layer
+ * over the tint, so a coloured row still answers the pointer.
+ */
+.layer-grid-row.is-colored > .layer-grid-td {
+	background-color: var(--layer-row-tint);
+}
+
+.layer-grid-row.is-colored:hover > .layer-grid-td {
+	background-image: linear-gradient(
+		var(--background-modifier-hover),
+		var(--background-modifier-hover)
+	);
+}
+
 .layer-grid-td {
 	padding: var(--size-4-1) var(--size-4-3);
 	border-bottom: 1px solid var(--background-modifier-border);
@@ -356,6 +381,48 @@ body.layer-grid-resizing.is-row-resize * {
 .layer-grid-pills > *:last-child {
 	flex-shrink: 1;
 	min-width: 0;
+}
+
+/*
+ * Row height, and what a row does when a value needs more lines.
+ *
+ * The height is written on the row as a `height`, which for a table cell is a
+ * MINIMUM rather than a fixed size: a value that needs more room still pushes the
+ * row taller. That is what wrapping is for. It is also why long text is left out
+ * of it — a long text value is taken out of flow (above) and scrolls inside its
+ * cell, so one long note can never decide how tall the table is.
+ *
+ * Compact trims the cell's own padding, because a single line plus the usual
+ * padding is already about 26px: asking for 24 without this would be quietly
+ * overruled by the content and the choice would look like it did nothing.
+ */
+.layer-grid.is-compact .layer-grid-td,
+.layer-grid.is-compact .layer-grid-value.is-longtext,
+.layer-grid.is-compact .layer-grid-pills {
+	padding-top: 2px;
+	padding-bottom: 2px;
+}
+
+/* Wrapped: values stay in flow, so extra lines add up to a taller row. */
+.layer-grid.is-wrapped .layer-grid-td {
+	white-space: normal;
+}
+
+.layer-grid.is-wrapped .layer-grid-value {
+	white-space: normal;
+	text-overflow: clip;
+	overflow-wrap: anywhere;
+}
+
+/*
+ * A run of pills stops being laid out against the cell and joins its flow. Its
+ * own padding goes with it — the cell already applies it — and what does not fit
+ * on one line wraps to the next instead of scrolling.
+ */
+.layer-grid.is-wrapped .layer-grid-pills {
+	position: static;
+	overflow: visible;
+	padding: 0;
 }
 
 /*
@@ -1776,36 +1843,52 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 /*
  * A condition reads left to right as a sentence: this column, this comparison,
  * this value. The value shrinks first when the panel is narrow.
+ *
+ * Shared by the filter panel and the colour rules, hence the neutral name.
  */
-.layer-filter-rule {
+.layer-condition {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-1);
 	margin-bottom: var(--size-4-1);
 }
 
-.layer-filter-field {
+.layer-condition-field {
 	flex: 1 1 30%;
 	min-width: 0;
 }
 
-.layer-filter-operator {
+.layer-condition-operator {
 	flex: 1 1 30%;
 	min-width: 0;
 }
 
-.layer-filter-value {
+.layer-condition-value {
 	flex: 1 1 40%;
 	min-width: 0;
 }
 
-.layer-filter-remove {
+/*
+ * The remove cross gets its own box rather than the icon's natural width: as a
+ * flex item it was the first thing to collapse, and a squeezed icon reads as a
+ * stray line instead of a button. Scoped under `.modal` to outmatch the app's
+ * own button rule.
+ */
+.modal .layer-condition-remove {
 	flex: 0 0 auto;
-	padding: var(--size-4-1);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1.9em;
+	height: 1.9em;
+	padding: 0;
+	background: none;
+	box-shadow: none;
 	color: var(--text-faint);
+	cursor: pointer;
 }
 
-.layer-filter-remove:hover {
+.modal .layer-condition-remove:hover {
 	color: var(--text-error);
 }
 
@@ -2241,4 +2324,192 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* ---------- Row height panel ---------- */
+
+.layer-row-height {
+	padding: var(--size-4-3);
+}
+
+.layer-row-height-title {
+	margin: 0 0 var(--size-4-1);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-row-height-heading {
+	margin-bottom: var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.layer-row-height-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+/*
+ * Scoped under `.modal` on purpose: this app styles every button with
+ * `button:not(.clickable-icon)`, which is one class more specific than a plain
+ * class selector. A bare `.layer-row-height-option` therefore loses its own
+ * background and padding to the app's button look.
+ */
+.modal .layer-row-height-option {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	width: 100%;
+	height: auto;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	box-shadow: none;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.4;
+	text-align: left;
+	cursor: pointer;
+}
+
+.modal .layer-row-height-option:hover {
+	background: var(--background-modifier-hover);
+}
+
+.modal .layer-row-height-option.is-active {
+	color: var(--text-accent);
+}
+
+.layer-row-height-name {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* One size whether or not a tick is drawn, so the list does not shift. */
+.layer-row-height-mark {
+	display: inline-flex;
+	flex: 0 0 auto;
+	width: 1em;
+	height: 1em;
+}
+
+/* Wrapping sits apart from the heights: it changes what fits, not how tall. */
+.layer-row-height-wrap {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-3);
+	padding-top: var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+/* ---------- Color rules panel ---------- */
+
+.layer-color-panel {
+	padding: var(--size-4-3);
+}
+
+.layer-color-title {
+	margin: 0 0 var(--size-4-2);
+	font-size: var(--font-ui-medium);
+}
+
+.layer-color-empty {
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* One card per rule: the condition on top, the colour under it. */
+.layer-color-rule {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.layer-color-line {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+/* A short label in a fixed column, so the two lines of a rule line up. */
+.layer-color-label {
+	flex: 0 0 auto;
+	min-width: 3em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.layer-color-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+}
+
+/*
+ * A colour is a dot, not a word: the dot is the thing being chosen.
+ *
+ * The button is only the target. Its own background is left alone, because this
+ * app paints every button and a fill set here would be overruled — the colour
+ * lives on the child span instead, which nothing else styles.
+ */
+.modal .layer-color-swatch {
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	/*
+	 * A square box, so the ring drawn around it is a circle. The app sizes every
+	 * button itself, so a width and height left to the content came out taller
+	 * than it was wide — and `border-radius: 50%` on a tall box draws an ellipse.
+	 * The box is also what gives the ring its gap: it is wider than the dot.
+	 */
+	width: 1.8em;
+	height: 1.8em;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	background: none;
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.layer-color-swatch-fill {
+	display: block;
+	width: 1.15em;
+	height: 1.15em;
+	border-radius: 50%;
+}
+
+.modal .layer-color-swatch:hover .layer-color-swatch-fill {
+	transform: scale(1.15);
+}
+
+/* A ring set off from the dot, so the two do not merge into one blob. */
+.modal .layer-color-swatch.is-active {
+	box-shadow: 0 0 0 2px var(--text-accent);
+}
+
+.layer-color-add {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.layer-color-add-icon {
+	display: inline-flex;
 }

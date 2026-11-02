@@ -63,11 +63,17 @@ import {
 	findGridView,
 	setColumnWidth,
 	setRowHeight,
+	setRowHeightPreset,
+	setWrap,
+	type RowHeightPreset,
 } from '../model/layout';
+import {rowColorOf, rowTint, setColorRules} from '../model/colors';
 import type {
 	CellValue,
+	ColorRule,
 	Field,
 	FormulaResultType,
+	GridView,
 	LayerDoc,
 	LayerRecord,
 	SelectOption,
@@ -104,6 +110,8 @@ import type {SummaryKind} from '../model/summary';
 import {History, type Snapshot} from '../model/history';
 import {setHidden} from '../model/visibility';
 import {ColumnVisibilityPopover} from '../ui/column-visibility-popover';
+import {RowHeightPopover} from '../ui/row-height-popover';
+import {ColorRulesPopover} from '../ui/color-rules-popover';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -686,6 +694,12 @@ export class LayerView extends TextFileView {
 			onOpenSort: (anchor) => {
 				this.openSortPanel(anchor);
 			},
+			onOpenRowHeight: (anchor) => {
+				this.openRowHeightPanel(anchor);
+			},
+			onOpenColorRules: (anchor) => {
+				this.openColorRulesPanel(anchor);
+			},
 			canUndo: () => this.history.canUndo,
 			canRedo: () => this.history.canRedo,
 			onUndo: () => this.handleUndo(),
@@ -778,6 +792,7 @@ export class LayerView extends TextFileView {
 				onRowResize: (recordId, height) => {
 					this.handleRowResize(recordId, height);
 				},
+				rowColor: (record) => this.rowTintOf(view, record),
 				onSetSummary: (fieldId, kind) => {
 					this.handleSetSummary(fieldId, kind);
 				},
@@ -1318,6 +1333,94 @@ export class LayerView extends TextFileView {
 	}
 
 	/**
+	 * Opens the height list beside the button that asked for it.
+	 *
+	 * Only a table has rows to set a height for, so only a table is offered it.
+	 */
+	private openRowHeightPanel(anchor: HTMLElement): void {
+		const doc = this.doc;
+		const view = doc ? findGridView(doc, this.activeView()?.id ?? '') : null;
+		if (!view) {
+			return;
+		}
+		new RowHeightPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			view,
+			onChoose: (preset) => {
+				this.handleRowHeightPreset(view, preset);
+			},
+			onToggleWrap: (wrap) => {
+				this.handleRowWrap(view, wrap);
+			},
+		}).open();
+	}
+
+	/**
+	 * Puts every row on one height.
+	 *
+	 * This is also the undo for a dragged row: choosing a height says something
+	 * about the whole table, so the rows that were dragged away come back.
+	 */
+	private handleRowHeightPreset(view: GridView, preset: RowHeightPreset): void {
+		setRowHeightPreset(view, preset);
+		this.markDirty();
+		this.render();
+	}
+
+	private handleRowWrap(view: GridView, wrap: boolean): void {
+		setWrap(view, wrap);
+		this.markDirty();
+		this.render();
+	}
+
+	/** Opens the colour rules beside the button that asked for them. */
+	private openColorRulesPanel(anchor: HTMLElement): void {
+		const doc = this.doc;
+		const view = doc ? findGridView(doc, this.activeView()?.id ?? '') : null;
+		if (!doc || !view) {
+			return;
+		}
+		new ColorRulesPopover({
+			app: this.app,
+			anchor: { kind: 'element', el: anchor },
+			view,
+			fields: doc.fields,
+			onChange: (rules) => {
+				this.handleColorRules(view, rules);
+			},
+		}).open();
+	}
+
+	private handleColorRules(view: GridView, rules: readonly ColorRule[]): void {
+		setColorRules(view, rules);
+		this.markDirty();
+		this.render();
+	}
+
+	/**
+	 * The wash this row wears, resolved the same way the filter resolves a row.
+	 *
+	 * Both answers have to come from the same place: a colour rule that disagreed
+	 * with the filter about what a cell says would tint rows the filter had just
+	 * hidden, or leave plain ones it kept.
+	 */
+	private rowTintOf(view: GridView, record: LayerRecord): string | null {
+		const doc = this.doc;
+		if (!doc) {
+			return null;
+		}
+		const color = rowColorOf(
+			view,
+			record,
+			doc.fields,
+			(field, value) => this.relationNames(field, value),
+			(field, row) => this.cellTextOf(field, row),
+		);
+		return color === null ? null : rowTint(color);
+	}
+
+	/**
 	 * Copies a rectangle.
 	 *
 	 * The text comes from `displayText`, not from the stored cell, because a derived
@@ -1636,6 +1739,7 @@ export class LayerView extends TextFileView {
 		return {
 			sort: { columns, descending },
 			filterCount: view.filter.conditions.length,
+			isGrid: view.type === 'grid',
 		};
 	}
 

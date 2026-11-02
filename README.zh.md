@@ -164,7 +164,7 @@ JSON 里每个反斜杠都要写成双份（`C:\\Vault`）。
 | `add_records`    | 按列名追加行                             |
 | `update_cells`   | 按行 id 改单个单元格                       |
 | `delete_records` | 按 id 删行                            |
-| `add_field`      | 加列，单选类可一并给选项                       |
+| `add_field`      | 加列。单选类可一并给选项；关联列要说明显示目标表哪一列，公式列要给表达式，汇总列要说明汇总什么 |
 | `delete_field`   | 删列及其值                              |
 | `add_view`       | 加看板视图                              |
 | `update_view`    | 改视图的名字、筛选、排序、隐藏列；看板另可改分组列、卡片列、列数上限 |

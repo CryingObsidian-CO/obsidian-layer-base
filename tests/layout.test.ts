@@ -6,12 +6,17 @@ import {
 	MAX_ROW_HEIGHT,
 	MIN_COLUMN_WIDTH,
 	MIN_ROW_HEIGHT,
+	ROW_HEIGHTS,
 	clampColumnWidth,
 	clampRowHeight,
 	columnWidthOf,
 	rowHeightOf,
+	rowHeightPresetOf,
 	setColumnWidth,
 	setRowHeight,
+	setRowHeightPreset,
+	setWrap,
+	wrapsOf,
 } from '../src/model/layout';
 import { removeField, removeRecord, addRecord } from '../src/model/records';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
@@ -124,6 +129,142 @@ describe('sizes follow their field and record', () => {
 		removeRecord(doc, record.id);
 
 		expect(record.id in view.rowHeights).toBe(false);
+	});
+});
+
+describe('row height presets', () => {
+	it('puts every row on the chosen height', () => {
+		const { doc, view } = newDoc();
+		const record = addRecord(doc);
+
+		setRowHeightPreset(view, 'comfortable');
+
+		expect(rowHeightOf(view, record.id)).toBe(ROW_HEIGHTS.comfortable);
+		expect(rowHeightPresetOf(view)).toBe('comfortable');
+	});
+
+	it('lets a dragged row outrank the preset', () => {
+		const { doc, view } = newDoc();
+		const dragged = addRecord(doc);
+		const untouched = addRecord(doc);
+		setRowHeightPreset(view, 'compact');
+
+		setRowHeight(view, dragged.id, 120);
+
+		expect(rowHeightOf(view, dragged.id)).toBe(120);
+		expect(rowHeightOf(view, untouched.id)).toBe(ROW_HEIGHTS.compact);
+	});
+
+	it('brings dragged rows back when a preset is chosen again', () => {
+		const { doc, view } = newDoc();
+		const dragged = addRecord(doc);
+		setRowHeightPreset(view, 'compact');
+		setRowHeight(view, dragged.id, 120);
+
+		setRowHeightPreset(view, 'compact');
+
+		expect(rowHeightOf(view, dragged.id)).toBe(ROW_HEIGHTS.compact);
+		expect(view.rowHeights).toEqual({});
+	});
+
+	it('stores nothing for the default height', () => {
+		const { view } = newDoc();
+		setRowHeightPreset(view, 'comfortable');
+
+		setRowHeightPreset(view, 'standard');
+
+		expect('rowHeight' in view).toBe(false);
+		expect(rowHeightPresetOf(view)).toBe('standard');
+	});
+
+	it('names no preset for a height that is none of them', () => {
+		const { view } = newDoc();
+		view.rowHeight = 37;
+
+		expect(rowHeightPresetOf(view)).toBeNull();
+	});
+});
+
+describe('the base row height survives a save and reload', () => {
+	it('round-trips the chosen height', () => {
+		const { doc, view } = newDoc();
+		setRowHeightPreset(view, 'comfortable');
+
+		const { doc: reloaded, warnings } = parseLayerDoc(serializeLayerDoc(doc));
+
+		expect(warnings).toEqual([]);
+		const grid = reloaded.views.find((v) => v.type === 'grid');
+		expect(grid?.type === 'grid' ? grid.rowHeight : null).toBe(
+			ROW_HEIGHTS.comfortable,
+		);
+	});
+
+	it('ignores a height that is not a number', () => {
+		const raw = JSON.parse(serializeLayerDoc(createEmptyDoc('Board'))) as {
+			views: Record<string, unknown>[];
+		};
+		const grid = raw.views.find((v) => v.type === 'grid');
+		if (grid) {
+			grid.rowHeight = 'tall';
+		}
+
+		const { doc } = parseLayerDoc(JSON.stringify(raw));
+		const reloaded = doc.views.find((v) => v.type === 'grid');
+
+		expect(reloaded?.type === 'grid' ? reloaded.rowHeight : 'missing').toBe(
+			undefined,
+		);
+	});
+});
+
+describe('the standard height is the default', () => {
+	/*
+	 * These two have to agree: a table that never chose a height reports the
+	 * default, and the list ticks whichever preset names that number. If they
+	 * drift apart, every table opens with nothing ticked.
+	 */
+	it('names the default height with the standard preset', () => {
+		expect(ROW_HEIGHTS.standard).toBe(DEFAULT_ROW_HEIGHT);
+	});
+
+	it('leaves a freshly made table on the standard height', () => {
+		const { view } = newDoc();
+
+		expect(rowHeightPresetOf(view)).toBe('standard');
+	});
+
+	it('offers the heights shortest first', () => {
+		expect(ROW_HEIGHTS.compact).toBeLessThan(ROW_HEIGHTS.standard);
+		expect(ROW_HEIGHTS.standard).toBeLessThan(ROW_HEIGHTS.comfortable);
+	});
+});
+
+describe('wrapping values', () => {
+	it('is on for a table that was just made', () => {
+		const { view } = newDoc();
+
+		expect(wrapsOf(view)).toBe(true);
+	});
+
+	it('stores the choice and drops the key when turned back on', () => {
+		const { view } = newDoc();
+
+		setWrap(view, false);
+		expect(wrapsOf(view)).toBe(false);
+		expect('wrap' in view).toBe(false);
+
+		setWrap(view, true);
+		expect(wrapsOf(view)).toBe(true);
+	});
+
+	it('keeps a turned-off table off after a save and reload', () => {
+		const { doc, view } = newDoc();
+		setWrap(view, false);
+
+		const { doc: reloaded } = parseLayerDoc(serializeLayerDoc(doc));
+		const grid = reloaded.views.find((v) => v.type === 'grid');
+
+		expect(grid?.type === 'grid' ? wrapsOf(grid) : null).toBe(false);
 	});
 });
 

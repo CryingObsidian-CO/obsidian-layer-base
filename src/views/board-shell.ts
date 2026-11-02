@@ -20,6 +20,10 @@ export interface ShellHandlers {
 	onExportCsv(): void;
 	/** Opens the sort rules panel, anchored to the button that asked for it. */
 	onOpenSort(anchor: HTMLElement): void;
+	/** Opens the row height panel, for a view whose rows have a height. */
+	onOpenRowHeight(anchor: HTMLElement): void;
+	/** Opens the colour rules panel, for a view whose rows can be coloured. */
+	onOpenColorRules(anchor: HTMLElement): void;
 	/** Opens the filter rules panel, anchored to the button that asked for it. */
 	onOpenFilter(anchor: HTMLElement): void;
 	/** Whether there is a step to take back. */
@@ -44,6 +48,8 @@ export interface ToolbarState {
 	sort: SortState;
 	/** How many conditions are active, for the filter button's badge. */
 	filterCount: number;
+	/** Whether this view draws rows, and so has a height and a colour to choose. */
+	isGrid: boolean;
 }
 
 export interface TabsState {
@@ -115,6 +121,37 @@ export class BoardShell {
 			event.preventDefault();
 			this.handlers.onOpenViewFields(fieldsButton);
 		});
+
+		/*
+		 * A table's rows have a height and a colour, so it gets the buttons that
+		 * choose them. A board's rows do not: its columns are the grouped values and
+		 * a card grows on its own, so offering either there would promise nothing.
+		 */
+		if (state.isGrid) {
+			const heightButton = bar.createEl('button', { cls: 'layer-shell-button' });
+			setIcon(
+				heightButton.createSpan({ cls: 'layer-shell-button-icon' }),
+				'rows-3',
+			);
+			heightButton.createSpan({ text: t().rowHeightButton });
+			heightButton.setAttribute('aria-label', t().rowHeightHint);
+			heightButton.addEventListener('click', (event) => {
+				event.preventDefault();
+				this.handlers.onOpenRowHeight(heightButton);
+			});
+
+			const colorButton = bar.createEl('button', { cls: 'layer-shell-button' });
+			setIcon(
+				colorButton.createSpan({ cls: 'layer-shell-button-icon' }),
+				'palette',
+			);
+			colorButton.createSpan({ text: t().colorRulesButton });
+			colorButton.setAttribute('aria-label', t().colorRulesButton);
+			colorButton.addEventListener('click', (event) => {
+				event.preventDefault();
+				this.handlers.onOpenColorRules(colorButton);
+			});
+		}
 
 		const sortButton = bar.createEl('button', { cls: 'layer-shell-button' });
 		sortButton.toggleClass('is-active', state.sort.columns.length > 0);

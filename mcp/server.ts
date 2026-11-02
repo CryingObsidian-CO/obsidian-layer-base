@@ -12,13 +12,14 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
-import { FIELD_TYPES, isDerived } from '../src/model/fields';
+import { FIELD_TYPES, formatCell, isDerived } from '../src/model/fields';
 import {
 	addField,
 	findRecord,
 	removeField,
 	removeRecords,
 	setCellFromText,
+	setCellValue,
 } from '../src/model/records';
 import { addBoardView, removeView, renameView } from '../src/model/views';
 import { LAYER_FORMAT_VERSION } from '../src/types';
@@ -32,6 +33,7 @@ import type {
 	GridView,
 	LayerDoc,
 	LayerRecord,
+	RollupAggregate,
 	Sort,
 	View,
 } from '../src/types';
@@ -48,6 +50,16 @@ const FILTER_OPERATORS: readonly FilterOperator[] = [
 	'lessThan',
 	'checked',
 	'unchecked',
+];
+
+/** How a rollup may reduce the values it gathered. */
+const ROLLUP_AGGREGATES: readonly RollupAggregate[] = [
+	'sum',
+	'average',
+	'min',
+	'max',
+	'count',
+	'countAll',
 ];
 
 const VAULT = resolve(process.env.LAYER_VAULT ?? process.argv[2] ?? '');
@@ -221,6 +233,183 @@ function shownView(doc: LayerDoc, view: View): Record<string, unknown> {
 	};
 }
 
+/**
+ * What a column is wired to. A caller reading a table this way can see how an existing
+ * column of the same kind was built, instead of inventing one that half works.
+ */
+function fieldConfig(
+	doc: LayerDoc,
+	field: Field,
+	others: Map<string, LayerDoc>,
+): Record<string, unknown> {
+	const tableFor = (path?: string): LayerDoc | null => {
+		if (!path) {
+			return doc;
+		}
+		const cached = others.get(path);
+		if (cached) {
+			return cached;
+		}
+		try {
+			const loaded = loadTable(path).doc;
+			others.set(path, loaded);
+			return loaded;
+		} catch {
+			return null;
+		}
+	};
+	const nameIn = (table: LayerDoc | null, id?: string): string | null => {
+		if (!table || !id) {
+			return null;
+		}
+		return table.fields.find((one) => one.id === id)?.name ?? null;
+	};
+
+	switch (field.type) {
+		case 'relation': {
+			const other = tableFor(field.linkPath);
+			return {
+				targetTable: field.linkPath ?? '(this table)',
+				shows: nameIn(other, field.linkFieldId),
+			};
+		}
+		case 'relationBack': {
+			const other = tableFor(field.backPath);
+			return {
+				fromTable: field.backPath ?? '(this table)',
+				viaRelation: nameIn(other, field.backFieldId),
+				titledBy: nameIn(other, field.backTitleFieldId),
+			};
+		}
+		case 'formula':
+			return { formula: field.formula ?? null };
+		case 'rollup': {
+			const source = doc.fields.find((one) => one.id === field.rollupSourceFieldId);
+			const other = tableFor(source?.linkPath);
+			return {
+				gathersThrough: source?.name ?? null,
+				reads: nameIn(other, field.rollupFieldId),
+				aggregate: field.rollupAggregate ?? null,
+			};
+		}
+		case 'noteProp':
+			return {
+				noteColumn: nameIn(doc, field.noteFieldId),
+				key: field.frontmatterKey ?? null,
+			};
+		case 'autoNumber':
+			return {
+				digits: field.numberLength ?? 1,
+				numberedPer: nameIn(doc, field.numberGroupFieldId),
+			};
+		default:
+			return {};
+	}
+}
+
+/**
+ * A relation cell, from row ids or from the text the column shows.
+ *
+ * The grid picks rows from a list, so its own text parser refuses relation values
+ * outright. A caller has no list to pick from, so it may name a row either way; anything
+ * that matches neither is reported back rather than dropped.
+ */
+function relationCell(
+	doc: LayerDoc,
+	field: Field,
+	raw: unknown,
+): { ids: string[]; unknown: string[] } {
+	const target = field.linkPath ? loadTable(field.linkPath).doc : doc;
+	const items = Array.isArray(raw)
+		? raw
+		: asText(raw)
+				.split(',')
+				.map((one) => one.trim())
+				.filter((one) => one !== '');
+	const shown =
+		target.fields.find((one) => one.id === field.linkFieldId) ??
+		target.fields.find((one) => one.primary) ??
+		target.fields[0];
+
+	const ids: string[] = [];
+	const unknown: string[] = [];
+	for (const item of items) {
+		const wanted = asText(item).trim();
+		if (wanted === '') {
+			continue;
+		}
+		const byId = target.records.find((one) => one.id === wanted);
+		if (byId) {
+			ids.push(byId.id);
+			continue;
+		}
+		const byText = shown
+			? target.records.find(
+					(one) => formatCell(shown, one.cells[shown.id] ?? '') === wanted,
+				)
+			: undefined;
+		if (byText) {
+			ids.push(byText.id);
+		} else {
+			unknown.push(wanted);
+		}
+	}
+	return { ids, unknown };
+}
+
+/**
+ * One value into one cell. A relation is resolved separately because the column's own
+ * text parser refuses it: in the grid a row is picked from a list, never typed.
+ */
+function writeCell(
+	doc: LayerDoc,
+	recordId: string,
+	field: Field,
+	raw: unknown,
+): { ok: boolean; unknown: string[] } {
+	if (field.type === 'relation') {
+		const { ids, unknown } = relationCell(doc, field, raw);
+		if (unknown.length > 0) {
+			return { ok: false, unknown };
+		}
+		return { ok: setCellValue(doc, recordId, field, ids), unknown: [] };
+	}
+	return { ok: setCellFromText(doc, recordId, field, asText(raw)), unknown: [] };
+}
+
+/**
+ * Why a value cannot be stored in this column, and the sentence the caller owes the
+ * reader about it. A write that is refused without saying why teaches a reader to
+ * distrust the table, so every one of these travels with something to pass on.
+ */
+function unwritable(field: Field): { reason: string; tellUser: string } {
+	switch (field.type) {
+		case 'noteProp':
+			return {
+				reason: "a note property is stored in the note's frontmatter, not in this table",
+				tellUser:
+					'That column cannot be filled from here: its value lives in the note frontmatter. Edit it in the table in Obsidian, or edit the note itself.',
+			};
+		case 'relationBack':
+			return {
+				reason: 'a backlink column lists the rows of another table that point here',
+				tellUser:
+					'A backlink column is computed from the other table, so there is nothing to type into it.',
+			};
+		case 'rollup':
+			return {
+				reason: 'a rollup column totals rows reached through a relation column',
+				tellUser:
+					'A rollup value is computed from the related rows and cannot be typed in.',
+			};
+		default:
+			return {
+				reason: `a ${field.type} column computes its own value`,
+				tellUser: 'A computed value comes from other columns and cannot be typed in.',
+			};
+	}
+}
+
 /** A record with its cells keyed by column name, which is what a caller reads. */
 function shownRecord(doc: LayerDoc, record: LayerRecord): Record<string, unknown> {
 	const cells: Record<string, CellValue> = {};
@@ -382,17 +571,94 @@ const tools = [
 	},
 	{
 		name: 'add_field',
-		description: `Add a column. Types: ${FIELD_TYPES.join(', ')}. Select types take an options list of names.`,
+		description: `Add a column. Types: ${FIELD_TYPES.join(', ')}.
+
+Choosing the type is the part that goes wrong, so read this before deciding:
+
+- When a cell holds a reference to *another row* — a dependency, an owner, a parent, a related item — the type is \`relation\`. That holds even when the rows live in the same table, and even when the text looks like a plain label. A value that is itself a row, with its own columns, is a row reference.
+- \`select\` and \`multiSelect\` are for a fixed list of labels that exist only inside this column, typed or picked by hand. If the choices are rows of a table that also has a name, an id and other columns, it is \`relation\`, not \`multiSelect\`.
+- \`select\` holds one label; \`multiSelect\` holds several.
+- \`note\` holds a vault path to a note; \`noteProp\` reads or writes one frontmatter key of the note a \`note\` column points at.
+- \`formula\` computes from other columns; \`rollup\` totals a related table through a relation column; \`relationBack\` lists the rows that point back here.
+
+Every type that computes from something else needs that something named, and the call fails rather than storing a column that cannot work: \`relation\` needs \`linkField\` (plus \`targetTable\` when the rows are in another file), \`formula\` needs \`formula\`, \`rollup\` needs \`rollupSource\`, \`rollupField\` and \`rollupAggregate\`, \`noteProp\` needs \`noteField\`.
+
+**If the type is not obvious from what the reader said, do not guess.** Name two or three candidates, say in one line what each would store for this data, and ask which one they mean. A wrong type silently produces a column that looks right and behaves wrong, which costs far more than one question.
+
+A backlink column (relationBack) is the one type this server cannot create: it needs the relation pointing back at it, which the app sets up. Say so rather than building something similar.
+
+Two limits you have to pass on rather than work around:
+
+- **Dates have no format setting in this plugin.** A date always reads as YYYY-MM-DD and a date-time as YYYY-MM-DD HH:mm. If the reader asks for another format, tell them it is not available; do not silently produce something else.
+- **A \`noteProp\` column's values cannot be written from here**, and cannot be read either: they live in the frontmatter of the note a \`note\` column points at, and reading them needs the app. Create the column if it helps, but tell the reader that filling it in happens in the app.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
 				path: { type: 'string', description: PATH_HINT },
 				name: { type: 'string' },
-				type: { type: 'string' },
+				type: { type: 'string', enum: [...FIELD_TYPES] },
 				options: {
 					type: 'array',
 					items: { type: 'string' },
 					description: 'Option names, for select and multiSelect',
+				},
+				targetTable: {
+					type: 'string',
+					description:
+						'relation only: the .layer file whose rows a cell picks from. Omit when the rows are in this same table.',
+				},
+				linkField: {
+					type: 'string',
+					description:
+						'relation only: the column of the target table whose values are shown, usually its name column.',
+				},
+				formula: {
+					type: 'string',
+					description:
+						'formula only: the expression, naming other columns as {their name}, such as {Score} * 2.',
+				},
+				rollupSource: {
+					type: 'string',
+					description: 'rollup only: the relation or backlink column to gather rows through.',
+				},
+				rollupField: {
+					type: 'string',
+					description: 'rollup only: the column of the other table to read.',
+				},
+				rollupAggregate: {
+					type: 'string',
+					enum: ['sum', 'average', 'min', 'max', 'count', 'countAll'],
+					description: 'rollup only: how the gathered values become one number.',
+				},
+				noteField: {
+					type: 'string',
+					description: 'noteProp only: the note column whose file is read.',
+				},
+				frontmatterKey: {
+					type: 'string',
+					description:
+						'noteProp only: the frontmatter key to read and write. Defaults to the column name.',
+				},
+				numberLength: {
+					type: 'number',
+					description: 'autoNumber only: how many digits to pad the number to.',
+				},
+				numberFormat: {
+					type: 'string',
+					enum: ['plain', 'percent'],
+					description: 'number only: how the value is shown.',
+				},
+				decimals: {
+					type: 'number',
+					description: 'number only: decimal places, 0 to 10.',
+				},
+				min: {
+					type: 'number',
+					description: 'number only: the smallest value a cell may hold.',
+				},
+				max: {
+					type: 'number',
+					description: 'number only: the largest value a cell may hold.',
 				},
 			},
 			required: ['path', 'name', 'type'],
@@ -535,10 +801,13 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				);
 			}
 			const given = typeof args.name === 'string' ? args.name.trim() : '';
+			const tableName = given === '' ? basename(file, '.layer') : given;
+			// Named after the table rather than a fixed word: this process has no interface
+			// language, and the app's own default ("表格" or "Table") would be wrong in one
+			// of them. The table's name reads correctly either way, and update_view renames it.
 			const view: GridView = {
 				id: newId('v', []),
-				// The one label this server writes; a caller can rename it with update_view.
-				name: 'Table',
+				name: tableName,
 				type: 'grid',
 				columnWidths: {},
 				rowHeights: {},
@@ -548,7 +817,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			};
 			const doc: LayerDoc = {
 				version: LAYER_FORMAT_VERSION,
-				name: given === '' ? basename(file, '.layer') : given,
+				name: tableName,
 				fields: [],
 				records: [],
 				views: [view],
@@ -577,22 +846,64 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 
 		case 'read_table': {
 			const { doc } = loadTable(args.path);
+			// Loaded at most once per table, however many columns point at it.
+			const otherTables = new Map<string, LayerDoc>();
 			const offset = typeof args.offset === 'number' ? Math.max(0, args.offset) : 0;
 			const limit = typeof args.limit === 'number' ? Math.max(0, args.limit) : 100;
+			// A relation cell holds row ids, which mean nothing on their own. Every table
+			// a relation points at is listed here once, so a caller can read the rows and
+			// still know which is which.
+			const rowLabels: Record<string, string> = {};
+			for (const field of doc.fields) {
+				if (field.type !== 'relation') {
+					continue;
+				}
+				const target = field.linkPath
+					? (otherTables.get(field.linkPath) ??
+						(() => {
+							try {
+								const loaded = loadTable(field.linkPath).doc;
+								otherTables.set(field.linkPath, loaded);
+								return loaded;
+							} catch {
+								return null;
+							}
+						})())
+					: doc;
+				if (!target) {
+					continue;
+				}
+				const shown =
+					target.fields.find((one) => one.id === field.linkFieldId) ??
+					target.fields.find((one) => one.primary) ??
+					target.fields[0];
+				if (!shown) {
+					continue;
+				}
+				for (const record of target.records) {
+					rowLabels[record.id] = formatCell(shown, record.cells[shown.id] ?? '');
+				}
+			}
+
 			return {
 				path: args.path,
 				name: doc.name,
-				fields: doc.fields.map((field) => ({
-					id: field.id,
-					name: field.name,
-					type: field.type,
-					...(field.options
-						? { options: field.options.map((option) => option.name) }
-						: {}),
-					...(isDerived(field.type) ? { computed: true } : {}),
-				})),
+				fields: doc.fields.map((field) => {
+					const config = fieldConfig(doc, field, otherTables);
+					return {
+						id: field.id,
+						name: field.name,
+						type: field.type,
+						...(field.options
+							? { options: field.options.map((option) => option.name) }
+							: {}),
+						...(Object.keys(config).length > 0 ? { config } : {}),
+						...(isDerived(field.type) ? { computed: true } : {}),
+					};
+				}),
 				views: doc.views.map((view) => shownView(doc, view)),
 				total: doc.records.length,
+				...(Object.keys(rowLabels).length > 0 ? { rowLabels } : {}),
 				records: doc.records
 					.slice(offset, offset + limit)
 					.map((record) => shownRecord(doc, record)),
@@ -604,6 +915,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			const rows = Array.isArray(args.records) ? args.records : [];
 			const added: string[] = [];
 			const refused: Array<{ field: string; value: unknown }> = [];
+			const skipped: Array<{ field: string; reason: string; tellUser: string }> = [];
 			for (const row of rows) {
 				if (!row || typeof row !== 'object') {
 					continue;
@@ -619,24 +931,48 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				doc.records.push(record);
 				for (const [column, value] of Object.entries(row as Record<string, unknown>)) {
 					const field = doc.fields.find((one) => one.name === column);
-					if (!field || isDerived(field.type)) {
+					if (!field) {
+						continue;
+					}
+					// A computed column has nothing to store, and saying so is better than
+					// dropping the value and letting the caller believe it was written.
+					if (isDerived(field.type)) {
+						skipped.push({ field: column, ...unwritable(field) });
 						continue;
 					}
 					const text = asText(value);
-					if (text !== '' && !setCellFromText(doc, record.id, field, text)) {
-						refused.push({ field: column, value });
+					const empty = text === '' && !(Array.isArray(value) && value.length > 0);
+					if (empty) {
+						continue;
+					}
+					const result = writeCell(doc, record.id, field, value);
+					if (!result.ok) {
+						refused.push({
+							field: column,
+							value,
+							...(result.unknown.length > 0
+								? { unknownRows: result.unknown }
+								: {}),
+						});
 					}
 				}
 				added.push(record.id);
 			}
 			saveTable(file, doc);
-			return { added, refused };
+			return { added, refused, skipped };
 		}
 
 		case 'update_cells': {
 			const { doc, file } = loadTable(args.path);
 			const updates = Array.isArray(args.updates) ? args.updates : [];
-			const refused: Array<{ recordId: string; field: string; value: unknown }> = [];
+			const refused: Array<{
+				recordId: string;
+				field: string;
+				value: unknown;
+				unknownRows?: string[];
+				reason?: string;
+				tellUser?: string;
+			}> = [];
 			let updated = 0;
 			for (const entry of updates) {
 				if (!entry || typeof entry !== 'object') {
@@ -649,14 +985,19 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 				const field = fieldOf(doc, item.field);
 				if (isDerived(field.type)) {
-					refused.push({ recordId, field: field.name, value: item.value });
+					refused.push({ recordId, field: field.name, value: item.value, ...unwritable(field) });
 					continue;
 				}
-				const text = asText(item.value);
-				if (setCellFromText(doc, recordId, field, text)) {
+				const result = writeCell(doc, recordId, field, item.value);
+				if (result.ok) {
 					updated += 1;
 				} else {
-					refused.push({ recordId, field: field.name, value: item.value });
+					refused.push({
+						recordId,
+						field: field.name,
+						value: item.value,
+						...(result.unknown.length > 0 ? { unknownRows: result.unknown } : {}),
+					});
 				}
 			}
 			saveTable(file, doc);
@@ -704,8 +1045,128 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					return { id, name: optionName, color: 'default' };
 				});
 			}
+
+			// A column that reads from something else is only usable once that something
+			// is named. Refusing beats storing a column that looks right and shows nothing.
+			if (type === 'relation') {
+				const targetPath = asText(args.targetTable).trim();
+				const elsewhere = targetPath !== '' && vaultFile(targetPath) !== file;
+				const other = elsewhere ? loadTable(targetPath).doc : doc;
+				const shown = asText(args.linkField).trim();
+				if (shown === '') {
+					throw new Error(
+						'A relation column needs `linkField`: the column of the target table whose values it shows. Ask which column names a row — usually the title or name column.',
+					);
+				}
+				field.linkFieldId = fieldOf(other, shown).id;
+				if (elsewhere) {
+					field.linkPath = targetPath;
+				}
+			}
+
+			if (type === 'relationBack') {
+				throw new Error(
+					'A backlink column has to name the relation that points at it, which this server cannot set up. Tell the user plainly that this column type has to be created in the Obsidian app, and that nothing was created here.',
+				);
+			}
+
+			if (type === 'formula') {
+				const expression = asText(args.formula).trim();
+				if (expression === '') {
+					throw new Error(
+						'A formula column needs `formula`, for example {Score} * 2. Ask what it should compute rather than guessing.',
+					);
+				}
+				field.formula = expression;
+			}
+
+			if (type === 'rollup') {
+				const sourceName = asText(args.rollupSource).trim();
+				if (sourceName === '') {
+					throw new Error(
+						'A rollup gathers rows through a relation column, so it needs `rollupSource`: the name of that column.',
+					);
+				}
+				const source = fieldOf(doc, sourceName);
+				if (source.type !== 'relation') {
+					throw new Error(
+						`A rollup gathers rows through a relation column, and "${source.name}" is ${source.type}.`,
+					);
+				}
+				const readName = asText(args.rollupField).trim();
+				if (readName === '') {
+					throw new Error(
+						'A rollup needs `rollupField`: the column of the other table to read, such as its amount column.',
+					);
+				}
+				const aggregate = args.rollupAggregate as RollupAggregate;
+				if (!ROLLUP_AGGREGATES.includes(aggregate)) {
+					throw new Error(
+						`A rollup needs rollupAggregate, one of: ${ROLLUP_AGGREGATES.join(', ')}.`,
+					);
+				}
+				const other = source.linkPath ? loadTable(source.linkPath).doc : doc;
+				field.rollupSourceFieldId = source.id;
+				field.rollupFieldId = fieldOf(other, readName).id;
+				field.rollupAggregate = aggregate;
+			}
+
+			if (type === 'noteProp') {
+				const noteName = asText(args.noteField).trim();
+				if (noteName === '') {
+					throw new Error(
+						'A note property reads one frontmatter key of the note a `note` column points at, so it needs `noteField`: the name of that note column.',
+					);
+				}
+				const noteField = fieldOf(doc, noteName);
+				if (noteField.type !== 'note') {
+					throw new Error(
+						`A note property reads the note a note column points at, and "${noteField.name}" is ${noteField.type}.`,
+					);
+				}
+				field.noteFieldId = noteField.id;
+				const key = asText(args.frontmatterKey).trim();
+				if (key !== '') {
+					field.frontmatterKey = key;
+				}
+			}
+
+			if (type === 'autoNumber' && typeof args.numberLength === 'number') {
+				field.numberLength = Math.max(1, Math.floor(args.numberLength));
+			}
+
+			if (type === 'number') {
+				const format = asText(args.numberFormat).trim();
+				if (format !== '') {
+					if (format !== 'plain' && format !== 'percent') {
+						throw new Error(`Unknown number format: ${format}. Use plain or percent.`);
+					}
+					field.numberFormat = format;
+				}
+				if (typeof args.decimals === 'number') {
+					field.decimals = Math.max(0, Math.min(10, Math.floor(args.decimals)));
+				}
+				if (typeof args.min === 'number') {
+					field.min = args.min;
+				}
+				if (typeof args.max === 'number') {
+					field.max = args.max;
+				}
+			}
+
 			addField(doc, field);
 			saveTable(file, doc);
+			// The column exists but cannot be filled from here; the caller owes the reader
+			// that sentence now, not after they have typed the first value into it.
+			if (field.type === 'noteProp') {
+				return {
+					id: field.id,
+					name: field.name,
+					type: field.type,
+					tellUser:
+						'The column was created, but its values cannot be set from here — they live in the note frontmatter. Fill it in the table in Obsidian.',
+				};
+			}
 			return { id: field.id, name: field.name, type: field.type };
 		}
 

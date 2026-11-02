@@ -1,5 +1,6 @@
 import {
 	type CellValue,
+	type ColorRule,
 	type Field,
 	type FieldType,
 	type Filter,
@@ -17,6 +18,8 @@ import {generateId} from '../utils/id';
 import {FIELD_TYPES, isEmptyCell, usesOptions} from '../model/fields';
 import {normaliseDate, normaliseDateTime} from '../model/date';
 import {normaliseDecimals, parseNumber} from '../model/number';
+import {clampRowHeight} from '../model/layout';
+import {OPTION_PALETTE} from '../model/select-options';
 import {migrate} from './migrate';
 
 /**
@@ -388,6 +391,47 @@ function parseConditions(raw: unknown, fieldIds: Set<string>): FilterCondition[]
 	return conditions;
 }
 
+/**
+ * The rules a view tints its rows by.
+ *
+ * A rule that names a column which is gone, or a colour this build does not have,
+ * is dropped rather than kept: it could never paint anything, and keeping it
+ * would leave a rule in the panel that does nothing when clicked.
+ */
+function parseColorRules(raw: unknown, fieldIds: Set<string>): ColorRule[] {
+	const rules: ColorRule[] = [];
+	for (const item of asArray(raw)) {
+		if (!isRecordObject(item)) {
+			continue;
+		}
+		const fieldId = asString(item.fieldId);
+		const operator = asString(item.operator);
+		const color = asString(item.color);
+		if (
+			!fieldIds.has(fieldId) ||
+			!OPERATORS.has(operator) ||
+			!OPTION_PALETTE.includes(color)
+		) {
+			continue;
+		}
+		const rule: ColorRule = {
+			fieldId,
+			operator: operator as FilterOperator,
+			color,
+		};
+		const value = item.value;
+		if (
+			typeof value === 'string' ||
+			typeof value === 'number' ||
+			typeof value === 'boolean'
+		) {
+			rule.value = value;
+		}
+		rules.push(rule);
+	}
+	return rules;
+}
+
 function parseFilter(raw: unknown, fieldIds: Set<string>): Filter {
 	if (!isRecordObject(raw)) {
 		return {conjunction: 'and', conditions: []};
@@ -458,12 +502,26 @@ function parseView(
 		}
 		return kanban;
 	}
+	const colorRules = parseColorRules(raw.colorRules, fieldIds);
 	return {
 		...base,
 		type: 'grid',
 		columnWidths: parseSizes(raw.columnWidths, fieldIds),
+		rowHeight: parseRowHeight(raw.rowHeight),
 		rowHeights: parseSizes(raw.rowHeights, recordIds),
+		...(raw.wrap === true ? {wrap: true} : {}),
+		...(colorRules.length > 0 ? {colorRules} : {}),
 	};
+}
+
+/**
+ * A view's base row height, kept only if it is a size this table can draw.
+ */
+function parseRowHeight(raw: unknown): number | undefined {
+	if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+		return undefined;
+	}
+	return clampRowHeight(raw);
 }
 
 /**
@@ -544,6 +602,9 @@ export function createEmptyDoc(
 				hiddenFieldIds: [],
 				columnWidths: {},
 				rowHeights: {},
+				// A new table wraps as it is made, so its first long value already
+				// shows in full rather than being cut off at the cell's edge.
+				wrap: true,
 			},
 		],
 	};

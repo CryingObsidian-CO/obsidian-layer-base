@@ -6,6 +6,8 @@ import {
 	TAIL_COLUMN_WIDTH,
 	columnWidthOf,
 	rowHeightOf,
+	rowHeightPresetOf,
+	wrapsOf,
 } from '../../model/layout';
 import {
 	deserializeCellValue,
@@ -124,6 +126,14 @@ export interface GridHandlers {
 	onReorderField(fieldId: string, beforeFieldId: string | null): void;
 
 	onRowResize(recordId: string, height: number): void;
+
+	/**
+	 * The wash this row wears, or null for none.
+	 *
+	 * Resolved by the view rather than here: a colour rule is a condition, and the
+	 * conditions in this app are answered where the whole document is in hand.
+	 */
+	rowColor(record: LayerRecord): string | null;
 }
 
 export class GridRenderer {
@@ -229,6 +239,13 @@ export class GridRenderer {
 		this.openEdit = null;
 		this.host.empty();
 		this.host.addClass('layer-grid');
+		/*
+		 * The chosen height and the wrapping are drawn by the stylesheet, which
+		 * needs to know about them before the rows are measured: the compact height
+		 * only fits a line once the cell's own padding has shrunk with it.
+		 */
+		this.host.toggleClass('is-compact', rowHeightPresetOf(view) === 'compact');
+		this.host.toggleClass('is-wrapped', wrapsOf(view));
 		this.cells.clear();
 		this.rows.clear();
 		this.rowNumbers.clear();
@@ -686,6 +703,11 @@ export class GridRenderer {
 			row.addClass('layer-grid-row');
 			row.dataset.recordId = record.id;
 			row.style.height = `${rowHeightOf(view, record.id)}px`;
+			const tint = this.handlers.rowColor(record);
+			if (tint !== null) {
+				row.addClass('is-colored');
+				row.style.setProperty('--layer-row-tint', tint);
+			}
 			this.rows.set(record.id, row);
 			this.rowIndex.set(record.id, index);
 			this.recordOrder.push(record.id);

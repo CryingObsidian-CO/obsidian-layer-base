@@ -182,7 +182,7 @@ back in `refused`.
 | `add_records`    | Append rows, keyed by column name                                                               |
 | `update_cells`   | Set single cells by row id                                                                      |
 | `delete_records` | Remove rows by id                                                                               |
-| `add_field`      | Add a column, with options for select types                                                     |
+| `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather |
 | `delete_field`   | Remove a column and its values                                                                  |
 | `add_view`       | Add a board view                                                                                |
 | `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit |

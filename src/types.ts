@@ -172,6 +172,19 @@ export interface Filter {
 	conditions: FilterCondition[];
 }
 
+/**
+ * A rule that tints a whole row when its condition matches.
+ *
+ * It is a filter condition with a colour attached, on purpose: "when this column
+ * contains this" has exactly one meaning in this plugin, and a colour rule that
+ * decided it differently from the filter would be a second opinion nobody asked
+ * for.
+ */
+export interface ColorRule extends FilterCondition {
+	/** A name from the palette in `model/select-options.ts`. */
+	color: string;
+}
+
 export interface BaseView {
 	id: string;
 	name: string;
@@ -184,7 +197,26 @@ export interface BaseView {
 export interface GridView extends BaseView {
 	type: 'grid';
 	columnWidths: Record<string, number>;
+	/**
+	 * The height every row starts at, before any of them were dragged. Missing
+	 * means the default, so a table written before this existed reads as it did.
+	 */
+	rowHeight?: number;
+	/** Rows dragged to a height of their own, which outrank `rowHeight`. */
 	rowHeights: Record<string, number>;
+	/**
+	 * Whether each cell's value may run onto more lines.
+	 *
+	 * A wrapped run of values adds to the row's height, so this is also what makes
+	 * a row taller than the height chosen for it. Long text is left out either way:
+	 * it scrolls inside its cell rather than growing the row.
+	 */
+	wrap?: boolean;
+	/**
+	 * Whole-row tints, tried in the order they are listed. Only the first rule a
+	 * row matches is drawn, so the list order is the priority.
+	 */
+	colorRules?: ColorRule[];
 	/**
 	 * What each column's footer reports, by column id. A column with no entry is not
 	 * summarised, so a table only shows figures someone asked for.
