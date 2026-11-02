@@ -15,7 +15,7 @@ import {
 	type View,
 } from '../types';
 import {generateId} from '../utils/id';
-import {FIELD_TYPES, isEmptyCell, usesOptions} from '../model/fields';
+import {FIELD_TYPES, canBeRequired, isEmptyCell, usesOptions} from '../model/fields';
 import {normaliseDate, normaliseDateTime} from '../model/date';
 import {normaliseDecimals, parseNumber} from '../model/number';
 import {clampRowHeight} from '../model/layout';
@@ -127,7 +127,11 @@ function parseField(
 	if (raw.primary === true) {
 		field.primary = true;
 	}
-	if (raw.required === true) {
+	// Only a column the reader fills in can carry the flag: it means "must not be
+	// left empty", which a computed column's cells never are by their doing. A file
+	// hand-edited or written by an older build may still hold one, so it is dropped
+	// here rather than trusted.
+	if (raw.required === true && canBeRequired(field.type)) {
 		field.required = true;
 	}
 	if (typeof raw.frontmatterKey === 'string' && raw.frontmatterKey.trim()) {

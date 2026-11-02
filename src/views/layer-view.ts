@@ -37,14 +37,15 @@ import type {FormattedClipboard} from '../model/clipboard';
 import {formatGrid, gridShape, parseGrid} from '../model/tsv';
 import {appendOption} from '../model/select-options';
 import {
+	canBeRequired,
 	copyTextFor,
 	emptyValueFor,
 	formatCell,
 	relationIds,
 	usesOptions,
 } from '../model/fields';
-import {computeFormula} from '../model/formula';
-import {aggregateRollup} from '../model/rollup';
+import {computeFormulaWithReader, type FormulaValue} from '../model/formula';
+import {aggregateRollup, type RollupValue} from '../model/rollup';
 import {backfillNumbers, renumberAll} from '../model/records';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
@@ -969,6 +970,7 @@ export class LayerView extends TextFileView {
 		// renumber it, so the whole application is one step to take back.
 		this.beginEdit(field === null ? 'add-field' : 'field-edit');
 
+		let written: Field;
 		if (field === null) {
 			const created: Field = {
 				id: generateId('f'),
@@ -992,6 +994,7 @@ export class LayerView extends TextFileView {
 			} else {
 				addField(doc, created);
 			}
+			written = created;
 		} else {
 			field.name = result.name;
 			if (usesOptions(result.type)) {
@@ -1020,6 +1023,14 @@ export class LayerView extends TextFileView {
 			this.applyFormulaSettings(field, result.formula, result.formulaType);
 			this.applyNotePropSettings(field, result.noteProp);
 			this.applyBackSettings(field, result.back);
+			written = field;
+		}
+
+		// The panel stops offering the flag for a column the table fills in itself,
+		// so this is a guard rather than the mechanism: a flag that never fires
+		// would leave the reader waiting for a warning that is not coming.
+		if (!canBeRequired(written.type)) {
+			delete written.required;
 		}
 
 		this.commitEdit();
@@ -1056,8 +1067,6 @@ export class LayerView extends TextFileView {
 				backfillNumbers(doc, field);
 			}
 		}
-		// Derived from the rows it numbers, so it is never required.
-		delete field.required;
 	}
 
 	/**
@@ -1082,8 +1091,6 @@ export class LayerView extends TextFileView {
 			field.rollupFieldId = settings.fieldId;
 		}
 		field.rollupAggregate = settings.aggregate;
-		// Derived, so it holds nothing and cannot be required.
-		delete field.required;
 	}
 
 	/** Writes a lookup's two settings. Like a rollup, it stores no values. */
@@ -1103,8 +1110,6 @@ export class LayerView extends TextFileView {
 		} else {
 			field.lookupFieldId = settings.fieldId;
 		}
-		// Derived, so it holds nothing and cannot be required.
-		delete field.required;
 	}
 
 	/**
@@ -1133,8 +1138,6 @@ export class LayerView extends TextFileView {
 		} else {
 			field.formulaType = formulaType;
 		}
-		// Derived, so it holds nothing and cannot be required.
-		delete field.required;
 	}
 
 	/**
@@ -1212,8 +1215,6 @@ export class LayerView extends TextFileView {
 		} else {
 			field.backTitleFieldId = settings.titleFieldId;
 		}
-		// Derived, so it holds nothing and cannot be required.
-		delete field.required;
 	}
 
 	/** Writes the number settings, keeping only those that differ from defaults. */
@@ -2045,7 +2046,9 @@ export class LayerView extends TextFileView {
 		if ((target.formula ?? '').trim() === '') {
 			return {text: '', broken: 0};
 		}
-		const result = computeFormula(doc, record, target);
+		const result = computeFormulaWithReader(doc, record, target, (other) =>
+			this.formulaCellValue(other, record, recordId),
+		);
 		if (result.ok) {
 			/*
 			 * The text is always what was computed; only the dressing follows the
@@ -2074,16 +2077,73 @@ export class LayerView extends TextFileView {
 		};
 	}
 
+	/**
+	 * What one column hands a formula.
+	 *
+	 * Asked only for the columns the document cannot read on its own: a relation
+	 * keeps row ids where the grid shows names, and a lookup, rollup or reverse
+	 * relation keeps nothing at all. Every other type answers `undefined` and is
+	 * read from its stored cell — which matters, because a number column must
+	 * arrive as a number or `+` would join it as text instead of adding it.
+	 *
+	 * A rollup's total goes back to being a number for that same reason: on screen
+	 * it is dressed text, but a formula that adds to it means arithmetic.
+	 */
+	private formulaCellValue(
+		field: Field,
+		record: LayerRecord,
+		recordId: string,
+	): FormulaValue | undefined {
+		switch (field.type) {
+			case 'relation':
+				return this.relationText(field, record.cells[field.id] ?? '').text;
+			case 'relationBack':
+				return this.backText(field, recordId).text;
+			case 'lookup':
+				return this.lookupText(field, recordId).text;
+			case 'rollup': {
+				const answer = this.rollupAnswer(field, record, recordId);
+				if (answer === null) {
+					return '';
+				}
+				return answer.kind === 'number' ? Number(answer.text) : answer.text;
+			}
+			case 'noteProp':
+				return this.notePropValue(field, recordId);
+			default:
+				return undefined;
+		}
+	}
+
 	/** What a rollup gathered from the rows this row is linked to. */
 	private rollupText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
-		if (!doc) {
+		const record = doc ? findRecord(doc, recordId) : undefined;
+		if (!record) {
 			return {text: '', broken: 0};
 		}
-		const record = findRecord(doc, recordId);
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!record || !target) {
+		const answer = this.rollupAnswer(field, record, recordId);
+		if (answer === null) {
 			return {text: '', broken: 0};
+		}
+		return {text: answer.text, broken: 0, kind: answer.kind};
+	}
+
+	/**
+	 * The total a rollup reached, before it is dressed for the cell.
+	 *
+	 * Null covers both "this column is not set up" and "the other table cannot be
+	 * read": either way the column has nothing to show, and neither is an error.
+	 */
+	private rollupAnswer(
+		field: Field,
+		record: LayerRecord,
+		recordId: string,
+	): RollupValue | null {
+		const doc = this.doc;
+		const target = doc?.fields.find((candidate) => candidate.id === field.id);
+		if (!doc || !target) {
+			return null;
 		}
 		const sourceField = doc.fields.find(
 			(candidate) => candidate.id === target.rollupSourceFieldId,
@@ -2091,9 +2151,8 @@ export class LayerView extends TextFileView {
 		// Not configured yet, or pointing at a column that is gone: a column waiting
 		// to be set up reads as empty, not as a failure in every row.
 		if (!sourceField || !target.rollupFieldId) {
-			return {text: '', broken: 0};
+			return null;
 		}
-
 		const gathered = this.gatheredValues(
 			sourceField,
 			target.rollupFieldId,
@@ -2101,13 +2160,9 @@ export class LayerView extends TextFileView {
 			recordId,
 		);
 		if (gathered === null) {
-			return {text: '', broken: 0};
+			return null;
 		}
-		const answer = aggregateRollup(gathered, target.rollupAggregate ?? 'sum');
-		if (answer === null) {
-			return {text: '', broken: 0};
-		}
-		return {text: answer.text, broken: 0, kind: answer.kind};
+		return aggregateRollup(gathered, target.rollupAggregate ?? 'sum');
 	}
 
 	/**

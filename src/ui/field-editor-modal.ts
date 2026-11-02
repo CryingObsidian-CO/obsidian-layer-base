@@ -1,6 +1,6 @@
 import { setIcon, setTooltip, type App } from 'obsidian';
 import { t } from '../i18n';
-import { specFor, usesOptions } from '../model/fields';
+import { canBeRequired, isDerived, specFor, usesOptions } from '../model/fields';
 import {
 	MAX_DECIMALS,
 	normaliseDecimals,
@@ -9,7 +9,6 @@ import {
 } from '../model/number';
 import { optionColorHex } from '../model/select-options';
 import { aggregatesFor } from '../model/rollup';
-import { isDerived } from '../model/fields';
 import { fieldsUsed, parseFormula } from '../model/formula/parser';
 import { formulaErrorMessage } from './formula-text';
 import type { TableIndex } from '../io/table-index';
@@ -1025,9 +1024,11 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 		const icon = button.createSpan({ cls: 'layer-field-formula-open-icon' });
 		setIcon(icon, 'sigma');
-		button.createSpan({
-			text: this.formula.trim() === '' ? t().formulaOpenEmpty : this.formula,
-		});
+		const shown = this.formula.trim() === '' ? t().formulaOpenEmpty : this.formula;
+		button.createSpan({ cls: 'layer-field-formula-open-text', text: shown });
+		// The expression is held to one line so it cannot run out of the button, so
+		// the whole of it is kept reachable on the hover instead.
+		setTooltip(button, shown);
 		button.addEventListener('click', () => this.openFormulaEditor());
 
 		const status = host.createDiv({ cls: 'layer-field-formula-status' });
@@ -1086,8 +1087,9 @@ export class FieldEditorModal extends AnchoredPopover {
 	 * does not say what it constrains, and the consequence is invisible until a
 	 * cell is left empty.
 	 *
-	 * A derived field has no cells of its own to fill, so the toggle is not
-	 * offered for it — and the flag is dropped, so one is never saved onto it.
+	 * A column the table fills in itself has no cell for the reader to fill, so
+	 * the toggle is not offered for it — and the flag is cleared, so one is never
+	 * saved onto it.
 	 */
 	private renderRequiredToggle(): void {
 		const host = this.requiredEl;
@@ -1096,7 +1098,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		}
 		host.empty();
 
-		if (this.type === 'relationBack') {
+		if (!canBeRequired(this.type)) {
 			this.required = false;
 			return;
 		}

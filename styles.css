@@ -1306,9 +1306,24 @@ body.layer-grid-dragging-range * {
 	gap: var(--size-4-1);
 	width: 100%;
 	min-width: 0;
+	overflow: hidden;
 	text-align: left;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
+}
+
+/*
+ * The expression stays on one line whatever its length. A formula is mostly
+ * runes with no spaces to break at, and a flex child will not shrink below its
+ * content unless told to, so without this the text ran straight out of the button
+ * and over the panel. Cut with an ellipsis; the whole of it is on the tooltip.
+ */
+.layer-field-formula-open-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .layer-field-formula-open-icon {

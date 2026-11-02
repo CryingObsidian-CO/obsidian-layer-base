@@ -4,11 +4,20 @@ import { evaluate, toBoolean, toText, type FormulaContext } from './eval';
 import type { FormulaError, FormulaValue } from './lexer';
 import { parseFormula } from './parser';
 
+/* The value types are part of this module's surface: a reader answers with one. */
+export type { FormulaError, FormulaValue } from './lexer';
+
 /** What one formula cell resolved to. */
 export type FormulaResult =
 	| {
 			ok: true;
 			text: string;
+			/**
+			 * The value itself. Carried beside its text so a formula that reads this
+			 * one keeps a number a number: `+` joins text, so a total handed on as
+			 * "42" would read back as "421" once one was added to it.
+			 */
+			value: FormulaValue;
 			kind: FormulaValueKind;
 			/**
 			 * What the value means as a yes or no. Carried so a column told to show
@@ -80,7 +89,17 @@ export function forgetParsedFormulas(): void {
 const MAX_CHAIN = 32;
 
 /**
- * The value a formula column contributes to another formula, plus whether it could
+ * Reads a column the document cannot answer for itself.
+ *
+ * A relation stores the ids of the rows it points at where the grid shows their
+ * names, and a lookup, rollup or reverse relation stores nothing at all, so what
+ * those columns read as lives on the view's side, which is the only side that can
+ * open the other table. Answering `undefined` means "this one the document reads
+ * correctly on its own".
+ */
+export type FormulaCellReader = (field: Field) => FormulaValue | undefined;
+
+/** The value a formula column contributes to another formula, plus whether it could
  * be computed at all.
  *
  * The failure is carried back rather than turned into text, so a chain cannot end
@@ -94,22 +113,34 @@ function resolveField(
 	depth: number,
 	seen: ReadonlySet<string>,
 	now: Date,
+	readCell?: FormulaCellReader,
 ): { value: FormulaValue; error?: FormulaError } {
-	if (field.type !== 'formula') {
-		return { value: cellAsFormulaValue(field, record.cells[field.id] ?? '') };
+	if (field.type === 'formula') {
+		const result = computeFormula(doc, record, field, depth + 1, seen, now, readCell);
+		if (!result.ok) {
+			return { value: '', error: result.error };
+		}
+		return { value: result.value };
 	}
-	const result = computeFormula(doc, record, field, depth + 1, seen, now);
-	if (!result.ok) {
-		return { value: '', error: result.error };
+	/*
+	 * Asked before the stored cell is read, because for some types the stored cell
+	 * is not what the reader sees: a relation hands over its ids, and a computed
+	 * column has nothing stored at all.
+	 */
+	const fromCaller = readCell?.(field);
+	if (fromCaller !== undefined) {
+		return { value: fromCaller };
 	}
-	return { value: result.text };
+	return { value: cellAsFormulaValue(field, record.cells[field.id] ?? '') };
 }
 
 /**
  * Computes one formula cell.
  *
  * `seen` carries the chain of formula columns being resolved; a column already in
- * it is the cycle, and is reported as such instead of recursing.
+ * it is the cycle, and is reported as such instead of recursing. `readCell` is
+ * there for the columns whose value lives outside the document; without it they
+ * read as empty rather than as a column of row ids.
  */
 export function computeFormula(
 	doc: LayerDoc,
@@ -118,6 +149,7 @@ export function computeFormula(
 	depth = 0,
 	seen: ReadonlySet<string> = new Set(),
 	now: Date = new Date(),
+	readCell?: FormulaCellReader,
 ): FormulaResult {
 	if (depth > MAX_CHAIN) {
 		return {
@@ -171,7 +203,15 @@ export function computeFormula(
 			if (!target) {
 				return undefined;
 			}
-			const resolved = resolveField(doc, record, target, depth, nextSeen, now);
+			const resolved = resolveField(
+				doc,
+				record,
+				target,
+				depth,
+				nextSeen,
+				now,
+				readCell,
+			);
 			if (resolved.error) {
 				nestedError ??= resolved.error;
 				return '';
@@ -191,7 +231,26 @@ export function computeFormula(
 	return {
 		ok: true,
 		text: toText(evaluated.value),
+		value: evaluated.value,
 		kind: valueKind(evaluated.value),
 		truthy: toBoolean(evaluated.value),
 	};
+}
+
+/**
+ * Computes one formula cell, with a reader for the columns the document cannot
+ * answer for itself.
+ *
+ * The positional form of `computeFormula` exists for the engine's own recursion
+ * and for tests that only need a fixed "now"; this one names the argument the
+ * view actually has, so a call site does not have to spell out empty defaults.
+ */
+export function computeFormulaWithReader(
+	doc: LayerDoc,
+	record: LayerRecord,
+	field: Field,
+	readCell: FormulaCellReader,
+	now: Date = new Date(),
+): FormulaResult {
+	return computeFormula(doc, record, field, 0, new Set(), now, readCell);
 }

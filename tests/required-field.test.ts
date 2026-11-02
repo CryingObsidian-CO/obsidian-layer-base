@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
-import { isMissingRequired } from '../src/model/fields';
+import { FIELD_TYPES, canBeRequired, isMissingRequired } from '../src/model/fields';
 import { duplicateField } from '../src/model/records';
-import type { Field, LayerDoc } from '../src/types';
+import type { Field, FieldType, LayerDoc } from '../src/types';
 
 function requiredText(over: Partial<Field> = {}): Field {
 	return { id: 'f_a', name: 'Title', type: 'text', required: true, ...over };
@@ -78,5 +78,65 @@ describe('required round trip', () => {
 		const doc = docWith({ id: 'f_a', name: 'Title', type: 'text', primary: true });
 		const copy = duplicateField(doc, 'f_a');
 		expect(copy?.required).toBeUndefined();
+	});
+});
+
+describe('canBeRequired', () => {
+	it('offers the flag to exactly the columns the reader fills in', () => {
+		const offered = FIELD_TYPES.filter((type) => canBeRequired(type));
+		expect(offered).toEqual([
+			'text',
+			'longtext',
+			'number',
+			'date',
+			'datetime',
+			'relation',
+			'select',
+			'multiSelect',
+			'checkbox',
+			'note',
+		]);
+	});
+
+	it('never warns about a computed column, however empty it reads', () => {
+		const lookup: Field = {
+			id: 'f_l',
+			name: 'Tags',
+			type: 'lookup',
+			required: true,
+		};
+		expect(isMissingRequired(lookup, '')).toBe(false);
+	});
+});
+
+describe('required on a column the table fills in itself', () => {
+	const computed: readonly FieldType[] = [
+		'relationBack',
+		'rollup',
+		'lookup',
+		'formula',
+		'noteProp',
+		'autoNumber',
+	];
+
+	it('is dropped on load, so no panel can show a flag that never fires', () => {
+		for (const type of computed) {
+			const doc = createEmptyDoc('Board');
+			doc.fields.push({ id: 'f_a', name: 'Col', type, required: true });
+			const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
+			const kept = parsed.fields.find((field) => field.id === 'f_a');
+			// The column itself must survive, or the next assertion would pass on
+			// a file that dropped the whole field.
+			expect(kept?.type).toBe(type);
+			expect(kept?.required).toBeUndefined();
+		}
+	});
+
+	it('is still kept on a column the reader fills in', () => {
+		const doc = createEmptyDoc('Board');
+		doc.fields.push(requiredText());
+		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
+		const kept = parsed.fields.find((field) => field.id === 'f_a');
+		expect(kept?.required).toBe(true);
 	});
 });

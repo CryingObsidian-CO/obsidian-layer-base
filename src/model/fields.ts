@@ -365,6 +365,22 @@ export function isReadOnly(type: FieldType): boolean {
 	return isDerived(type) || type === 'autoNumber';
 }
 
+/**
+ * Whether a column may be marked required.
+ *
+ * The flag means "this cell must not be left empty", so it only makes sense where
+ * the reader is the one filling the cell in. The table answers a derived column
+ * itself, and an auto number counts its own rows; neither is the reader's to
+ * leave empty. A `noteProp` is editable, but it reads another file's frontmatter,
+ * so its emptiness is not this table's to enforce — the warning would never fire.
+ */
+export function canBeRequired(type: FieldType): boolean {
+	if (type === 'noteProp') {
+		return false;
+	}
+	return !isReadOnly(type);
+}
+
 export function cellToText(field: Field, value: CellValue): string {
 	return SPECS[field.type].toText(field, value);
 }
