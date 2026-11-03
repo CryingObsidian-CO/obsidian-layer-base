@@ -154,3 +154,66 @@ export function appendOption(field: Field, name: string): SelectOption {
 	field.options.push(option);
 	return option;
 }
+
+/**
+ * The colour to store for an option, or null when it is not one we can draw.
+ *
+ * Two spellings are legitimate: a palette name, which a new option is given, and a
+ * literal `#rrggbb`, which is what the colour picker writes. Anything neither the
+ * palette nor the theme variable resolves would leave an unstyled pill, so it is
+ * refused instead of stored.
+ */
+export function normaliseOptionColor(value: string): string | null {
+	const trimmed = value.trim();
+	if (isUnset(trimmed)) {
+		return 'default';
+	}
+	return optionCssColor(trimmed) === null ? null : trimmed;
+}
+
+/**
+ * Renames an option, keeping its id.
+ *
+ * The id is what a cell stores, so renaming through a delete-and-add would orphan
+ * every row that had chosen it. Says whether the option was there.
+ */
+export function renameOption(field: Field, from: string, to: string): boolean {
+	const option = findOptionByName(field, from);
+	const name = normaliseOptionName(to);
+	if (!option || name === '') {
+		return false;
+	}
+	option.name = name;
+	return true;
+}
+
+/**
+ * Removes an option by name.
+ *
+ * Cells that had chosen it keep the stale id, exactly as they do when an option is
+ * removed in the app: they read as empty, and nothing here rewrites a row nobody
+ * asked about. Says whether the option was there.
+ */
+export function removeOption(field: Field, name: string): boolean {
+	const option = findOptionByName(field, name);
+	if (!option || !field.options) {
+		return false;
+	}
+	field.options = field.options.filter((one) => one.id !== option.id);
+	return true;
+}
+
+/** Gives an option a colour. False when either the option or the colour is unusable. */
+export function setOptionColor(
+	field: Field,
+	name: string,
+	color: string,
+): boolean {
+	const option = findOptionByName(field, name);
+	const stored = normaliseOptionColor(color);
+	if (!option || stored === null) {
+		return false;
+	}
+	option.color = stored;
+	return true;
+}

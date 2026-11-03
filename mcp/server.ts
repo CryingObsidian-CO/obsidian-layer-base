@@ -12,25 +12,44 @@
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
-import { FIELD_TYPES, formatCell, isDerived } from '../src/model/fields';
+import {
+	FIELD_TYPES,
+	canBeRequired,
+	emptyValueFor,
+	formatCell,
+	isDerived,
+} from '../src/model/fields';
 import { numberTexts } from '../src/model/numbering';
 import {
 	addField,
+	changeFieldType,
 	findRecord,
 	removeField,
 	removeRecords,
 	setCellFromText,
 	setCellValue,
 } from '../src/model/records';
+import type { SummaryKind } from '../src/model/summary';
+import { capabilityOf } from '../src/model/capabilities';
+import {
+	OPTION_PALETTE,
+	appendOption,
+	normaliseOptionColor,
+	removeOption,
+	renameOption,
+	setOptionColor,
+} from '../src/model/select-options';
 import { addBoardView, removeView, renameView } from '../src/model/views';
 import { LAYER_FORMAT_VERSION } from '../src/types';
 import type {
 	CellValue,
+	ColorRule,
 	Field,
 	FieldType,
 	Filter,
 	FilterCondition,
 	FilterOperator,
+	FormulaResultType,
 	GridView,
 	LayerDoc,
 	LayerRecord,
@@ -61,6 +80,28 @@ const ROLLUP_AGGREGATES: readonly RollupAggregate[] = [
 	'max',
 	'count',
 	'countAll',
+];
+
+/** What a column footer may report, so a typo is refused rather than stored. */
+const SUMMARY_KINDS: readonly SummaryKind[] = [
+	'none',
+	'filled',
+	'empty',
+	'unique',
+	'sum',
+	'average',
+	'min',
+	'max',
+	'earliest',
+	'latest',
+	'range',
+];
+
+/** How a formula's result may be presented, which never changes the value. */
+const FORMULA_TYPES: readonly FormulaResultType[] = [
+	'number',
+	'text',
+	'boolean',
 ];
 
 const VAULT = resolve(process.env.LAYER_VAULT ?? process.argv[2] ?? '');
@@ -202,6 +243,75 @@ function fieldIdsOf(doc: LayerDoc, raw: unknown): string[] {
 }
 
 /** What a stored view says, with ids read back as names where a caller needs them. */
+/** Column footers, by column name, keeping only totals that column can report. */
+function summariesOf(doc: LayerDoc, raw: unknown): Record<string, SummaryKind> {
+	const chosen: Record<string, SummaryKind> = {};
+	if (!raw || typeof raw !== 'object') {
+		return chosen;
+	}
+	for (const [name, kind] of Object.entries(raw as Record<string, unknown>)) {
+		const field = fieldOf(doc, name);
+		const wanted = asText(kind).trim();
+		if (wanted === '' || wanted === 'none') {
+			continue;
+		}
+		const offered = capabilityOf(field.type).summaries;
+		if (!SUMMARY_KINDS.includes(wanted as SummaryKind) || !offered.includes(wanted as SummaryKind)) {
+			throw new Error(
+				`"${field.name}" cannot report ${wanted}. It can report: ${offered.join(', ')}.`,
+			);
+		}
+		chosen[field.id] = wanted as SummaryKind;
+	}
+	return chosen;
+}
+
+/** Whole-row tints, in priority order: the first rule a row matches is the one drawn. */
+function colorRulesOf(doc: LayerDoc, raw: unknown): ColorRule[] {
+	return asList(raw).map((one) => {
+		const field = fieldOf(doc, one.field);
+		const operator = asText(one.operator) as FilterOperator;
+		if (!FILTER_OPERATORS.includes(operator)) {
+			throw new Error(
+				`Unknown operator: ${asText(one.operator)}. Use one of: ${FILTER_OPERATORS.join(', ')}.`,
+			);
+		}
+		if (!capabilityOf(field.type).filters.includes(operator)) {
+			throw new Error(`"${field.name}" cannot be tested with ${operator}.`);
+		}
+		const color = asText(one.color).trim();
+		if (!OPTION_PALETTE.includes(color)) {
+			throw new Error(
+				`Unknown colour: ${color}. Use one of: ${OPTION_PALETTE.join(', ')}.`,
+			);
+		}
+		return {
+			fieldId: field.id,
+			operator,
+			...(one.value === undefined || one.value === null
+				? {}
+				: { value: asText(one.value) }),
+			color,
+		};
+	});
+}
+
+/** Column widths, by column name: the pixels the reader dragged the edge to. */
+function widthsOf(doc: LayerDoc, raw: unknown): Record<string, number> {
+	const widths: Record<string, number> = {};
+	if (!raw || typeof raw !== 'object') {
+		return widths;
+	}
+	for (const [name, width] of Object.entries(raw as Record<string, unknown>)) {
+		const field = fieldOf(doc, name);
+		if (typeof width !== 'number' || !Number.isFinite(width)) {
+			continue;
+		}
+		widths[field.id] = Math.max(1, Math.round(width));
+	}
+	return widths;
+}
+
 function shownView(doc: LayerDoc, view: View): Record<string, unknown> {
 	const nameOf = (id: string): string =>
 		doc.fields.find((field) => field.id === id)?.name ?? id;
@@ -376,6 +486,18 @@ function writeCell(
 	field: Field,
 	raw: unknown,
 ): { ok: boolean; unknown: string[] } {
+	/*
+	 * Nothing to write is a clear, not a refusal. `null` says so outright, and an
+	 * empty string means it too — which is what emptying a cell in the app does.
+	 * Without this a number column refused `""` (its parser has no empty number) and
+	 * a cell of that type could not be emptied from here at all.
+	 */
+	if (raw === null || raw === undefined || asText(raw) === '') {
+		return {
+			ok: setCellValue(doc, recordId, field, emptyValueFor(field)),
+			unknown: [],
+		};
+	}
 	if (field.type === 'relation') {
 		const { ids, unknown } = relationCell(doc, field, raw);
 		if (unknown.length > 0) {
@@ -429,6 +551,364 @@ function unwritable(field: Field): { reason: string; tellUser: string } {
 				tellUser: 'A computed value comes from other columns and cannot be typed in.',
 			};
 	}
+}
+
+/** A caller's list of names, trimming and dropping anything that is not one. */
+function asTextList(raw: unknown): string[] {
+	return Array.isArray(raw)
+		? raw
+				.filter((one): one is string => typeof one === 'string')
+				.map((one) => one.trim())
+				.filter((one) => one !== '')
+		: [];
+}
+
+/** A caller's list of objects, dropping anything else rather than failing. */
+function asList(raw: unknown): Record<string, unknown>[] {
+	return Array.isArray(raw)
+		? raw.filter(
+				(one): one is Record<string, unknown> =>
+					typeof one === 'object' && one !== null,
+			)
+		: [];
+}
+
+/**
+ * Why a computed column's value is not in the answer, and the sentence the caller
+ * owes the reader about it.
+ *
+ * A numbering column is the exception, and it is reported: its value is a position
+ * this side can count as well as the grid can. The rest are computed by the app from
+ * things this process does not walk — an expression, a relation's other table, a
+ * note's frontmatter. A missing key reads as "empty column", which is a wrong answer
+ * to give silently, so each one says why and what to pass on.
+ */
+function unreadable(field: Field): { reason: string; tellUser: string } {
+	switch (field.type) {
+		case 'formula':
+			return {
+				reason:
+					'a formula is computed by Obsidian from its expression and is not stored in the file',
+				tellUser:
+					'A formula column is computed by Obsidian, so its values cannot be read from here. Open the table in Obsidian to see them.',
+			};
+		case 'rollup':
+			return {
+				reason:
+					'a rollup totals the rows reached through a relation, which Obsidian computes',
+				tellUser:
+					'A rollup total is computed by Obsidian from the related rows, so it cannot be read from here. Open the table in Obsidian to see it.',
+			};
+		case 'lookup':
+			return {
+				reason:
+					'a lookup shows a column of the rows a relation points at, which Obsidian computes',
+				tellUser:
+					'A lookup value comes from the related rows and is computed by Obsidian, so it cannot be read from here. Open the table in Obsidian to see it.',
+			};
+		case 'relationBack':
+			return {
+				reason:
+					'a backlink column lists the rows of another table that point here, which Obsidian computes',
+				tellUser:
+					'A backlink column is computed by Obsidian from the other table, so its values cannot be read from here. Open the table in Obsidian to see them.',
+			};
+		case 'noteProp':
+			return {
+				reason:
+					"a note property lives in the note's frontmatter, which needs Obsidian's note index",
+				tellUser:
+					"A note property lives in the note's frontmatter and cannot be read from here. Open the table in Obsidian to see it.",
+			};
+		default:
+			return {
+				reason: `a ${field.type} column computes its own value`,
+				tellUser: 'This column is computed and cannot be read from here.',
+			};
+	}
+}
+
+/** Whether the caller mentioned an argument, which is what "change only this" turns on. */
+function given(args: Record<string, unknown>, key: string): boolean {
+	return Object.prototype.hasOwnProperty.call(args, key);
+}
+
+/** The table a relation, backlink or nothing of the sort points at. */
+function linkedTable(doc: LayerDoc, sourceFieldId: string | undefined): LayerDoc {
+	const source = doc.fields.find((one) => one.id === sourceFieldId);
+	if (!source) {
+		return doc;
+	}
+	if (source.type === 'relation' && source.linkPath) {
+		return loadTable(source.linkPath).doc;
+	}
+	if (source.type === 'relationBack' && source.backPath) {
+		return loadTable(source.backPath).doc;
+	}
+	return doc;
+}
+
+/**
+ * The settings one column type carries, applied from whatever the caller passed.
+ *
+ * One function, two callers: creating a column demands the settings it cannot work
+ * without, and changing an existing one applies only what it was given. A rule
+ * copied into two tools is a rule with a mistake in it somewhere, so both come here.
+ * A type change has already dropped the settings of the type the column no longer is.
+ */
+function applyFieldSettings(
+	doc: LayerDoc,
+	field: Field,
+	args: Record<string, unknown>,
+	file: string,
+	creating: boolean,
+): string[] {
+	const changed: string[] = [];
+	const type = field.type;
+
+	if (type === 'relation') {
+		const targetPath = asText(args.targetTable).trim();
+		const shown = asText(args.linkField).trim();
+		if (shown === '') {
+			if (creating) {
+				throw new Error(
+					'A relation column needs `linkField`: the column of the target table whose values it shows. Ask which column names a row — usually the title or name column.',
+				);
+			}
+		} else {
+			// The same file means this table, which is what a self-reference is; loading
+			// it again would give the column a second copy of the document to read.
+			const elsewhere = targetPath !== '' && vaultFile(targetPath) !== file;
+			const other = elsewhere ? loadTable(targetPath).doc : doc;
+			field.linkFieldId = fieldOf(other, shown).id;
+			if (elsewhere) {
+				field.linkPath = targetPath;
+			} else {
+				delete field.linkPath;
+			}
+			changed.push('linkField');
+		}
+	}
+
+	if (type === 'relationBack') {
+		/*
+		 * The column that names a pointing row. The backlink itself still cannot be
+		 * created here — it needs the relation on the other side — but once the app has
+		 * made one, the column it reads is an ordinary setting.
+		 */
+		if (given(args, 'backTitleField')) {
+			const titleName = asText(args.backTitleField).trim();
+			if (titleName === '') {
+				delete field.backTitleFieldId;
+			} else {
+				const source = field.backPath
+					? loadTable(field.backPath).doc
+					: doc;
+				field.backTitleFieldId = fieldOf(source, titleName).id;
+			}
+			changed.push('backTitleField');
+		}
+	}
+
+	if (type === 'formula') {
+		const expression = asText(args.formula).trim();
+		if (expression === '') {
+			if (creating) {
+				throw new Error(
+					'A formula column needs `formula`, for example {Score} * 2. Ask what it should compute rather than guessing.',
+				);
+			}
+		} else {
+			field.formula = expression;
+			changed.push('formula');
+		}
+		const presented = asText(args.formulaType).trim();
+		if (presented !== '') {
+			if (!FORMULA_TYPES.includes(presented as FormulaResultType)) {
+				throw new Error(
+					`Unknown formula presentation: ${presented}. Use one of: ${FORMULA_TYPES.join(', ')}.`,
+				);
+			}
+			field.formulaType = presented as FormulaResultType;
+			changed.push('formulaType');
+		} else if (given(args, 'formulaType')) {
+			delete field.formulaType;
+			changed.push('formulaType');
+		}
+	}
+
+	if (type === 'rollup') {
+		const sourceName = asText(args.rollupSource).trim();
+		if (sourceName !== '') {
+			const source = fieldOf(doc, sourceName);
+			if (source.type !== 'relation' && source.type !== 'relationBack') {
+				throw new Error(
+					`A rollup gathers rows through a relation or backlink column, and "${source.name}" is ${source.type}.`,
+				);
+			}
+			field.rollupSourceFieldId = source.id;
+			changed.push('rollupSource');
+		} else if (creating) {
+			throw new Error(
+				'A rollup gathers rows through a relation column, so it needs `rollupSource`: the name of that column.',
+			);
+		}
+		const aggregate = asText(args.rollupAggregate).trim();
+		if (aggregate === '') {
+			if (creating) {
+				throw new Error(
+					`A rollup needs rollupAggregate, one of: ${ROLLUP_AGGREGATES.join(', ')}.`,
+				);
+			}
+		} else {
+			if (!ROLLUP_AGGREGATES.includes(aggregate as RollupAggregate)) {
+				throw new Error(
+					`A rollup needs rollupAggregate, one of: ${ROLLUP_AGGREGATES.join(', ')}.`,
+				);
+			}
+			field.rollupAggregate = aggregate as RollupAggregate;
+			changed.push('rollupAggregate');
+		}
+		const readName = asText(args.rollupField).trim();
+		if (readName === '') {
+			if (creating) {
+				throw new Error(
+					'A rollup needs `rollupField`: the column of the other table to read, such as its amount column.',
+				);
+			}
+		} else {
+			field.rollupFieldId = fieldOf(
+				linkedTable(doc, field.rollupSourceFieldId),
+				readName,
+			).id;
+			changed.push('rollupField');
+		}
+	}
+
+	if (type === 'lookup') {
+		const sourceName = asText(args.lookupSource).trim();
+		if (sourceName !== '') {
+			const source = fieldOf(doc, sourceName);
+			if (source.type !== 'relation' && source.type !== 'relationBack') {
+				throw new Error(
+					`A lookup reads rows through a relation or backlink column, and "${source.name}" is ${source.type}.`,
+				);
+			}
+			field.lookupSourceFieldId = source.id;
+			changed.push('lookupSource');
+		} else if (creating) {
+			throw new Error(
+				'A lookup reads rows through a relation column, so it needs `lookupSource`: the name of that column.',
+			);
+		}
+		const readName = asText(args.lookupField).trim();
+		if (readName === '') {
+			if (creating) {
+				throw new Error(
+					'A lookup needs `lookupField`: the column of the other table to show, such as its owner column.',
+				);
+			}
+		} else {
+			field.lookupFieldId = fieldOf(
+				linkedTable(doc, field.lookupSourceFieldId),
+				readName,
+			).id;
+			changed.push('lookupField');
+		}
+	}
+
+	if (type === 'noteProp') {
+		const noteName = asText(args.noteField).trim();
+		if (noteName !== '') {
+			const noteField = fieldOf(doc, noteName);
+			if (noteField.type !== 'note') {
+				throw new Error(
+					`A note property reads the note a note column points at, and "${noteField.name}" is ${noteField.type}.`,
+				);
+			}
+			field.noteFieldId = noteField.id;
+			changed.push('noteField');
+		} else if (creating) {
+			throw new Error(
+				'A note property reads one frontmatter key of the note a `note` column points at, so it needs `noteField`: the name of that note column.',
+			);
+		}
+		if (given(args, 'frontmatterKey')) {
+			const key = asText(args.frontmatterKey).trim();
+			if (key === '') {
+				delete field.frontmatterKey;
+			} else {
+				field.frontmatterKey = key;
+			}
+			changed.push('frontmatterKey');
+		}
+	}
+
+	if (type === 'autoNumber') {
+		if (given(args, 'numberLength')) {
+			if (typeof args.numberLength === 'number') {
+				field.numberLength = Math.max(1, Math.floor(args.numberLength));
+			} else {
+				delete field.numberLength;
+			}
+			changed.push('numberLength');
+		}
+		if (given(args, 'numberGroup')) {
+			const groupName = asText(args.numberGroup).trim();
+			if (groupName === '') {
+				delete field.numberGroupFieldId;
+			} else {
+				const groupField = fieldOf(doc, groupName);
+				if (isDerived(groupField.type)) {
+					throw new Error(
+						`A numbering column cannot count within "${groupField.name}": that column is computed, so it stores no value to count by.`,
+					);
+				}
+				field.numberGroupFieldId = groupField.id;
+			}
+			changed.push('numberGroup');
+		}
+	}
+
+	if (type === 'number') {
+		if (given(args, 'numberFormat')) {
+			const format = asText(args.numberFormat).trim();
+			if (format === '') {
+				delete field.numberFormat;
+			} else if (format !== 'plain' && format !== 'percent') {
+				throw new Error(`Unknown number format: ${format}. Use plain or percent.`);
+			} else {
+				field.numberFormat = format;
+			}
+			changed.push('numberFormat');
+		}
+		if (given(args, 'decimals')) {
+			if (typeof args.decimals === 'number') {
+				field.decimals = Math.max(0, Math.min(10, Math.floor(args.decimals)));
+			} else {
+				delete field.decimals;
+			}
+			changed.push('decimals');
+		}
+		if (given(args, 'min')) {
+			if (typeof args.min === 'number') {
+				field.min = args.min;
+			} else {
+				delete field.min;
+			}
+			changed.push('min');
+		}
+		if (given(args, 'max')) {
+			if (typeof args.max === 'number') {
+				field.max = args.max;
+			} else {
+				delete field.max;
+			}
+			changed.push('max');
+		}
+	}
+
+	return changed;
 }
 
 /**
@@ -554,7 +1034,9 @@ const tools = [
 	{
 		name: 'read_table',
 		description:
-			'Read a table: its columns, its views, and its rows. Cells are keyed by column name and select values read as option names, so what comes back can be sent straight to update_cells or add_records. Every view is reported with its own filter, sorts and hidden columns — read them before changing a view, because a view is named, not "the one on screen".',
+			`Read a table: its columns, its views, and its rows. Cells are keyed by column name and select values read as option names, so what comes back can be sent straight to update_cells or add_records. Every view is reported with its own filter, sorts and hidden columns — read them before changing a view, because a view is named, not "the one on screen".
+
+A computed column's value is not in the file. Numbering is the exception and is reported, because this side can count a row's position too; every other computed column (formula, rollup, lookup, backlinks, note property) carries an \`unreadable\` note with a \`tellUser\` sentence — pass that on rather than reporting the column as empty.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -650,7 +1132,19 @@ Two limits you have to pass on rather than work around:
 				options: {
 					type: 'array',
 					items: { type: 'string' },
-					description: 'Option names, for select and multiSelect',
+					description:
+						'Select and multiSelect only: option names, in order. Each takes the next colour of the palette, as a new option does in the app; add, remove, rename or recolour one later with update_field.',
+				},
+				required: {
+					type: 'boolean',
+					description:
+						'Whether a cell of this column must not be left empty. The ten types the reader fills in accept it; a computed column refuses it.',
+				},
+				formulaType: {
+					type: 'string',
+					enum: [...FORMULA_TYPES],
+					description:
+						'formula only: how the result is presented. It changes the dressing, never the computed value.',
 				},
 				targetTable: {
 					type: 'string',
@@ -731,6 +1225,142 @@ Two limits you have to pass on rather than work around:
 		},
 	},
 	{
+		name: 'update_field',
+		description: `Change an existing column. Only the settings you pass are changed; everything else keeps its value — which is the difference between this and deleting the column and adding it again.
+
+Everything the app's column panel can change is here: the name, the type, whether it is required, a number column's format and bounds, a choice column's options (add, remove, rename, recolour), a relation's target and shown column, a formula and how its result is presented, a rollup's source, column and aggregate, a lookup's source and column, a numbering column's digits and grouping, a note property's note column and key, and a backlink's title column.
+
+Two things to say out loud rather than discover later:
+
+- **Changing the type clears the column.** The old values are the wrong shape for the new type, so they are dropped and the call reports the count in its answer. Tell the reader before you do it, not after.
+- **Removing an option leaves the cells that held it pointing at a value the column no longer knows.** They read as empty, exactly as they do when an option is removed in the app, and nothing rewrites them.`,
+		inputSchema: {
+			type: 'object',
+			properties: {
+				path: { type: 'string', description: PATH_HINT },
+				field: { type: 'string', description: 'Column name or id' },
+				name: { type: 'string', description: 'New name for the column' },
+				type: {
+					type: 'string',
+					enum: [...FIELD_TYPES],
+					description: 'New type. This clears the column, and reports how many cells it dropped.',
+				},
+				required: {
+					type: 'boolean',
+					description:
+						'Whether a cell must not be left empty. Refused on a computed column.',
+				},
+				addOptions: {
+					type: 'array',
+					items: { type: 'string' },
+					description:
+						'Choice columns: option names to append. Each takes the next palette colour.',
+				},
+				removeOptions: {
+					type: 'array',
+					items: { type: 'string' },
+					description: 'Choice columns: option names to remove.',
+				},
+				renameOptions: {
+					type: 'array',
+					description:
+						'Choice columns: options to rename. The option id is kept, so its cells still match.',
+					items: {
+						type: 'object',
+						properties: {
+							from: { type: 'string' },
+							to: { type: 'string' },
+						},
+						required: ['from', 'to'],
+					},
+				},
+				setOptionColors: {
+					type: 'array',
+					description: `Choice columns: option colours. A colour is a palette name (${OPTION_PALETTE.join(', ')}) or a #rrggbb value, which is what the app's colour picker writes.`,
+					items: {
+						type: 'object',
+						properties: {
+							name: { type: 'string' },
+							color: { type: 'string' },
+						},
+						required: ['name', 'color'],
+					},
+				},
+				numberFormat: {
+					type: 'string',
+					enum: ['plain', 'percent', ''],
+					description: 'number only: how the value is shown. Pass "" for plain.',
+				},
+				decimals: {
+					type: 'number',
+					description: 'number only: decimal places, 0 to 10. Pass null to use as typed.',
+				},
+				min: { type: 'number', description: 'number only: smallest value. Pass null to remove.' },
+				max: { type: 'number', description: 'number only: largest value. Pass null to remove.' },
+				targetTable: {
+					type: 'string',
+					description:
+						'relation only: the .layer file whose rows a cell picks from. Pass "" for this table.',
+				},
+				linkField: {
+					type: 'string',
+					description: 'relation only: the column of the target table whose values are shown.',
+				},
+				backTitleField: {
+					type: 'string',
+					description:
+						'relationBack only: the column a pointing row is named by. Pass "" for row numbers.',
+				},
+				formula: { type: 'string', description: 'formula only: the expression.' },
+				formulaType: {
+					type: 'string',
+					enum: [...FORMULA_TYPES, ''],
+					description: 'formula only: how the result is presented. Pass "" to let the result decide.',
+				},
+				rollupSource: {
+					type: 'string',
+					description: 'rollup only: the relation or backlink column to gather rows through.',
+				},
+				rollupField: {
+					type: 'string',
+					description: 'rollup only: the column of the other table to read.',
+				},
+				rollupAggregate: {
+					type: 'string',
+					enum: [...ROLLUP_AGGREGATES],
+					description: 'rollup only: how the gathered values become one number.',
+				},
+				lookupSource: {
+					type: 'string',
+					description: 'lookup only: the relation column to read rows through.',
+				},
+				lookupField: {
+					type: 'string',
+					description: 'lookup only: the column of the other table to show.',
+				},
+				noteField: {
+					type: 'string',
+					description: 'noteProp only: the note column whose file is read.',
+				},
+				frontmatterKey: {
+					type: 'string',
+					description:
+						'noteProp only: the frontmatter key to read and write. Pass "" to use the column name.',
+				},
+				numberLength: {
+					type: 'number',
+					description: 'autoNumber only: how many digits to pad the count to.',
+				},
+				numberGroup: {
+					type: 'string',
+					description:
+						'autoNumber only: the column whose values are counted separately. Pass "" to count the whole table.',
+				},
+			},
+			required: ['path', 'field'],
+		},
+	},
+	{
 		name: 'delete_field',
 		description: 'Remove a column and the values in it.',
 		inputSchema: {
@@ -808,6 +1438,45 @@ Two limits you have to pass on rather than work around:
 					type: 'array',
 					items: { type: 'string' },
 					description: 'Columns this view hides, by name. Pass [] to show all.',
+				},
+				rowHeight: {
+					type: 'number',
+					description:
+						'Table only: the height every row starts at, in pixels. Pass null to go back to the default. A row dragged taller keeps its own height.',
+				},
+				wrap: {
+					type: 'boolean',
+					description:
+						'Table only: whether a cell’s value may run onto more lines, which makes a row taller than the height set for it.',
+				},
+				summaries: {
+					type: 'object',
+					description:
+						'Table only: what each column footer reports, by column name, as one object for the whole row of footers. A column left out is not summarised. Pass {} to clear them all.',
+				},
+				colorRules: {
+					type: 'array',
+					description:
+						'Table only: whole-row tints, in priority order — only the first rule a row matches is drawn. Pass [] to clear them.',
+					items: {
+						type: 'object',
+						properties: {
+							field: { type: 'string', description: 'Column name or id' },
+							operator: { type: 'string', enum: [...FILTER_OPERATORS] },
+							value: { type: 'string', description: 'Not needed by isEmpty, isNotEmpty, checked or unchecked.' },
+							color: {
+								type: 'string',
+								enum: [...OPTION_PALETTE],
+								description: 'A name from the palette.',
+							},
+						},
+						required: ['field', 'operator', 'color'],
+					},
+				},
+				columnWidths: {
+					type: 'object',
+					description:
+						'Table only: column widths in pixels, by column name. One object for the whole table; a column left out keeps the width it had.',
 				},
 				groupByField: {
 					type: 'string',
@@ -968,6 +1637,11 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 							: {}),
 						...(Object.keys(config).length > 0 ? { config } : {}),
 						...(isDerived(field.type) ? { computed: true } : {}),
+						// A computed column has nothing in the file to read. Saying so beats
+						// a missing key, which a caller reads as an empty column.
+						...(field.type !== 'autoNumber' && isDerived(field.type)
+							? { unreadable: unreadable(field) }
+							: {}),
 					};
 				}),
 				views: doc.views.map((view) => shownView(doc, view)),
@@ -1115,149 +1789,28 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				});
 			}
 
-			// A column that reads from something else is only usable once that something
-			// is named. Refusing beats storing a column that looks right and shows nothing.
-			if (type === 'relation') {
-				const targetPath = asText(args.targetTable).trim();
-				const elsewhere = targetPath !== '' && vaultFile(targetPath) !== file;
-				const other = elsewhere ? loadTable(targetPath).doc : doc;
-				const shown = asText(args.linkField).trim();
-				if (shown === '') {
-					throw new Error(
-						'A relation column needs `linkField`: the column of the target table whose values it shows. Ask which column names a row — usually the title or name column.',
-					);
-				}
-				field.linkFieldId = fieldOf(other, shown).id;
-				if (elsewhere) {
-					field.linkPath = targetPath;
-				}
-			}
-
 			if (type === 'relationBack') {
 				throw new Error(
 					'A backlink column has to name the relation that points at it, which this server cannot set up. Tell the user plainly that this column type has to be created in the Obsidian app, and that nothing was created here.',
 				);
 			}
 
-			if (type === 'formula') {
-				const expression = asText(args.formula).trim();
-				if (expression === '') {
+			if (args.required === true) {
+				/*
+				 * Required is a promise the reader makes about their own typing, so it is
+				 * offered only where the reader is the one filling the cell in — the same
+				 * rule the field panel follows.
+				 */
+				if (!canBeRequired(type)) {
 					throw new Error(
-						'A formula column needs `formula`, for example {Score} * 2. Ask what it should compute rather than guessing.',
+						`A ${type} column cannot be marked required: the table computes it, so it is never the reader's to leave empty.`,
 					);
 				}
-				field.formula = expression;
+				field.required = true;
 			}
 
-			if (type === 'rollup') {
-				const sourceName = asText(args.rollupSource).trim();
-				if (sourceName === '') {
-					throw new Error(
-						'A rollup gathers rows through a relation column, so it needs `rollupSource`: the name of that column.',
-					);
-				}
-				const source = fieldOf(doc, sourceName);
-				if (source.type !== 'relation') {
-					throw new Error(
-						`A rollup gathers rows through a relation column, and "${source.name}" is ${source.type}.`,
-					);
-				}
-				const readName = asText(args.rollupField).trim();
-				if (readName === '') {
-					throw new Error(
-						'A rollup needs `rollupField`: the column of the other table to read, such as its amount column.',
-					);
-				}
-				const aggregate = args.rollupAggregate as RollupAggregate;
-				if (!ROLLUP_AGGREGATES.includes(aggregate)) {
-					throw new Error(
-						`A rollup needs rollupAggregate, one of: ${ROLLUP_AGGREGATES.join(', ')}.`,
-					);
-				}
-				const other = source.linkPath ? loadTable(source.linkPath).doc : doc;
-				field.rollupSourceFieldId = source.id;
-				field.rollupFieldId = fieldOf(other, readName).id;
-				field.rollupAggregate = aggregate;
-			}
-
-			if (type === 'lookup') {
-				const sourceName = asText(args.lookupSource).trim();
-				if (sourceName === '') {
-					throw new Error(
-						'A lookup reads rows through a relation column, so it needs `lookupSource`: the name of that column.',
-					);
-				}
-				const source = fieldOf(doc, sourceName);
-				if (source.type !== 'relation') {
-					throw new Error(
-						`A lookup reads rows through a relation column, and "${source.name}" is ${source.type}.`,
-					);
-				}
-				const readName = asText(args.lookupField).trim();
-				if (readName === '') {
-					throw new Error(
-						'A lookup needs `lookupField`: the column of the other table to show, such as its owner column.',
-					);
-				}
-				const other = source.linkPath ? loadTable(source.linkPath).doc : doc;
-				field.lookupSourceFieldId = source.id;
-				field.lookupFieldId = fieldOf(other, readName).id;
-			}
-
-			if (type === 'noteProp') {
-				const noteName = asText(args.noteField).trim();
-				if (noteName === '') {
-					throw new Error(
-						'A note property reads one frontmatter key of the note a `note` column points at, so it needs `noteField`: the name of that note column.',
-					);
-				}
-				const noteField = fieldOf(doc, noteName);
-				if (noteField.type !== 'note') {
-					throw new Error(
-						`A note property reads the note a note column points at, and "${noteField.name}" is ${noteField.type}.`,
-					);
-				}
-				field.noteFieldId = noteField.id;
-				const key = asText(args.frontmatterKey).trim();
-				if (key !== '') {
-					field.frontmatterKey = key;
-				}
-			}
-
-			if (type === 'autoNumber') {
-				if (typeof args.numberLength === 'number') {
-					field.numberLength = Math.max(1, Math.floor(args.numberLength));
-				}
-				const groupName = asText(args.numberGroup).trim();
-				if (groupName !== '') {
-					const groupField = fieldOf(doc, groupName);
-					if (isDerived(groupField.type)) {
-						throw new Error(
-							`A numbering column cannot count within "${groupField.name}": that column is computed, so it stores no value to count by.`,
-						);
-					}
-					field.numberGroupFieldId = groupField.id;
-				}
-			}
-
-			if (type === 'number') {
-				const format = asText(args.numberFormat).trim();
-				if (format !== '') {
-					if (format !== 'plain' && format !== 'percent') {
-						throw new Error(`Unknown number format: ${format}. Use plain or percent.`);
-					}
-					field.numberFormat = format;
-				}
-				if (typeof args.decimals === 'number') {
-					field.decimals = Math.max(0, Math.min(10, Math.floor(args.decimals)));
-				}
-				if (typeof args.min === 'number') {
-					field.min = args.min;
-				}
-				if (typeof args.max === 'number') {
-					field.max = args.max;
-				}
-			}
+			// Everything the type carries, refused rather than stored half-built.
+			applyFieldSettings(doc, field, args, file, true);
 
 			addField(doc, field);
 			saveTable(file, doc);
@@ -1273,6 +1826,112 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				};
 			}
 			return { id: field.id, name: field.name, type: field.type };
+		}
+
+		case 'update_field': {
+			const { doc, file } = loadTable(args.path);
+			const field = fieldOf(doc, args.field);
+			const changed: string[] = [];
+			let droppedCells = 0;
+
+			if (typeof args.name === 'string' && args.name.trim() !== '') {
+				field.name = args.name.trim();
+				changed.push('name');
+			}
+
+			const nextType = asText(args.type).trim();
+			if (nextType !== '' && nextType !== field.type) {
+				if (!FIELD_TYPES.includes(nextType as FieldType)) {
+					throw new Error(`Unknown column type: ${nextType}`);
+				}
+				/*
+				 * The old values are the wrong shape for the new type, so they go: keeping
+				 * them would show one type's data in another type's cells. The count travels
+				 * back so the caller can own that loss rather than discover it.
+				 */
+				droppedCells = changeFieldType(doc, field.id, nextType as FieldType);
+				changed.push('type');
+			}
+
+			if (typeof args.required === 'boolean') {
+				if (args.required && !canBeRequired(field.type)) {
+					throw new Error(
+						`A ${field.type} column cannot be marked required: the table computes it, so it is never the reader's to leave empty.`,
+					);
+				}
+				if (args.required) {
+					field.required = true;
+				} else {
+					delete field.required;
+				}
+				changed.push('required');
+			}
+
+			if (field.type === 'select' || field.type === 'multiSelect') {
+				for (const name of asTextList(args.addOptions)) {
+					appendOption(field, name);
+					changed.push(`+option:${name}`);
+				}
+				for (const name of asTextList(args.removeOptions)) {
+					if (!removeOption(field, name)) {
+						throw new Error(
+							`No option named "${name}" on "${field.name}". Nothing was changed.`,
+						);
+					}
+					changed.push(`-option:${name}`);
+				}
+				for (const one of asList(args.renameOptions)) {
+					const from = asText(one.from).trim();
+					const to = asText(one.to).trim();
+					if (!renameOption(field, from, to)) {
+						throw new Error(
+							`Could not rename option "${from}" to "${to}" on "${field.name}". Nothing was changed.`,
+						);
+					}
+					changed.push(`rename:${from}`);
+				}
+				for (const one of asList(args.setOptionColors)) {
+					const name = asText(one.name).trim();
+					const color = asText(one.color).trim();
+					if (normaliseOptionColor(color) === null) {
+						throw new Error(
+							`"${color}" is not a colour this plugin can draw. Use a palette name (${OPTION_PALETTE.join(', ')}) or a #rrggbb value.`,
+						);
+					}
+					if (!setOptionColor(field, name, color)) {
+						throw new Error(
+							`No option named "${name}" on "${field.name}". Nothing was changed.`,
+						);
+					}
+					changed.push(`colour:${name}`);
+				}
+			}
+
+			changed.push(...applyFieldSettings(doc, field, args, file, false));
+
+			if (changed.length === 0) {
+				return {
+					id: field.id,
+					name: field.name,
+					type: field.type,
+					changed,
+					note: 'Nothing to change. Pass the settings you want changed.',
+				};
+			}
+
+			saveTable(file, doc);
+			return {
+				id: field.id,
+				name: field.name,
+				type: field.type,
+				changed,
+				...(droppedCells > 0
+					? {
+							droppedCells,
+							tellUser: `Changing this column's type cleared ${droppedCells} cell(s) that held the old type.`,
+						}
+					: {}),
+			};
 		}
 
 		case 'delete_field': {
@@ -1315,6 +1974,46 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 			if (args.hiddenFields !== undefined) {
 				view.hiddenFieldIds = fieldIdsOf(doc, args.hiddenFields);
+			}
+			// Table-only settings, refused on a board for the same reason boards are
+			// refused on a table: a setting stored for a view that cannot show it is a
+			// setting nobody can see or change.
+			const tableOnly =
+				args.rowHeight !== undefined ||
+				args.wrap !== undefined ||
+				args.summaries !== undefined ||
+				args.colorRules !== undefined ||
+				args.columnWidths !== undefined;
+			if (tableOnly && view.type !== 'grid') {
+				throw new Error(
+					'Row height, wrapping, footers, colour rules and column widths belong to a table view',
+				);
+			}
+			if (view.type === 'grid') {
+				if (given(args, 'rowHeight')) {
+					if (typeof args.rowHeight === 'number') {
+						view.rowHeight = Math.max(1, Math.round(args.rowHeight));
+					} else {
+						// Back to the preset the reader would get by choosing one.
+						delete view.rowHeight;
+					}
+				}
+				if (given(args, 'wrap')) {
+					if (args.wrap === true || args.wrap === false) {
+						view.wrap = args.wrap;
+					} else {
+						delete view.wrap;
+					}
+				}
+				if (given(args, 'summaries')) {
+					view.summaries = summariesOf(doc, args.summaries);
+				}
+				if (given(args, 'colorRules')) {
+					view.colorRules = colorRulesOf(doc, args.colorRules);
+				}
+				if (given(args, 'columnWidths')) {
+					view.columnWidths = widthsOf(doc, args.columnWidths);
+				}
 			}
 			// Board-only settings, refused on a table rather than quietly ignored.
 			const boardOnly =

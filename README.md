@@ -201,9 +201,10 @@ back in `refused`.
 | `update_cells`   | Set single cells by row id                                                                                                                                                                                                                             |
 | `delete_records` | Remove rows by id                                                                                                                                                                                                                                      |
 | `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there, a numbering column its digits and what it counts within |
+| `update_field`   | Change a column: name, type, required, number format and bounds, choice options (add, remove, rename, recolour), a relation's target, a formula, a rollup, a lookup, a numbering column's digits and grouping, a note property's key |
 | `delete_field`   | Remove a column and its values                                                                                                                                                                                                                         |
 | `add_view`       | Add a board view                                                                                                                                                                                                                                       |
-| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit                                                                                                                                                        |
+| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit; a table's row height, wrapping, footers, colour rules and column widths                                                                                 |
 | `delete_view`    | Remove a board view (the table view cannot be removed)                                                                                                                                                                                                 |
 
 ### Two things to know
@@ -214,6 +215,13 @@ back in `refused`.
 - **A view is named, never "the one on screen".** The file does not record which
   view is open and the server cannot see Obsidian, so pass the view's name or
   id. Read the views with `read_table` first.
+- **A cell is emptied by writing `""`.** Every column type, including number and
+  date, whose own parser has no empty value — the clear is what the app does when
+  a cell is emptied.
+- **A computed column's value cannot be read from here.** Numbering is the
+  exception, because a row's position can be counted on either side. Every other
+  computed column carries an `unreadable` note with a `tellUser` sentence: it is
+  the assistant's job to pass that on rather than report the column as empty.
 
 Values are text as a person would type them — a number is `"42"`, a checkbox is
 `"true"`, a date is `"2026-01-31"`, a select is the option **name**, a
