@@ -137,8 +137,11 @@ export function knownTitles(field: Field): readonly string[] {
 /**
  * The columns of a board, in the order they are drawn.
  *
- * The ungrouped column comes first and is always present, so rows that hold
- * nothing are reachable rather than silently missing from the board.
+ * The ungrouped column — the one rows with nothing in the grouping column fall into
+ * — is drawn last, after the values: the first column a reader meets should be a
+ * value the column really holds, not an empty heading in front of them. It appears
+ * when it has rows to hold, and, like any column nobody has filled, only when the
+ * board was asked to show the ones still unused.
  *
  * `showEmpty` adds the columns a column *could* hold but no row uses yet: without
  * it a board of choices only offers the values already taken, so a card could
@@ -190,18 +193,23 @@ export function groupRecords(
 		}))
 		.sort((a, b) => compareTitles(field, a.title, b.title));
 
-	const columns: KanbanColumn[] = [
-		{
+	const columns: KanbanColumn[] = [...ordered];
+
+	/*
+	 * Appended rather than prepended, and only when there is something for it to
+	 * hold: an empty "no value" column is a column nobody has filled, so it follows
+	 * the same rule as the other unused ones. It stays droppable either way — a card
+	 * dragged out of a status has to be able to end up with none.
+	 */
+	if (ungrouped.length > 0 || showEmpty) {
+		columns.push({
 			value: null,
 			title: '',
 			recordIds: ungrouped,
-			// Dropping here clears the column, which is a real thing to want: a card
-			// dragged out of a status should be able to end up with none.
 			droppable,
 			omitted: 0,
-		},
-		...ordered,
-	];
+		});
+	}
 
 	// The limit counts what is drawn; a board with more distinct values than that
 	// says how many it left out rather than pretending they do not exist.

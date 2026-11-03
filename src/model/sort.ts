@@ -80,6 +80,21 @@ function dayOrNull(
 	return (((year * 10000 + month * 100 + day) * 24 + hours) * 60) + minutes;
 }
 
+/**
+ * The number a piece of text is, or null when it is text and nothing else.
+ *
+ * Strict on purpose: `Number()` also reads `0x10`, `1e5` and `Infinity`, and a text
+ * column holding one of those is text, not a quantity.
+ */
+function plainNumber(text: string): number | null {
+	const trimmed = text.trim().replace(/%$/, '').trim();
+	if (!/^[-+]?(\d+(\.\d+)?|\.\d+)$/.test(trimmed)) {
+		return null;
+	}
+	const value = Number(trimmed);
+	return Number.isFinite(value) ? value : null;
+}
+
 /** How one record compares to another under one column's rule. */
 function compareOne(
 	field: Field,
@@ -90,8 +105,9 @@ function compareOne(
 	if (field.type === 'number' || field.type === 'autoNumber') {
 		const left = numberOrNull(field, a, cellText);
 		const right = numberOrNull(field, b, cellText);
-		// An empty cell sorts below every number, whichever way the column is
-		// ordered: "nothing" is not a small value, it is an absence.
+		// "Nothing" is not a small value, it is an absence: it sorts as the smallest
+		// thing there is, which puts it first ascending and last descending, because
+		// the whole comparison is reversed for a descending column.
 		if (left === null && right === null) {
 			return 0;
 		}
@@ -125,10 +141,23 @@ function compareOne(
 		return left - right;
 	}
 
-	// Everything else compares as the text it shows, which is also what a reader
-	// would do by eye. `localeCompare` with a numeric option keeps `item 2` before
-	// `item 10` instead of after it.
-	return textOf(field, a, cellText).localeCompare(textOf(field, b, cellText), undefined, {
+	/*
+	 * Everything else compares as the text it shows, with one exception: when both
+	 * cells read as plain numbers, they compare as numbers.
+	 *
+	 * A computed column — a lookup, a rollup, a formula — reaches this module only as
+	 * text, and the collator gets decimals wrong: `1.5` came before `1.25`, because
+	 * numeric collation compares digit runs and `5` is smaller than `25`. A text
+	 * column that happens to hold numbers reads the same way to a reader's eye.
+	 */
+	const leftText = textOf(field, a, cellText);
+	const rightText = textOf(field, b, cellText);
+	const left = plainNumber(leftText);
+	const right = plainNumber(rightText);
+	if (left !== null && right !== null) {
+		return left - right;
+	}
+	return leftText.localeCompare(rightText, undefined, {
 		numeric: true,
 		sensitivity: 'base',
 	});

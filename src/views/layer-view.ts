@@ -48,6 +48,7 @@ import {readsFromView} from '../model/capabilities';
 import {computeFormulaWithReader, type FormulaValue} from '../model/formula';
 import {aggregateRollup, type RollupValue} from '../model/rollup';
 import {numberTexts} from '../model/numbering';
+import {noteLabel} from '../model/note-path';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
 import {filterRecords} from '../model/filter';
@@ -1447,7 +1448,7 @@ export class LayerView extends TextFileView {
 			record,
 			doc.fields,
 			(field, value) => this.relationNames(field, value),
-			(field, row) => this.cellTextOf(field, row),
+			(field, row) => this.compareTextOf(field, row),
 		);
 		return color === null ? null : rowTint(color);
 	}
@@ -1861,11 +1862,29 @@ export class LayerView extends TextFileView {
 			doc.fields,
 			view?.filter,
 			(field, value) => this.relationNames(field, value),
-			(field, record) => this.cellTextOf(field, record),
+			(field, record) => this.compareTextOf(field, record),
 		);
 		return sortRecords(visible, doc.fields, view?.sorts ?? [], (field, record) =>
-			this.cellTextOf(field, record),
+			this.compareTextOf(field, record),
 		);
+	}
+
+	/**
+	 * What a cell reads as when two rows are compared: filtering, ordering, tinting.
+	 *
+	 * A note column shows the file's name or its path, by the reader's setting, so
+	 * comparing has to follow that text — a list sorted by a path nobody sees would
+	 * disagree with the column beside it. Copying and the CSV export still carry the
+	 * path, because a copied cell has to be the value the file holds.
+	 */
+	private compareTextOf(field: Field, record: LayerRecord): string | null {
+		if (field.type === 'note') {
+			const value = record.cells[field.id] ?? '';
+			return typeof value === 'string'
+				? noteLabel(value, this.plugin.settings.noteLabel)
+				: '';
+		}
+		return this.cellTextOf(field, record);
 	}
 
 	/**

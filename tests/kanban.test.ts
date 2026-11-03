@@ -57,7 +57,7 @@ describe('grouping by a choice column', () => {
 
 	it('makes one column per option that is used', () => {
 		const columns = groupRecords(rows, status, 50);
-		expect(titles(columns)).toEqual(['', 'To do', 'Done']);
+		expect(titles(columns)).toEqual(['To do', 'Done']);
 	});
 
 	it('puts the rows where they belong', () => {
@@ -72,29 +72,41 @@ describe('grouping by a choice column', () => {
 			row('x', { f_status: 's_done' }),
 			row('y', { f_status: 's_todo' }),
 		];
-		expect(titles(groupRecords(rows2, status, 50))).toEqual(['', 'To do', 'Done']);
+		expect(titles(groupRecords(rows2, status, 50))).toEqual(['To do', 'Done']);
 	});
 
 	it('shows a stale option id rather than pooling it into ungrouped', () => {
 		const rows3 = [row('z', { f_status: 'gone' })];
 		const columns = groupRecords(rows3, status, 50);
-		expect(titles(columns)).toEqual(['', 'gone']);
+		expect(titles(columns)).toEqual(['gone']);
 		expect(idsIn(columns, 'gone')).toEqual(['z']);
 	});
 });
 
 describe('the ungrouped column', () => {
-	it('comes first and holds the rows with nothing in the column', () => {
+	it('comes last and holds the rows with nothing in the column', () => {
 		const rows = [row('a', { f_text: 'x' }), row('b', {})];
 		const columns = groupRecords(rows, text, 50);
-		expect(columns[0]?.title).toBe('');
-		expect(columns[0]?.recordIds).toEqual(['b']);
+		expect(titles(columns)).toEqual(['x', '']);
+		expect(columns[columns.length - 1]?.recordIds).toEqual(['b']);
 	});
 
-	it('is always present, even when every row has a value', () => {
-		// So an empty column does not appear and vanish as rows change.
+	it('is left out when no row needs it', () => {
+		/*
+		 * An empty "no value" column is a column nobody has filled, so it follows the
+		 * same rule as every other unused one instead of sitting in front of the board
+		 * where the first real value belongs.
+		 */
 		const rows = [row('a', { f_text: 'x' })];
-		expect(groupRecords(rows, text, 50)[0]?.title).toBe('');
+		expect(titles(groupRecords(rows, text, 50))).toEqual(['x']);
+	});
+
+	it('is drawn when the board was asked to show unused columns', () => {
+		const rows = [row('a', { f_text: 'x' })];
+		expect(titles(groupRecords(rows, text, 50, undefined, true))).toEqual([
+			'x',
+			'',
+		]);
 	});
 
 	it('accepts a drop, which clears the column', () => {
@@ -103,12 +115,12 @@ describe('the ungrouped column', () => {
 		 * the ungrouped column takes a drop like any other.
 		 */
 		const columns = groupRecords([row('a', {})], text, 50);
-		expect(columns[0]?.droppable).toBe(true);
+		expect(columns[columns.length - 1]?.droppable).toBe(true);
 	});
 
 	it('treats whitespace as nothing', () => {
 		const columns = groupRecords([row('a', { f_text: '   ' })], text, 50);
-		expect(columns[0]?.recordIds).toEqual(['a']);
+		expect(columns[columns.length - 1]?.recordIds).toEqual(['a']);
 	});
 });
 
@@ -120,7 +132,7 @@ describe('grouping by other columns', () => {
 			row('c', { f_num: 2 }),
 		];
 		const columns = groupRecords(rows, number, 50);
-		expect(titles(columns)).toEqual(['', '2', '10']);
+		expect(titles(columns)).toEqual(['2', '10']);
 		expect(idsIn(columns, '2')).toEqual(['b', 'c']);
 	});
 
@@ -130,7 +142,6 @@ describe('grouping by other columns', () => {
 			row('b', { f_date: '2026-03-07' }),
 		];
 		expect(titles(groupRecords(rows, date, 50))).toEqual([
-			'',
 			'2026-03-07',
 			'2026-12-01',
 		]);
@@ -138,7 +149,7 @@ describe('grouping by other columns', () => {
 
 	it('groups a text column by its text', () => {
 		const rows = [row('a', { f_text: 'pear' }), row('b', { f_text: 'apple' })];
-		expect(titles(groupRecords(rows, text, 50))).toEqual(['', 'apple', 'pear']);
+		expect(titles(groupRecords(rows, text, 50))).toEqual(['apple', 'pear']);
 	});
 });
 
@@ -173,9 +184,8 @@ describe('columns that cannot be written', () => {
 		const rows = [row('a', {})];
 		const resolve = (): string => 'computed';
 		const columns = groupRecords(rows, formula, 50, resolve);
+		expect(titles(columns)).toEqual(['computed']);
 		expect(columns[0]?.droppable).toBe(false);
-		expect(columns[1]?.title).toBe('computed');
-		expect(columns[1]?.droppable).toBe(false);
 	});
 });
 
@@ -251,7 +261,7 @@ describe('the column limit', () => {
 		const rows = Array.from({ length: 20 }, (_, index) =>
 			row(`r${index}`, { f_num: index }),
 		);
-		// One column is the ungrouped one, so a limit of 5 draws 5 in total.
+		// A distinct value per row, and nothing ungrouped: the limit is what is drawn.
 		expect(groupRecords(rows, number, 5)).toHaveLength(5);
 	});
 });
@@ -265,34 +275,34 @@ describe('showing the columns a column could hold', () => {
 	const rows = [row('a', { f_status: 's_todo' })];
 
 	it('draws only the values in use by default', () => {
-		expect(titles(groupRecords(rows, status, 50))).toEqual(['', 'To do']);
+		expect(titles(groupRecords(rows, status, 50))).toEqual(['To do']);
 	});
 
-	it('draws every option when asked', () => {
+	it('draws every option when asked, with the unused "no value" column last', () => {
 		expect(titles(groupRecords(rows, status, 50, undefined, true))).toEqual([
-			'',
 			'To do',
 			'Doing',
 			'Done',
+			'',
 		]);
 	});
 
 	it('keeps the option order, so the unused ones land where they belong', () => {
 		const only = [row('a', { f_status: 's_done' })];
 		expect(titles(groupRecords(only, status, 50, undefined, true))).toEqual([
-			'',
 			'To do',
 			'Doing',
 			'Done',
+			'',
 		]);
 	});
 
 	it('offers both states of a checkbox', () => {
 		const ticked = [row('a', { f_box: true })];
 		expect(titles(groupRecords(ticked, box, 50, undefined, true))).toEqual([
-			'',
 			'false',
 			'true',
+			'',
 		]);
 	});
 
@@ -300,13 +310,17 @@ describe('showing the columns a column could hold', () => {
 		// A text column holds whatever the rows say; there is no list to complete.
 		const rows2 = [row('a', { f_text: 'x' })];
 		expect(titles(groupRecords(rows2, text, 50, undefined, true))).toEqual([
-			'',
 			'x',
+			'',
 		]);
 	});
 
 	it('counts the unused columns against the limit', () => {
-		// The limit is about what is drawn, so an added empty column uses one up.
+		/*
+		 * The limit is about what is drawn, and the ungrouped column comes after the
+		 * values, so a board that is already at its limit drops that one rather than
+		 * displacing a value the column really holds.
+		 */
 		expect(groupRecords(rows, status, 3, undefined, true)).toHaveLength(3);
 	});
 });
@@ -316,15 +330,29 @@ describe('clearing a card by dropping it on the ungrouped column', () => {
 		/*
 		 * Not `''` for everything: a multi-select stores a list and a checkbox stores
 		 * a boolean, so writing a blank string would be a value of the wrong shape.
+		 * A second row with nothing in it keeps the ungrouped column on the board —
+		 * it is drawn only when there is something for it to hold.
 		 */
-		const columns = groupRecords([row('a', { f_tags: ['t_a'] })], tags, 50);
-		const ungrouped = columns[0] as KanbanColumn;
+		const columns = groupRecords(
+			[row('a', { f_tags: ['t_a'] }), row('b', {})],
+			tags,
+			50,
+		);
+		const ungrouped = columns[columns.length - 1] as KanbanColumn;
 		expect(valueForColumn(tags, ungrouped)).toEqual([]);
 
-		const boxColumns = groupRecords([row('a', { f_box: true })], box, 50);
-		expect(valueForColumn(box, boxColumns[0] as KanbanColumn)).toBe(false);
+		const boxColumns = groupRecords(
+			[row('a', { f_box: true }), row('b', {})],
+			box,
+			50,
+		);
+		expect(
+			valueForColumn(box, boxColumns[boxColumns.length - 1] as KanbanColumn),
+		).toBe(false);
 
-		expect(valueForColumn(text, columns[0] as KanbanColumn)).toBe('');
+		expect(valueForColumn(text, columns[columns.length - 1] as KanbanColumn)).toBe(
+			'',
+		);
 	});
 });
 describe('dropping a card back onto the ungrouped column', () => {
