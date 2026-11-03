@@ -111,6 +111,20 @@ call(25, 'update_view', {
 	columnWidths: { 名称: 200 },
 }),
 call(26, 'update_field', { path: 'probe/选项.layer', field: '名称', type: 'autoNumber' }),
+call(27, 'update_field', {
+	path: 'probe/选项.layer',
+	field: '状态',
+	orderOptions: ['黄', '赤', '绿'],
+}),
+/*
+ * The order has to name every option exactly once; a partial list leaves the rest
+ * in no defined place, so it is refused rather than guessed at.
+ */
+call(28, 'update_field', {
+	path: 'probe/选项.layer',
+	field: '状态',
+	orderOptions: ['黄', '赤'],
+}),
 ]);
 
 const byId = new Map(messages.map((message) => [message.id, message]));
@@ -163,6 +177,11 @@ check(
 	'a type change reports the cells it dropped',
 );
 check(textOf(19).includes('+option:'), 'update_field reports the option it added');
+check(
+	!isError(27) && textOf(27).includes('option order'),
+	'update_field reorders a choice column',
+);
+check(isError(28), 'a partial option order is refused');
 check(
 	textOf(24).includes('unreadable') && textOf(24).includes('tellUser'),
 	'read_table says which column it cannot read, and what to tell the reader',
@@ -237,6 +256,10 @@ if (probeDoc !== null) {
 	);
 	const green = (status?.options ?? []).find((option) => option.name === '绿');
 	check(green?.color === '#123456', 'an option colour was stored as given');
+	check(
+		names.join(',') === '黄,赤,绿',
+		`the option order was written: ${names.join(',')}`,
+	);
 	check(
 		(status?.options ?? []).every((option) => option.color !== 'default'),
 		'a new option takes a palette colour',

@@ -111,6 +111,29 @@
 	vertical-align: middle;
 }
 
+/*
+ * Every state a header can wear is a tint over the colour above, never a colour of
+ * its own. Rows scroll underneath the header row, so a fill that replaced the
+ * header's colour with a translucent one — the column being hovered, the sorted
+ * column, the selected column — let the cell below show through it, and the header
+ * read as part of that row instead of above it. An image layer composites over the
+ * cell's own background, which stays opaque.
+ */
+.layer-grid-th.is-clickable:hover,
+.layer-grid-th.is-sorted {
+	background-image: linear-gradient(
+		var(--background-modifier-hover),
+		var(--background-modifier-hover)
+	);
+}
+
+.layer-grid-th.is-sel-col {
+	background-image: linear-gradient(
+		var(--background-modifier-active-hover),
+		var(--background-modifier-active-hover)
+	);
+}
+
 /* ---------- Resize handles ---------- */
 
 /*
@@ -731,9 +754,10 @@ body.layer-grid-resizing.is-row-resize * {
 
 /* What gets highlighted is decided in `SelectionTracker.resolve`. */
 
+/* The selected column's header takes the same tint in the header block above,
+ * where it is drawn over the header's own colour instead of replacing it. */
 .layer-grid-row.is-sel-row > .layer-grid-td,
-.layer-grid-td.is-sel-col,
-.layer-grid-th.is-sel-col {
+.layer-grid-td.is-sel-col {
 	background: var(--background-modifier-active-hover);
 }
 
@@ -794,7 +818,6 @@ body.layer-grid-dragging-range * {
 }
 
 .layer-grid-th.is-clickable:hover {
-	background: var(--background-modifier-hover);
 	color: var(--text-normal);
 }
 
@@ -1460,6 +1483,21 @@ body.layer-grid-dragging-range * {
 	margin-top: var(--size-4-4);
 }
 
+/*
+ * The rows live in their own box, so that appending a dragged row lands after the
+ * last row and not after whatever else the panel puts below it — the button that
+ * adds an option, which is a sibling of this box.
+ */
+.layer-field-option-list {
+	display: flex;
+	flex-direction: column;
+}
+
+/*
+ * Its own order, dragged by the handle rather than set per view: the board draws
+ * its columns in this order and a choice column sorts by it, so there is one
+ * place it can be changed and one meaning wherever it is read.
+ */
 .layer-field-option-row {
 	display: flex;
 	align-items: center;
@@ -1468,33 +1506,48 @@ body.layer-grid-dragging-range * {
 }
 
 /*
- * A bare text input carries the UA's `size=20` intrinsic width — around the
- * whole row budget on its own — and `min-width: auto` promotes that to a floor
- * the flex layout may not shrink past. Left at that floor the input holds its
- * width whatever the name is, the row has no room to give, and all the preview
- * gets is whatever is left over. The floor below is the same `8ch` the grid
- * inputs use: enough to keep the field readable, small enough that it can never
- * be what makes the row overflow.
+ * A handle, not a button: a click does nothing, and `touch-action: none` is what
+ * stops a drag on a touch screen from scrolling the panel instead of moving the
+ * row. It is a real button so the arrow keys reach it and a screen reader has
+ * something to name.
  */
-.layer-field-option-input {
-	flex: 1 1 auto;
-	min-width: 8ch;
+.layer-field-option-handle {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-faint);
+	cursor: grab;
+	touch-action: none;
+}
+
+.layer-field-option-handle:hover {
+	color: var(--text-muted);
+}
+
+/* The row being dragged keeps its place and only says which one is moving. */
+.layer-field-option-row.is-dragging {
+	background-color: var(--background-modifier-hover);
+	border-radius: var(--radius-s);
 }
 
 /*
- * The pill cuts its label off, but it cannot get the width to cut it down to:
- * `nowrap` makes its min-content the whole name, so with the initial
- * `min-width: auto` this span's own automatic minimum is that same full width.
- * The row then refuses to shrink, it outgrows the panel, and a long name is
- * never trimmed at all. That floor belongs to the flex item rather than to the
- * pill the grid cells share, so the host is where it has to be lifted. The cap
- * below hands the input the larger share of the row instead of whatever width a
- * long name can claim.
+ * The row is this input plus two fixed controls, so the input takes whatever is
+ * left over instead of asking for its own preferred width first: a text input's
+ * default `size` claims some 150px whatever it holds, which on a phone-width
+ * panel is most of the row. The floor is the same `8ch` the grid inputs use —
+ * enough to keep a name readable, small enough that it can never be what makes
+ * the row overflow.
  */
-.layer-field-option-preview {
-	flex: 0 1 auto;
-	min-width: 0;
-	max-width: 30%;
+.layer-field-option-input {
+	flex: 1 1 0;
+	min-width: 8ch;
 }
 
 .layer-field-option-color {
@@ -1794,11 +1847,8 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-on-accent);
 }
 /* A sorted column's header carries its direction, and its rank when there are
- * several rules, so the order can be read without opening the panel. */
-.layer-grid-th.is-sorted {
-	background: var(--background-modifier-hover);
-}
-
+ * several rules, so the order can be read without opening the panel. The column's
+ * own tint is a header state, so it lives with the other ones at the top. */
 .layer-grid-th-sort {
 	display: inline-flex;
 	align-items: center;

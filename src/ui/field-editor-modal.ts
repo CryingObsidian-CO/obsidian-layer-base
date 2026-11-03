@@ -8,7 +8,11 @@ import {
 	normaliseFormat,
 	parseOptionalNumber,
 } from '../model/number';
-import { optionColorHex } from '../model/select-options';
+import {
+	nextOptionColor,
+	optionColorHex,
+	reorderOption,
+} from '../model/select-options';
 import { aggregatesFor } from '../model/rollup';
 import { fieldsUsed, parseFormula } from '../model/formula/parser';
 import { formulaErrorMessage } from './formula-text';
@@ -25,7 +29,6 @@ import { generateId } from '../utils/id';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
 import { FieldTypeDropdown } from './field-type-picker';
 import { FormulaModal } from './formula-modal';
-import { renderOptionPill } from './option-pill';
 
 export interface NumberSettings {
 	format: NumberFormat;
@@ -170,6 +173,12 @@ export class FieldEditorModal extends AnchoredPopover {
 	private readonly isEditing: boolean;
 
 	private optionsEl: HTMLElement | null = null;
+	/*
+	 * The rows' own box, so that "the end of the list" is a place and not simply
+	 * "after everything else in the panel": the button that adds an option comes
+	 * after the rows, and appending to the panel put a dragged row below it.
+	 */
+	private optionListEl: HTMLElement | null = null;
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
 	private rollupEl: HTMLElement | null = null;
@@ -358,52 +367,60 @@ export class FieldEditorModal extends AnchoredPopover {
 			return;
 		}
 		host.empty();
+		// Emptied with the panel: a pointer drag may still be holding the old box.
+		this.optionListEl = null;
 
 		if (!usesOptions(this.type)) {
 			return;
 		}
 
 		host.createEl('h3', { text: t().fieldOptionsLabel });
+		this.optionListEl = host.createDiv({ cls: 'layer-field-option-list' });
+		const list = this.optionListEl;
 
 		for (const option of this.draftOptions) {
-			const row = host.createDiv({ cls: 'layer-field-option-row' });
+			const row = list.createDiv({ cls: 'layer-field-option-row' });
+			row.dataset.optionId = option.id;
 
+			/*
+			 * The order of this list is the order the field has: the board draws
+			 * its columns in it and the table sorts by it, so it is dragged here
+			 * rather than sorted somewhere per view.
+			 */
+			const handle = row.createEl('button', {
+				cls: 'layer-field-option-handle',
+			});
+			handle.type = 'button';
+			handle.setAttribute('aria-label', t().fieldMoveOption);
+			setTooltip(handle, t().fieldMoveOption);
+			setIcon(handle, 'grip-vertical');
+			this.attachOptionDrag(handle, row, option.id);
+
+			/*
+			 * The row is the name and the colour it wears. A pill preview used
+			 * to sit between them, showing how the option would look in a cell
+			 * — but its width came out of the name's, and the name is the one
+			 * thing here that has to stay readable. The pill in the table is a
+			 * short trip away, and the swatch beside the name already says
+			 * which colour it will be.
+			 */
 			const input = row.createEl('input', {
 				cls: 'layer-field-option-input',
 				type: 'text',
 			});
+			input.placeholder = t().fieldOptionPlaceholder;
 			input.value = option.name;
-
-			const preview = row.createSpan({ cls: 'layer-field-option-preview' });
+			input.addEventListener('input', () => {
+				option.name = input.value;
+			});
 
 			const color = row.createEl('input', {
 				cls: 'layer-field-option-color',
 				type: 'color',
 			});
 			color.value = optionColorHex(option.color);
-
-			/*
-			 * Repainted in place: swapping the pill for a fresh one keeps the
-			 * update off the text input, whose caret and focus a re-render of
-			 * the whole list would take with it.
-			 */
-			const paintPreview = (): void => {
-				preview.empty();
-				renderOptionPill(
-					preview,
-					option.name.trim() || t().fieldOptionPlaceholder,
-					option.color,
-				);
-			};
-			paintPreview();
-
-			input.addEventListener('input', () => {
-				option.name = input.value;
-				paintPreview();
-			});
 			color.addEventListener('input', () => {
 				option.color = color.value;
-				paintPreview();
 			});
 
 			const remove = row.createEl('button', {
@@ -424,8 +441,117 @@ export class FieldEditorModal extends AnchoredPopover {
 			text: t().fieldAddOption,
 		});
 		add.addEventListener('click', () => {
-			this.draftOptions.push({ id: generateId('o'), name: '', color: 'default' });
+			/*
+			 * The same colour the cell dropdown would hand the option, so an
+			 * option looks the same however it was created. A draft with no
+			 * colour of its own previews as the faint neutral pill, which is
+			 * what a cell would show too — but only ever by accident here.
+			 */
+			this.draftOptions.push({
+				id: generateId('o'),
+				name: '',
+				color: nextOptionColor(this.draftOptions),
+			});
 			this.renderOptions();
+		});
+	}
+
+	/**
+	 * Reorders one option by dragging its handle, or with the arrow keys.
+	 *
+	 * The document is listened to rather than the handle, because the row itself
+	 * moves underneath the pointer: rows are shifted in the DOM as the pointer
+	 * crosses them and the draft list follows, which leaves the text inputs and
+	 * their carets alone. A re-render per crossing would take the focus with it.
+	 */
+	private attachOptionDrag(
+		handle: HTMLElement,
+		row: HTMLElement,
+		optionId: string,
+	): void {
+		handle.addEventListener('pointerdown', (event: PointerEvent) => {
+			if (event.pointerType === 'mouse' && event.button !== 0) {
+				return;
+			}
+			const list = this.optionListEl;
+			if (!list) {
+				return;
+			}
+			// Nothing else may happen on this press: no text selection, no scroll.
+			event.preventDefault();
+
+			let dragging = false;
+			const rows = (): HTMLElement[] =>
+				Array.from(
+					list.querySelectorAll<HTMLElement>('.layer-field-option-row'),
+				);
+
+			const onMove = (move: PointerEvent): void => {
+				if (!row.isConnected) {
+					stop();
+					return;
+				}
+				if (!dragging) {
+					dragging = true;
+					row.addClass('is-dragging');
+				}
+				const others = rows().filter((other) => other !== row);
+				/*
+				 * Where the pointer says it should land, counted over the rows it
+				 * is not one of — which is also the index it takes in the moved
+				 * list, because taking it out shifts nothing that follows it.
+				 */
+				let target = others.length;
+				for (const [index, other] of others.entries()) {
+					const box = other.getBoundingClientRect();
+					if (move.clientY < box.top + box.height / 2) {
+						target = index;
+						break;
+					}
+				}
+				const next = reorderOption(this.draftOptions, optionId, target);
+				if (!next) {
+					return;
+				}
+				this.draftOptions = next;
+				list.insertBefore(row, others[target] ?? null);
+			};
+
+			function stop(): void {
+				document.removeEventListener('pointermove', onMove);
+				document.removeEventListener('pointerup', stop);
+				document.removeEventListener('pointercancel', stop);
+				row.removeClass('is-dragging');
+			}
+
+			document.addEventListener('pointermove', onMove);
+			document.addEventListener('pointerup', stop);
+			document.addEventListener('pointercancel', stop);
+		});
+
+		handle.addEventListener('keydown', (event: KeyboardEvent) => {
+			const step =
+				event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+			if (step === 0) {
+				return;
+			}
+			event.preventDefault();
+			const from = this.draftOptions.findIndex((one) => one.id === optionId);
+			const next = reorderOption(this.draftOptions, optionId, from + step);
+			if (!next) {
+				return;
+			}
+			this.draftOptions = next;
+			this.renderOptions();
+			/*
+			 * The list is rebuilt, so the handle that was pressed has to be found
+			 * again; without this a keyboard user loses their place on every step.
+			 */
+			this.optionListEl
+				?.querySelector<HTMLElement>(
+					`.layer-field-option-row[data-option-id="${optionId}"] .layer-field-option-handle`,
+				)
+				?.focus();
 		});
 	}
 
@@ -1244,5 +1370,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.typeDropdown?.close();
 		this.typeDropdown = null;
 		this.contentEl.empty();
+		this.optionsEl = null;
+		this.optionListEl = null;
 	}
 }

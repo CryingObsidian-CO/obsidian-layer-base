@@ -1,5 +1,6 @@
 import type { CellValue, Field, LayerRecord, Sort, SortOrder } from '../types';
-import { formatCell } from './fields';
+import { formatCell, optionIds } from './fields';
+import { optionRanks } from './select-options';
 
 /**
  * Ordering rows by one or more columns.
@@ -95,6 +96,67 @@ function plainNumber(text: string): number | null {
 	return Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Where a choice cell sits in its column's option order, or null when it holds
+ * nothing.
+ *
+ * A select cell holds one option id. A multiple-choice cell holds several, and
+ * those are shown in the option order too, so the comparison is between the rank
+ * lists themselves: `{A, C}` comes before `{B}` when A is defined before B, and
+ * `{A}` before `{A, C}` because the shorter list is a prefix of the longer one.
+ *
+ * A cell holding an id whose option is gone has a value but no place in the
+ * order; it sorts after the options that still exist rather than passing for an
+ * empty cell.
+ */
+function rankListOf(
+	field: Field,
+	record: LayerRecord,
+	ranks: Map<string, number>,
+): number[] | null {
+	const value = record.cells[field.id] ?? '';
+	if (field.type === 'select') {
+		if (typeof value !== 'string' || value === '') {
+			return null;
+		}
+		return [ranks.get(value) ?? Number.MAX_SAFE_INTEGER];
+	}
+	const ids = optionIds(value);
+	if (ids.length === 0) {
+		return null;
+	}
+	const known = ids
+		.map((id) => ranks.get(id))
+		.filter((rank): rank is number => rank !== undefined)
+		.sort((left, right) => left - right);
+	if (known.length === 0) {
+		return [Number.MAX_SAFE_INTEGER];
+	}
+	if (known.length < ids.length) {
+		known.push(Number.MAX_SAFE_INTEGER);
+	}
+	return known;
+}
+
+/** Two rank lists: an absent one first, a shorter prefix before its extension. */
+function compareRankLists(
+	left: number[] | null,
+	right: number[] | null,
+): number {
+	if (left === null || right === null) {
+		return left === right ? 0 : left === null ? -1 : 1;
+	}
+	const shared = Math.min(left.length, right.length);
+	for (let index = 0; index < shared; index += 1) {
+		const leftRank = left[index] ?? 0;
+		const rightRank = right[index] ?? 0;
+		if (leftRank !== rightRank) {
+			return leftRank - rightRank;
+		}
+	}
+	return left.length - right.length;
+}
+
 /** How one record compares to another under one column's rule. */
 function compareOne(
 	field: Field,
@@ -139,6 +201,21 @@ function compareOne(
 		const left = a.cells[field.id] === true ? 1 : 0;
 		const right = b.cells[field.id] === true ? 1 : 0;
 		return left - right;
+	}
+
+	/*
+	 * Choice columns order by the options themselves, not by the words in the
+	 * cells: the option list is the one order such a field has — the board draws
+	 * its columns in it and the dropdown lists it in it — so a table sorted this
+	 * way agrees with the board rather than arguing with it. Sorting these by
+	 * name is what made the two disagree.
+	 */
+	if (field.type === 'select' || field.type === 'multiSelect') {
+		const ranks = optionRanks(field.options);
+		return compareRankLists(
+			rankListOf(field, a, ranks),
+			rankListOf(field, b, ranks),
+		);
 	}
 
 	/*

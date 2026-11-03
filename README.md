@@ -116,6 +116,9 @@ Four rules keep the data safe across edits:
 
 - `cells` is keyed by **field id**, so renaming a column never orphans values.
 - `select` cells store **option ids**, so renaming an option never orphans values.
+- The order of a column's `options` **is** that column's order: a board draws its
+  columns in it and a choice column sorts by it, so reordering options moves
+  nothing but positions — no cell changes.
 - A computed column (formula, rollup, lookup, backlinks, note property) stores
   nothing.
 - A `note property` value lives in that note's frontmatter, not in the `.layer`.
@@ -201,7 +204,7 @@ back in `refused`.
 | `update_cells`   | Set single cells by row id                                                                                                                                                                                                                             |
 | `delete_records` | Remove rows by id                                                                                                                                                                                                                                      |
 | `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there, a numbering column its digits and what it counts within |
-| `update_field`   | Change a column: name, type, required, number format and bounds, choice options (add, remove, rename, recolour), a relation's target, a formula, a rollup, a lookup, a numbering column's digits and grouping, a note property's key |
+| `update_field`   | Change a column: name, type, required, number format and bounds, choice options (add, remove, rename, recolour, reorder), a relation's target, a formula, a rollup, a lookup, a numbering column's digits and grouping, a note property's key |
 | `delete_field`   | Remove a column and its values                                                                                                                                                                                                                         |
 | `add_view`       | Add a board view                                                                                                                                                                                                                                       |
 | `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit; a table's row height, wrapping, footers, colour rules and column widths                                                                                 |

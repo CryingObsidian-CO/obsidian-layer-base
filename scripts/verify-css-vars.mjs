@@ -104,7 +104,14 @@ console.log(`Checked against ${asarPath} (${basename(asarPath)}, app.css ${css.l
 
 let bad = 0;
 for (const v of used) {
-	const hits = [...css.matchAll(new RegExp('(?:^|\\n)\\s*' + v.replace(/-/g, '\\-') + '\\s*:', 'g'))].length;
+	/*
+	 * A declaration starts a line, follows a `{`, or follows a `;`. The app ships
+	 * this stylesheet pretty-printed in some builds and folded onto a single line
+	 * in others, and anchoring on the line start alone reported every variable as
+	 * missing the first time that changed.
+	 */
+	const pattern = '(?:^|[;{])\\s*' + v.replace(/-/g, '\\-') + '\\s*:';
+	const hits = [...css.matchAll(new RegExp(pattern, 'g'))].length;
 	if (hits === 0) {
 		bad++;
 		console.log(`MISSING  ${v}`);

@@ -112,6 +112,49 @@ export function nextOptionColor(
 	return OPTION_PALETTE[used % OPTION_PALETTE.length] ?? 'blue';
 }
 
+/** Where each option sits in the field's order, by id, first mention winning. */
+export function optionRanks(
+	options: readonly SelectOption[] | undefined,
+): Map<string, number> {
+	const ranks = new Map<string, number>();
+	options?.forEach((option, index) => {
+		if (!ranks.has(option.id)) {
+			ranks.set(option.id, index);
+		}
+	});
+	return ranks;
+}
+
+/**
+ * The list with one option moved, or null when nothing would move.
+ *
+ * `to` is the index the option ends up at, counted in the finished list, so a
+ * caller that has worked out "put this one third" passes 2. Ids are untouched:
+ * this is the one option edit that cannot orphan a cell, unlike a rename or a
+ * removal, because a cell stores an id and not a position.
+ */
+export function reorderOption(
+	options: readonly SelectOption[],
+	id: string,
+	to: number,
+): SelectOption[] | null {
+	const from = options.findIndex((option) => option.id === id);
+	if (from < 0 || !Number.isFinite(to)) {
+		return null;
+	}
+	const target = Math.max(0, Math.min(Math.round(to), options.length - 1));
+	if (target === from) {
+		return null;
+	}
+	const next = [...options];
+	const moved = next.splice(from, 1)[0];
+	if (!moved) {
+		return null;
+	}
+	next.splice(target, 0, moved);
+	return next;
+}
+
 /** A field's option by name, ignoring case and surrounding spaces. */
 export function findOptionByName(
 	field: Field,

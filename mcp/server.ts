@@ -54,6 +54,7 @@ import type {
 	LayerDoc,
 	LayerRecord,
 	RollupAggregate,
+	SelectOption,
 	Sort,
 	View,
 } from '../src/types';
@@ -1286,6 +1287,12 @@ Two things to say out loud rather than discover later:
 						required: ['name', 'color'],
 					},
 				},
+				orderOptions: {
+					type: 'array',
+					items: { type: 'string' },
+					description:
+						'Choice columns: every option name, in the order they should appear, applied after any options this call adds. This is the order the board draws its columns in and the order a choice column sorts by, so it is the same list the app lets the reader drag. Name each option exactly once.',
+				},
 				numberFormat: {
 					type: 'string',
 					enum: ['plain', 'percent', ''],
@@ -1904,6 +1911,41 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 						);
 					}
 					changed.push(`colour:${name}`);
+				}
+				if (Array.isArray(args.orderOptions)) {
+					/*
+					 * A whole order rather than a move, because a partial order is
+					 * ambiguous about what happens to the options it leaves out. Every
+					 * existing option has to be named exactly once, and the list is
+					 * applied after any option this call added, so the caller can add
+					 * and place in one go.
+					 */
+					const names = asTextList(args.orderOptions);
+					const current = field.options ?? [];
+					if (names.length !== current.length) {
+						throw new Error(
+							`Reordering needs every option name exactly once: "${field.name}" has ${current.length} option(s) and ${names.length} name(s) were given. Nothing was changed.`,
+						);
+					}
+					const remaining = [...current];
+					const ordered: SelectOption[] = [];
+					for (const name of names) {
+						const at = remaining.findIndex(
+							(option) =>
+								option.name.trim().toLowerCase() === name.toLowerCase(),
+						);
+						if (at < 0) {
+							throw new Error(
+								`"${name}" is not an option of "${field.name}", or it was already named. Nothing was changed.`,
+							);
+						}
+						const moved = remaining.splice(at, 1)[0];
+						if (moved) {
+							ordered.push(moved);
+						}
+					}
+					field.options = ordered;
+					changed.push('option order');
 				}
 			}
 
