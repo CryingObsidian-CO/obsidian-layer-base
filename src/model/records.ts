@@ -5,12 +5,11 @@ import { forgetFieldSize, forgetRecordSize } from './layout';
 import {
 	cellFromText,
 	emptyValueFor,
-	formatCell,
 	isEmptyCell,
 	optionIds,
 	usesOptions,
 } from './fields';
-import { nextNumber, storedNumber } from './auto-number';
+
 
 export function findRecord(
 	doc: LayerDoc,
@@ -38,11 +37,6 @@ export function setCellValue(
 	} else {
 		record.cells[field.id] = value;
 	}
-	for (const candidate of doc.fields) {
-		if (candidate.type === 'autoNumber' && candidate.numberGroupFieldId === field.id) {
-			assignNumber(doc, candidate, record);
-		}
-	}
 	return true;
 }
 
@@ -58,11 +52,9 @@ function matchesFieldShape(field: Field, value: CellValue): boolean {
 		case 'lookup':
 		case 'formula':
 		case 'noteProp':
+		case 'autoNumber':
 			// Derived, never stored: there is no value a caller could set here.
 			return false;
-		case 'autoNumber':
-			// Stored, unlike a derived column: the number the table handed out.
-			return typeof value === 'number';
 		case 'multiSelect':
 		case 'relation':
 			return Array.isArray(value);
@@ -166,106 +158,9 @@ function insertRecordAt(doc: LayerDoc, index: number): LayerRecord {
 		cells: {},
 	};
 	doc.records.splice(index, 0, record);
-	for (const field of doc.fields) {
-		if (field.type === 'autoNumber') {
-			assignNumber(doc, field, record);
-		}
-	}
 	return record;
 }
 
-/**
- * The value a row has in the column its numbers are grouped by, as text.
- *
- * Read through `formatCell` so grouping follows what the reader sees: two rows
- * showing the same choice group together even if they store different ids.
- */
-function groupValueOf(
-	doc: LayerDoc,
-	record: LayerRecord,
-	groupFieldId: string,
-): string {
-	if (groupFieldId === '') {
-		return '';
-	}
-	const groupField = doc.fields.find((field) => field.id === groupFieldId);
-	if (!groupField) {
-		return '';
-	}
-	return formatCell(groupField, record.cells[groupField.id] ?? '');
-}
-
-/** The numbers already issued within one group, ignoring one row. */
-function numbersInGroup(
-	doc: LayerDoc,
-	field: Field,
-	group: string,
-	exceptRecordId: string,
-): number[] {
-	const groupFieldId = field.numberGroupFieldId ?? '';
-	const taken: number[] = [];
-	for (const record of doc.records) {
-		if (record.id === exceptRecordId) {
-			continue;
-		}
-		if (groupValueOf(doc, record, groupFieldId) !== group) {
-			continue;
-		}
-		const number = storedNumber(record.cells[field.id] ?? '');
-		if (number !== null) {
-			taken.push(number);
-		}
-	}
-	return taken;
-}
-
-/**
- * Hands one row the next number in its group. Called when a row is created and
- * when its group changes, so a moved row takes its new group's next number and
- * only that row changes.
- */
-export function assignNumber(
-	doc: LayerDoc,
-	field: Field,
-	record: LayerRecord,
-): void {
-	const group = groupValueOf(doc, record, field.numberGroupFieldId ?? '');
-	const taken = numbersInGroup(doc, field, group, record.id);
-	record.cells[field.id] = nextNumber(taken);
-}
-
-/** Numbers every row that has none yet, in the order the rows are in. */
-export function backfillNumbers(doc: LayerDoc, field: Field): void {
-	for (const record of doc.records) {
-		if (storedNumber(record.cells[field.id] ?? '') === null) {
-			assignNumber(doc, field, record);
-		}
-	}
-}
-
-/** Numbers every row again from the start, for when the grouping changes. */
-/**
- * Numbers every row again from the start, in the order given.
- *
- * The order is passed in rather than read from the document, so a table shown
- * sorted can be numbered in the order the reader sees.
- *
- * Every number in the column is cleared first, not just those in the order passed
- * in: issuing a number asks which ones are already taken across the whole table,
- * so a number left on a row outside the sequence would count as taken.
- */
-export function renumberAll(
-	doc: LayerDoc,
-	field: Field,
-	order?: readonly LayerRecord[],
-): void {
-	for (const record of doc.records) {
-		delete record.cells[field.id];
-	}
-	for (const record of order ?? doc.records) {
-		assignNumber(doc, field, record);
-	}
-}
 export function clearCells(
 	doc: LayerDoc,
 	recordIds: readonly string[],

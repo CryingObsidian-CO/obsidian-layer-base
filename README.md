@@ -26,6 +26,13 @@ table or a board, independent of your vault's folder structure.
 - **16 column types** — text, long text, number, date, date and time, relation,
   lookup, backlinks, auto number, rollup, formula, select, multi-select,
   checkbox, note, note property.
+- **Formulas read computed columns** — a formula naming a relation column gets the
+  names of the linked rows, and one naming a lookup, rollup, backlink or note
+  property gets what the cell shows. A number column hands the formula its number,
+  not the text it is dressed in on screen.
+- **Required columns** — a column you fill in yourself can be marked required; a
+  column the table computes (formula, rollup, lookup, backlinks, note property,
+  numbering) is not offered that option.
 - **Column totals** — an opt-in footer per column: filled, empty, unique,
   sum, average, min, max, or a date range.
 - **Undo and redo** — for everything that changes data. View settings
@@ -64,6 +71,12 @@ a folder in the file explorer (**New board**).
   the card title and the columns a card lists.
 - **Column totals** — click a column's footer to pick what it reports. Nothing
   is totalled until you ask.
+- **Numbering** — an auto number column counts "which one of its group this is",
+  and nothing is written to the file: adding, removing or regrouping rows shifts
+  the numbers after them. It is a position, not a permanent id — build a fixed id
+  with a formula if you need one. A formula reads the padded text the cell shows
+  (`{Module} + "-" + {No}` gives `MOD-01`); write `{No} * 1` when you mean
+  arithmetic.
 - **Undo** — `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`, `Ctrl/Cmd+Y`, but only inside a
   table or board. They are bound by the view itself rather than as global
   hotkeys, so they never interfere with the editor. The commands appear in the
@@ -175,19 +188,19 @@ back in `refused`.
 
 ### Tools
 
-| Tool             | What it does                                                                                    |
-|------------------|-------------------------------------------------------------------------------------------------|
-| `list_tables`    | Every `.layer` in the vault, plus the vault root the paths are relative to                      |
-| `create_table`   | Create an empty `.layer` file; an existing file is never overwritten                            |
-| `read_table`     | Columns, views (with each view's filter, sorts, hidden columns) and rows                        |
-| `add_records`    | Append rows, keyed by column name                                                               |
-| `update_cells`   | Set single cells by row id                                                                      |
-| `delete_records` | Remove rows by id                                                                               |
-| `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there |
-| `delete_field`   | Remove a column and its values                                                                  |
-| `add_view`       | Add a board view                                                                                |
-| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit |
-| `delete_view`    | Remove a board view (the table view cannot be removed)                                          |
+| Tool             | What it does                                                                                                                                                                                                                                           |
+|------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `list_tables`    | Every `.layer` in the vault, plus the vault root the paths are relative to                                                                                                                                                                             |
+| `create_table`   | Create an empty `.layer` file; an existing file is never overwritten                                                                                                                                                                                   |
+| `read_table`     | Columns, views (with each view's filter, sorts, hidden columns) and rows                                                                                                                                                                               |
+| `add_records`    | Append rows, keyed by column name                                                                                                                                                                                                                      |
+| `update_cells`   | Set single cells by row id                                                                                                                                                                                                                             |
+| `delete_records` | Remove rows by id                                                                                                                                                                                                                                      |
+| `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there, a numbering column its digits and what it counts within |
+| `delete_field`   | Remove a column and its values                                                                                                                                                                                                                         |
+| `add_view`       | Add a board view                                                                                                                                                                                                                                       |
+| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit                                                                                                                                                        |
+| `delete_view`    | Remove a board view (the table view cannot be removed)                                                                                                                                                                                                 |
 
 ### Two things to know
 
@@ -204,6 +217,9 @@ multi-select is `"Red, Blue"`. The column's own parser decides, and every save
 goes through the same parse and serialize the plugin uses, so a file stays valid
 whatever a caller asks for.
 
+Numbering is the exception: the plugin counts it from the row order, `read_table`
+reports it, and a write to it is refused — it is not a stored value.
+
 ### If something goes wrong
 
 | Symptom                             | Cause                                                          |
@@ -216,6 +232,8 @@ whatever a caller asks for.
 ## Known limitations
 
 - A board shows a note property but cannot edit it; editing is a table action.
+- A numbering column is counted from the row order: adding, removing or regrouping
+  rows shifts the numbers after them. It is a position, not a permanent id.
 - Filtering or sorting a formula column recomputes the formula for each
   comparison, which is noticeable on very large tables.
 - A note property is read when the view opens. Changes made to that note

@@ -46,7 +46,7 @@ import {
 } from '../model/fields';
 import {computeFormulaWithReader, type FormulaValue} from '../model/formula';
 import {aggregateRollup, type RollupValue} from '../model/rollup';
-import {backfillNumbers, renumberAll} from '../model/records';
+import {numberTexts} from '../model/numbering';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
 import {filterRecords} from '../model/filter';
@@ -69,7 +69,8 @@ import {
 	setWrap,
 	type RowHeightPreset,
 } from '../model/layout';
-import {rowColorOf, rowTint, setColorRules} from '../model/colors';
+import {colorRulesOf, rowColorOf, rowTint, setColorRules} from '../model/colors';
+import {affectedByEdit} from '../model/dependencies';
 import type {
 	CellValue,
 	ColorRule,
@@ -138,6 +139,13 @@ export class LayerView extends TextFileView {
 		string,
 		Map<string, BacklinkRow[]> | null
 	>();
+	/**
+	 * The number each row shows, per numbering column, for the current render pass.
+	 *
+	 * Counted once rather than per cell: the count walks every row in the group, and
+	 * asking that per cell would make a table cost its own square.
+	 */
+	private readonly numbers = new Map<string, Map<string, string>>();
 	/** A repaint is already scheduled, so a burst of changes paints once. */
 	private repaintQueued = false;
 	private statusEl: HTMLElement | null = null;
@@ -650,6 +658,7 @@ export class LayerView extends TextFileView {
 		// The reverse lookups belong to the tree about to be thrown away.
 		this.backIndexes.clear();
 		this.backRows.clear();
+		this.numbers.clear();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
 
@@ -780,6 +789,9 @@ export class LayerView extends TextFileView {
 				backText: (field, recordId) => this.backText(field, recordId),
 				rollupText: (field, recordId) => this.rollupText(field, recordId),
 				lookupText: (field, recordId) => this.lookupText(field, recordId),
+				autoNumberText: (field, recordId) =>
+					this.autoNumberCellText(field, recordId),
+				cellText: (field, record) => this.displayText(field, record),
 				formulaText: (field, recordId) =>
 					this.formulaText(field, recordId),
 				onSelectionChange: (selection, range) => {
@@ -966,8 +978,8 @@ export class LayerView extends TextFileView {
 			return;
 		}
 
-		// A field edit can add a column, change a type (which clears the column) or
-		// renumber it, so the whole application is one step to take back.
+		// A field edit can add a column or change a type, which clears the column,
+		// so the whole application is one step to take back.
 		this.beginEdit(field === null ? 'add-field' : 'field-edit');
 
 		let written: Field;
@@ -1037,35 +1049,24 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Writes an auto number's padding and grouping, numbering existing rows. */
+	/**
+	 * Writes a numbering column's padding and grouping.
+	 *
+	 * Nothing is numbered here: the number is counted from the row order as the
+	 * table is drawn, so changing either setting changes what every cell reads
+	 * without touching a single row.
+	 */
 	private applyAutoNumberSettings(field: Field, settings: AutoNumberSettings): void {
 		if (field.type !== 'autoNumber') {
 			delete field.numberLength;
 			delete field.numberGroupFieldId;
 			return;
 		}
-		const groupingChanged =
-			(field.numberGroupFieldId ?? '') !== settings.groupFieldId;
 		field.numberLength = Math.max(1, Math.min(Math.floor(settings.length), 12));
 		if (settings.groupFieldId === '') {
 			delete field.numberGroupFieldId;
 		} else {
 			field.numberGroupFieldId = settings.groupFieldId;
-		}
-		const doc = this.doc;
-		if (doc) {
-			if (settings.renumber) {
-				/*
-				 * Asked for explicitly, so it runs in the order the reader is looking at
-				 * rather than the stored order: after sorting a table, "renumber" means
-				 * number what is on screen.
-				 */
-				renumberAll(doc, field, this.orderedRecords(doc, this.activeView()));
-			} else if (groupingChanged) {
-				renumberAll(doc, field);
-			} else {
-				backfillNumbers(doc, field);
-			}
 		}
 	}
 
@@ -1869,6 +1870,8 @@ export class LayerView extends TextFileView {
 		switch (field.type) {
 			case 'noteProp':
 				return this.notePropValue(field, record.id);
+			case 'autoNumber':
+				return this.autoNumberText(field, record.id);
 			case 'relationBack':
 				return this.backText(field, record.id).text;
 			case 'formula':
@@ -1910,6 +1913,9 @@ export class LayerView extends TextFileView {
 		}
 		if (field.type === 'noteProp') {
 			return this.notePropValue(field, record.id);
+		}
+		if (field.type === 'autoNumber') {
+			return this.autoNumberText(field, record.id);
 		}
 		return formatCell(field, value);
 	}
@@ -2081,13 +2087,19 @@ export class LayerView extends TextFileView {
 	 * What one column hands a formula.
 	 *
 	 * Asked only for the columns the document cannot read on its own: a relation
-	 * keeps row ids where the grid shows names, and a lookup, rollup or reverse
-	 * relation keeps nothing at all. Every other type answers `undefined` and is
-	 * read from its stored cell — which matters, because a number column must
-	 * arrive as a number or `+` would join it as text instead of adding it.
+	 * keeps row ids where the grid shows names, and a lookup, rollup, reverse
+	 * relation, note property or numbering keeps nothing at all. Every other type
+	 * answers `undefined` and is read from its stored cell — which matters, because
+	 * a number column must arrive as a number or `+` would join it as text instead
+	 * of adding it.
 	 *
 	 * A rollup's total goes back to being a number for that same reason: on screen
 	 * it is dressed text, but a formula that adds to it means arithmetic.
+	 *
+	 * A numbering cell answers with the padded text the cell shows, not with the
+	 * bare number: what a reader builds from it is an identifier — `{Module}-{No}`
+	 * has to read `MOD-01`, not `MOD-1` — and `{No} * 1` is there for the rare
+	 * formula that means arithmetic.
 	 */
 	private formulaCellValue(
 		field: Field,
@@ -2101,6 +2113,8 @@ export class LayerView extends TextFileView {
 				return this.backText(field, recordId).text;
 			case 'lookup':
 				return this.lookupText(field, recordId).text;
+			case 'autoNumber':
+				return this.autoNumberText(field, recordId);
 			case 'rollup': {
 				const answer = this.rollupAnswer(field, record, recordId);
 				if (answer === null) {
@@ -2115,7 +2129,37 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/** What a rollup gathered from the rows this row is linked to. */
+	/**
+	 * What a numbering cell reads: its position within its group, padded.
+	 *
+	 * Counted for the whole column at once and kept for this render pass, because
+	 * the count walks every row of the group — asking that per cell would make the
+	 * table cost its own square.
+	 */
+	private autoNumberText(field: Field, recordId: string): string {
+		const doc = this.doc;
+		if (!doc) {
+			return '';
+		}
+		let texts = this.numbers.get(field.id);
+		if (!texts) {
+			// The live column, not the copy the paint was handed, so a setting
+			// changed since the tree was built cannot be counted with.
+			const target = doc.fields.find((other) => other.id === field.id) ?? field;
+			texts = numberTexts(doc, target);
+			this.numbers.set(field.id, texts);
+		}
+		return texts.get(recordId) ?? '';
+	}
+
+	/** The same reading in the shape the grid asks for: a number, so it lines up. */
+	private autoNumberCellText(field: Field, recordId: string): CellText {
+		return {text: this.autoNumberText(field, recordId), broken: 0, kind: 'number'};
+	}
+
+	/**
+	 * What a rollup gathered from the rows this row is linked to.
+	 */
 	private rollupText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		const record = doc ? findRecord(doc, recordId) : undefined;
@@ -2631,29 +2675,63 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		this.commitEdit();
-		/*
-		 * A value that is part of the order has to be allowed to move its row. The
-		 * grid repaints the one cell it changed, which is right for every other
-		 * column — redrawing the table on each keystroke would fight the editor —
-		 * but a sorted column has to be rendered again for its row to move.
-		 */
-		if (this.changesTheOrder(field)) {
-			this.render();
-		}
+		this.refreshAfterEdit(recordId, field);
 	}
 
 	/**
-	 * Whether writing this column can change where rows belong.
+	 * Redraws whatever an edit made stale, and as little of it as it can.
 	 *
-	 * Only the columns the view sorts by matter: no other value takes part in the
-	 * comparison, so no other value can move a row.
+	 * The grid repaints the one cell it edited, which is right for a value nothing
+	 * else reads. A value that is read — by the columns beside it, by a colour rule,
+	 * by the totals under it, by the filter — is another matter: those keep showing
+	 * the answer from before the edit unless they are drawn again here.
+	 *
+	 * Two paths. If an affected column takes part in the order or the filter, the
+	 * row can move or leave, and only a whole redraw can show that. Otherwise the
+	 * row stays where it is, and its cells, its wash and the totals are drawn again
+	 * in place, keeping the selection and the scroll position a redraw would drop.
 	 */
-	private changesTheOrder(field: Field): boolean {
+	private refreshAfterEdit(recordId: string, field: Field): void {
+		const doc = this.doc;
 		const view = this.activeView();
-		if (!view) {
-			return false;
+		const record = doc ? findRecord(doc, recordId) : undefined;
+		if (!doc || !view || !record) {
+			this.render();
+			return;
 		}
-		return view.sorts.some((sort) => sort.fieldId === field.id);
+		const stale = affectedByEdit(doc, field);
+		const touched = new Set([field.id, ...stale.map((other) => other.id)]);
+		const movesOrLeaves =
+			view.sorts.some((sort) => touched.has(sort.fieldId)) ||
+			view.filter.conditions.some((condition) =>
+				touched.has(condition.fieldId),
+			);
+		/*
+		 * A numbering column counted within the edited one changes for every row in
+		 * both groups, not just this one, so a single row cannot be patched.
+		 */
+		const renumbersOtherRows = stale.some(
+			(other) =>
+				other.type === 'autoNumber' && other.numberGroupFieldId === field.id,
+		);
+		const grid = this.grid;
+		if (movesOrLeaves || renumbersOtherRows || !grid) {
+			this.render();
+			return;
+		}
+		if (stale.length > 0) {
+			grid.repaintCells(recordId, stale, record);
+		}
+		if (view.type !== 'grid') {
+			return;
+		}
+		if (colorRulesOf(view).length > 0) {
+			grid.recolorRow(record);
+		}
+		const summaries = view.summaries ?? {};
+		if ([...touched].some((id) => summaries[id] !== undefined)) {
+			grid.refillFoot();
+		}
 	}
 
 	/**

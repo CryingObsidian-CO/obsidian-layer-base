@@ -344,14 +344,20 @@ export function isMissingRequired(field: Field, value: CellValue): boolean {
 	return field.required === true && isEmptyCell(value);
 }
 
-/** Whether a type's values are computed rather than stored. */
+/**
+ * Whether a type's values are computed rather than stored.
+ *
+ * An `autoNumber` counts its position in the table, so it belongs here: nothing
+ * is written down, and the number moves when the rows around it move.
+ */
 export function isDerived(type: FieldType): boolean {
 	return (
 		type === 'relationBack' ||
 		type === 'rollup' ||
 		type === 'lookup' ||
 		type === 'formula' ||
-		type === 'noteProp'
+		type === 'noteProp' ||
+		type === 'autoNumber'
 	);
 }
 
@@ -362,7 +368,7 @@ export function isReadOnly(type: FieldType): boolean {
 	if (type === 'noteProp') {
 		return false;
 	}
-	return isDerived(type) || type === 'autoNumber';
+	return isDerived(type);
 }
 
 /**

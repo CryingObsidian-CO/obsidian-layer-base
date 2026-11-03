@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyDoc } from '../src/io/schema';
 import { computeFormula, computeFormulaWithReader } from '../src/model/formula';
+import { numberTexts } from '../src/model/numbering';
 import { addRecord } from '../src/model/records';
 import type { Field, LayerDoc, LayerRecord } from '../src/types';
 
@@ -104,6 +105,23 @@ describe('a formula reading a column the document cannot answer for', () => {
 		]);
 		const result = computeFormula(doc, rowOf(doc), columnOf(doc, 'f_out'));
 		expect(result.ok && result.text).toBe('');
+	});
+
+	it('reads a numbering column as the padded text the cell shows', () => {
+		const { doc } = board([
+			{ id: 'f_no', name: 'no', type: 'autoNumber', numberLength: 2 },
+			formulaField('f_out', '{no}'),
+		]);
+		addRecord(doc);
+		const texts = numberTexts(doc, columnOf(doc, 'f_no'));
+		const result = computeFormulaWithReader(
+			doc,
+			rowOf(doc),
+			columnOf(doc, 'f_out'),
+			(field) =>
+				field.type === 'autoNumber' ? texts.get(rowOf(doc).id) : undefined,
+		);
+		expect(result.ok && result.text).toBe('01');
 	});
 });
 

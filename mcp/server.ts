@@ -13,6 +13,7 @@ import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'n
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { FIELD_TYPES, formatCell, isDerived } from '../src/model/fields';
+import { numberTexts } from '../src/model/numbering';
 import {
 	addField,
 	findRecord,
@@ -398,6 +399,12 @@ function unwritable(field: Field): { reason: string; tellUser: string } {
 				tellUser:
 					'That column cannot be filled from here: its value lives in the note frontmatter. Edit it in the table in Obsidian, or edit the note itself.',
 			};
+		case 'autoNumber':
+			return {
+				reason: 'a numbering column counts each row within its group',
+				tellUser:
+					'A numbering column shows a position in the table, so there is nothing to write into it.',
+			};
 		case 'relationBack':
 			return {
 				reason: 'a backlink column lists the rows of another table that point here',
@@ -424,10 +431,27 @@ function unwritable(field: Field): { reason: string; tellUser: string } {
 	}
 }
 
-/** A record with its cells keyed by column name, which is what a caller reads. */
-function shownRecord(doc: LayerDoc, record: LayerRecord): Record<string, unknown> {
+/**
+ * A record with its cells keyed by column name, which is what a caller reads.
+ *
+ * `numbering` carries what the numbering columns read. Those cells hold nothing,
+ * but their value is a position in the table, which this side can count as well
+ * as the grid can — so it is reported rather than left out of the answer.
+ */
+function shownRecord(
+	doc: LayerDoc,
+	record: LayerRecord,
+	numbering?: ReadonlyMap<string, ReadonlyMap<string, string>>,
+): Record<string, unknown> {
 	const cells: Record<string, CellValue> = {};
 	for (const field of doc.fields) {
+		if (field.type === 'autoNumber') {
+			const text = numbering?.get(field.id)?.get(record.id);
+			if (text !== undefined) {
+				cells[field.name] = text;
+			}
+			continue;
+		}
 		// A derived column has nothing stored; reporting a value would invent one.
 		if (isDerived(field.type)) {
 			continue;
@@ -438,6 +462,17 @@ function shownRecord(doc: LayerDoc, record: LayerRecord): Record<string, unknown
 		}
 	}
 	return { id: record.id, cells };
+}
+
+/** The number every row shows, per numbering column. */
+function numberingOf(doc: LayerDoc): Map<string, Map<string, string>> {
+	const all = new Map<string, Map<string, string>>();
+	for (const field of doc.fields) {
+		if (field.type === 'autoNumber') {
+			all.set(field.id, numberTexts(doc, field));
+		}
+	}
+	return all;
 }
 
 function newId(prefix: string, taken: readonly string[]): string {
@@ -533,7 +568,7 @@ const tools = [
 	{
 		name: 'add_records',
 		description:
-			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
+			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property, numbering) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -604,6 +639,7 @@ A backlink column (relationBack) is the one type this server cannot create: it n
 Two limits you have to pass on rather than work around:
 
 - **Dates have no format setting in this plugin.** A date always reads as YYYY-MM-DD and a date-time as YYYY-MM-DD HH:mm. If the reader asks for another format, tell them it is not available; do not silently produce something else.
+- **A numbering column is a position, not a stored value.** Each row is counted within its group, in the order the rows sit in the file, so inserting, deleting or regrouping rows renumbers the ones after them. Do not describe it as a permanent id: tell the reader to build a stable id with a formula if they need one.
 - **A \`noteProp\` column's values cannot be written from here**, and cannot be read either: they live in the frontmatter of the note a \`note\` column points at, and reading them needs the app. Create the column if it helps, but tell the reader that filling it in happens in the app.`,
 		inputSchema: {
 			type: 'object',
@@ -665,7 +701,13 @@ Two limits you have to pass on rather than work around:
 				},
 				numberLength: {
 					type: 'number',
-					description: 'autoNumber only: how many digits to pad the number to.',
+					description:
+						'autoNumber only: how many digits to pad the count to.',
+				},
+				numberGroup: {
+					type: 'string',
+					description:
+						'autoNumber only: the column whose values are counted separately, each starting again at 1. Omit to count the whole table as one sequence.',
 				},
 				numberFormat: {
 					type: 'string',
@@ -909,6 +951,9 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 			}
 
+			// A numbering column stores nothing, but what it reads is the row's
+			// position, which this side can work out too — so it is still reported.
+			const numbering = numberingOf(doc);
 			return {
 				path: args.path,
 				name: doc.name,
@@ -930,7 +975,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				...(Object.keys(rowLabels).length > 0 ? { rowLabels } : {}),
 				records: doc.records
 					.slice(offset, offset + limit)
-					.map((record) => shownRecord(doc, record)),
+					.map((record) => shownRecord(doc, record, numbering)),
 			};
 		}
 
@@ -1179,8 +1224,20 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 			}
 
-			if (type === 'autoNumber' && typeof args.numberLength === 'number') {
-				field.numberLength = Math.max(1, Math.floor(args.numberLength));
+			if (type === 'autoNumber') {
+				if (typeof args.numberLength === 'number') {
+					field.numberLength = Math.max(1, Math.floor(args.numberLength));
+				}
+				const groupName = asText(args.numberGroup).trim();
+				if (groupName !== '') {
+					const groupField = fieldOf(doc, groupName);
+					if (isDerived(groupField.type)) {
+						throw new Error(
+							`A numbering column cannot count within "${groupField.name}": that column is computed, so it stores no value to count by.`,
+						);
+					}
+					field.numberGroupFieldId = groupField.id;
+				}
 			}
 
 			if (type === 'number') {

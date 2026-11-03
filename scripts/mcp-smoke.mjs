@@ -69,6 +69,12 @@ const { messages, err } = await drive([
 	call(7, 'create_table', { path: 'nested/新表.layer' }),
 	call(8, 'read_table', { path: '../escape.layer' }),
 	call(9, 'update_view', { path: 'nested/新表.layer', view: 'Table', sorts: [{ field: '标题', order: 'desc' }] }),
+call(10, 'add_field', { path: 'nested/新表.layer', name: '编号', type: 'autoNumber', numberLength: 2 }),
+call(11, 'add_records', {
+	path: 'nested/新表.layer',
+	records: [{ 标题: '第二行' }, { 标题: '第三行' }],
+}),
+call(12, 'read_table', { path: 'nested/新表.layer' }),
 ]);
 
 const byId = new Map(messages.map((message) => [message.id, message]));
@@ -102,10 +108,24 @@ check(!isError(6), 'read_table succeeded');
 check(isError(7), 'create_table refuses an existing path');
 check(isError(8), 'a path outside the vault is refused');
 check(!isError(9), 'update_view sets a sort');
+check(!isError(10), 'add_field accepts a numbering column');
+check(!isError(11), 'add_records accepts rows beside a numbering column');
+check(!isError(12), 'read_table reads a table with a numbering column');
 
 check(textOf(3).includes('新表'), 'create_table reports the name it used');
 check(textOf(6).includes('第一行'), 'read_table returns the row that was written');
 check(textOf(9).includes('desc'), 'update_view reports the sort it stored');
+
+try {
+	const table = JSON.parse(textOf(12));
+	const numbers = table.records.map((record) => record.cells['编号']);
+	check(
+		numbers.join(',') === '01,02,03',
+		`read_table reports a position per row, got ${numbers.join(',')}`,
+	);
+} catch (error) {
+	failures.push(`read_table did not answer with JSON: ${String(error)}`);
+}
 
 let doc = null;
 try {
@@ -116,11 +136,17 @@ try {
 
 if (doc !== null) {
 	check(doc.version === 1, 'the file declares version 1');
-	check(Array.isArray(doc.fields) && doc.fields.length === 1, 'one column was written');
-	check(Array.isArray(doc.records) && doc.records.length === 1, 'one row was written');
+	check(Array.isArray(doc.fields) && doc.fields.length === 2, 'both columns were written');
+	check(Array.isArray(doc.records) && doc.records.length === 3, 'three rows were written');
 	check(
 		Array.isArray(doc.views) && doc.views.some((view) => view.type === 'grid'),
 		'a table view was written',
+	);
+	const numbering = doc.fields.find((field) => field.name === '编号');
+	check(
+		numbering !== undefined &&
+			doc.records.every((record) => record.cells[numbering.id] === undefined),
+		'a numbering column stores nothing',
 	);
 }
 

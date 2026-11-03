@@ -58,6 +58,7 @@ export function summarize(
 	field: Field,
 	records: readonly LayerRecord[],
 	kind: SummaryKind,
+	textOf?: (record: LayerRecord) => string,
 ): string {
 	if (kind === 'none') {
 		return '';
@@ -65,11 +66,16 @@ export function summarize(
 
 	/*
 	 * A computed column stores nothing — its values are worked out by the view, which
-	 * is out of reach here. The counts still work, because those ask about the stored
-	 * cell rather than about the computed result.
+	 * is out of reach here. Given a reader, those values are asked for and the total
+	 * is about what is on screen; without one, the counts still answer, by counting
+	 * the stored cell of a computed column as empty.
 	 */
 	const texts: string[] = [];
 	for (const record of records) {
+		if (textOf) {
+			texts.push(textOf(record).trim());
+			continue;
+		}
 		const value: CellValue = record.cells[field.id] ?? '';
 		texts.push(isDerived(field.type) ? '' : formatCell(field, value).trim());
 	}
@@ -120,7 +126,7 @@ export function summarize(
 			: `${earliest.text} – ${latest.text}`;
 	}
 
-	const numbers = numericValues(field, records);
+	const numbers = numericValues(field, records, textOf);
 	if (numbers.length === 0) {
 		return '';
 	}
@@ -140,9 +146,22 @@ export function summarize(
 }
 
 /** The numbers a column holds, skipping blanks and anything that is not a number. */
-function numericValues(field: Field, records: readonly LayerRecord[]): number[] {
+function numericValues(
+	field: Field,
+	records: readonly LayerRecord[],
+	textOf?: (record: LayerRecord) => string,
+): number[] {
 	const numbers: number[] = [];
 	for (const record of records) {
+		if (textOf) {
+			const text = textOf(record).trim();
+			// Blank is not zero: an empty cell contributes nothing to a total.
+			const number = text === '' ? Number.NaN : Number(text);
+			if (Number.isFinite(number)) {
+				numbers.push(number);
+			}
+			continue;
+		}
 		if (isDerived(field.type)) {
 			continue;
 		}

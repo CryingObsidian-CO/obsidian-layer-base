@@ -287,9 +287,7 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 		}
 		case 'checkbox':
 			return raw === true;
-		case 'number':
-		case 'autoNumber': {
-			// Kept a number: text would lose the padding and read 1 where it says 01.
+		case 'number': {
 			if (typeof raw === 'number' && Number.isFinite(raw)) {
 				return raw;
 			}
@@ -306,8 +304,11 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 		}
 		case 'relationBack':
 		case 'formula':
+		case 'autoNumber':
 			// Derived: a value written by hand is not kept, so it cannot drift out
-			// of step with what it is computed from.
+			// of step with what it is computed from. A number written by an older
+			// version is dropped the same way: the count is worked out from the row
+			// order now, and keeping the old one would show two different answers.
 			return '';
 		default:
 			return normalizeCellValue(raw);

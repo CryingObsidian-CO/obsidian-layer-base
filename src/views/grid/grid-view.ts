@@ -114,6 +114,17 @@ export interface GridHandlers {
 	/** The values a lookup read from the linked rows, one chip each. */
 	lookupText(field: Field, recordId: string): CellText;
 
+	/** What a numbering cell counts to, which the grid cannot work out itself. */
+	autoNumberText(field: Field, recordId: string): CellText;
+
+	/**
+	 * A cell's text as the reader sees it, whatever its type.
+	 *
+	 * Asked by the footer, so a total adds up what is on screen — including the
+	 * columns the view computes, which store nothing to add up.
+	 */
+	cellText(field: Field, record: LayerRecord): string;
+
 	onCopyRange(recordIds: string[], fields: Field[]): void;
 
 	onPasteInto(recordIds: string[], fields: Field[]): void;
@@ -145,6 +156,11 @@ export class GridRenderer {
 	private headers = new Map<string, HTMLElement>();
 	private cols = new Map<string, HTMLTableColElement>();
 	private fit: HTMLElement | null = null;
+	/** The table this renderer built, kept so its totals can be redrawn alone. */
+	private table: HTMLTableElement | null = null;
+	/** What this tree was drawn from, so any part of it can be drawn again. */
+	private view: GridView | null = null;
+	private shownRows: readonly LayerRecord[] = [];
 	/** The scrolling element, so its offset can be carried across a redraw. */
 	private scroller: HTMLElement | null = null;
 	/**
@@ -261,6 +277,9 @@ export class GridRenderer {
 		this.columnIndex.clear();
 		this.recordOrder.length = 0;
 		this.marquee = null;
+		this.table = null;
+		this.view = null;
+		this.shownRows = [];
 
 		const fields = visibleFields(doc, view);
 		this.visible = fields;
@@ -278,6 +297,9 @@ export class GridRenderer {
 		this.fit = fit;
 		this.marqueeHost = fit;
 		const table = fit.createEl('table', {cls: 'layer-grid-table'});
+		this.table = table;
+		this.view = view;
+		this.shownRows = order ?? doc.records;
 
 		scroll.addEventListener('mousedown', (event) => {
 			if (event.target === scroll || event.target === fit || event.target === table) {
@@ -632,7 +654,9 @@ export class GridRenderer {
 			const cell = row.insertCell();
 			cell.addClass('layer-grid-foot', 'is-clickable');
 			const kind = this.currentKind(view, field);
-			const text = summarize(field, rows, kind);
+			const text = summarize(field, rows, kind, (record) =>
+				this.handlers.cellText(field, record),
+			);
 			cell.setText(kind === 'none' ? t().summaryNone : text);
 			setTooltip(
 				cell,
@@ -1130,6 +1154,9 @@ export class GridRenderer {
 			if (field.type === 'noteProp') {
 				return this.handlers.notePropText(field, recordId);
 			}
+			if (field.type === 'autoNumber') {
+				return this.handlers.autoNumberText(field, recordId);
+			}
 			return {text: formatCell(field, value), broken: 0};
 		};
 	}
@@ -1143,6 +1170,53 @@ export class GridRenderer {
 	/** Whether a cell editor is open, so a repaint must wait for it. */
 	isEditing(): boolean {
 		return this.openEdit !== null;
+	}
+
+	/**
+	 * Repaints some of a row's cells, without rebuilding the table.
+	 *
+	 * An edit can change what the columns beside it show — a formula, a lookup, a
+	 * rollup, a note property, an auto number counted within it — while the row
+	 * itself stays where it is. Redrawing just those cells keeps the selection, the
+	 * focus and the scroll position that a whole redraw would throw away.
+	 */
+	repaintCells(
+		recordId: string,
+		fields: readonly Field[],
+		record: LayerRecord,
+	): void {
+		for (const field of fields) {
+			const cell = this.cells.get(cellKey(recordId, field.id));
+			if (cell) {
+				this.paintCell(cell, field, recordId, record.cells[field.id] ?? '');
+			}
+		}
+	}
+
+	/** Redraws one row's wash, after an edit the colour rules read. */
+	recolorRow(record: LayerRecord): void {
+		const row = this.rows.get(record.id);
+		if (!row) {
+			return;
+		}
+		const tint = this.handlers.rowColor(record);
+		row.toggleClass('is-colored', tint !== null);
+		if (tint === null) {
+			row.style.removeProperty('--layer-row-tint');
+			return;
+		}
+		row.style.setProperty('--layer-row-tint', tint);
+	}
+
+	/** Rebuilds the totals, after an edit to a column they report on. */
+	refillFoot(): void {
+		const table = this.table;
+		const view = this.view;
+		if (!table || !view) {
+			return;
+		}
+		table.tFoot?.remove();
+		this.renderFoot(table, this.visible, view, this.shownRows);
 	}
 
 	private commit(

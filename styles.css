@@ -1918,19 +1918,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-filter-add-icon {
 	display: inline-flex;
 }
-/* The renumber action: it replaces every number, so it does not look like the
- * other settings on the panel. */
-.layer-field-renumber {
-	display: inline-flex;
-	align-items: center;
-	gap: var(--size-4-1);
-	margin-top: var(--size-4-3);
-	font-size: var(--font-ui-smaller);
-}
-
-.layer-field-renumber-icon {
-	display: inline-flex;
-}
 /* ---------- Board ---------- */
 
 /* The columns scroll sideways as a group, so a board wider than the pane can be
