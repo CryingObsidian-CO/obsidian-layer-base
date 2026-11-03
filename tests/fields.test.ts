@@ -6,7 +6,6 @@ import {
 	cellToText,
 	formatCell,
 	isEmptyCell,
-	recordTitle,
 	specFor,
 } from '../src/model/fields';
 import type { Field, FieldType } from '../src/types';
@@ -124,43 +123,6 @@ describe('clipboard round trip', () => {
 	});
 });
 
-describe('recordTitle', () => {
-	const doc = {
-		version: 1,
-		name: 'Board',
-		fields: [text({ id: 'f_a', primary: true }), statusField],
-		records: [],
-		views: [],
-	};
-
-	it('uses the primary field', () => {
-		expect(recordTitle(doc, { cells: { f_a: 'First', f_b: 'o_1' } })).toBe(
-			'First',
-		);
-	});
-
-	it('falls back to the first field when none is primary', () => {
-		const noPrimary = { ...doc, fields: [text({ id: 'f_a' }), statusField] };
-		expect(recordTitle(noPrimary, { cells: { f_a: 'Only' } })).toBe('Only');
-	});
-
-	it('returns an empty title for a missing value', () => {
-		expect(recordTitle(doc, { cells: {} })).toBe('');
-	});
-
-	it('resolves a select primary through its options', () => {
-		const selectPrimary = {
-			...doc,
-			fields: [statusField],
-		};
-		expect(recordTitle(selectPrimary, { cells: { f_b: 'o_2' } })).toBe('Done');
-	});
-
-	it('returns an empty title when the document has no fields', () => {
-		expect(recordTitle({ fields: [] }, { cells: { f_a: 'x' } })).toBe('');
-	});
-});
-
 describe('what every type reads as', () => {
 	/*
 	 * `formatCell` now looks its answer up in the same table the rest of the module
@@ -237,15 +199,32 @@ describe('what copying a cell puts on the clipboard', () => {
 	it('takes the stored text for a stored column', () => {
 		expect(copyTextFor(field('number'), 42)).toBe('42');
 		expect(copyTextFor(field('text'), 'hi')).toBe('hi');
-		expect(copyTextFor(field('autoNumber', { numberLength: 3 }), 7)).toBe('007');
 	});
 
-	it('takes the supplied text for a derived column', () => {
-		for (const type of ['formula', 'rollup', 'relationBack'] as const) {
+	it('takes the supplied text for a column that stores nothing', () => {
+		for (const type of [
+			'formula',
+			'rollup',
+			'relationBack',
+			'autoNumber',
+		] as const) {
 			expect(copyTextFor(field(type), '', 'from the view'), type).toBe(
 				'from the view',
 			);
 		}
+	});
+
+	/*
+	 * The defect this pins: a relation stores row ids, so copying read the stored
+	 * value and put `r_3f9a, r_8c21` on the clipboard while the cell on screen
+	 * showed two names.
+	 */
+	it('copies a relation as the names it shows, not the ids it stores', () => {
+		expect(copyTextFor(field('relation'), ['r_3f9a', 'r_8c21'], 'Ann, Bob')).toBe(
+			'Ann, Bob',
+		);
+		// Nothing could read it: an id on the clipboard would be worse than nothing.
+		expect(copyTextFor(field('relation'), ['r_3f9a'])).toBe('');
 	});
 
 	it('answers nothing when a derived column has no supplied text', () => {

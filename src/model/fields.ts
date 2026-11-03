@@ -1,7 +1,6 @@
 import type {CellValue, Field, FieldType, SelectOption} from '../types';
 import {displayDateTime, normaliseDate, normaliseDateTime} from './date';
-import {numberText} from './auto-number';
-import {capabilityOf} from './capabilities';
+import {capabilityOf, readsFromView} from './capabilities';
 import {constrainNumber, formatNumber, parseNumber} from './number';
 
 export interface FieldTypeSpec {
@@ -202,9 +201,15 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	autoNumber: {
 		type: 'autoNumber',
 		icon: 'hash',
-		toText: numberText,
+		/*
+		 * Nothing to read, like the other computed types: the number is counted from
+		 * the row's position and never stored. Reading the stored cell gave `0` for
+		 * a column that has no stored value, which is an answer invented out of an
+		 * absent one — the view says what this cell is.
+		 */
+		toText: () => '',
 		fromText: () => REFUSED,
-		isEmpty: (value) => value === '' || value === undefined,
+		isEmpty: () => true,
 	},
 
 	rollup: {
@@ -392,17 +397,6 @@ export function formatCell(field: Field, value: CellValue): string {
 	return SPECS[field.type].toText(field, value);
 }
 
-export function recordTitle(
-	doc: {fields: Field[]},
-	record: {cells: Record<string, CellValue>},
-): string {
-	const primary = doc.fields.find((f) => f.primary) ?? doc.fields[0];
-	if (!primary) {
-		return '';
-	}
-	return formatCell(primary, record.cells[primary.id] ?? '');
-}
-
 /**
  * A cell value as one string, for the places that carry text only — a cell's
  * `dataset`, notably. JSON, not a join: a set and the string of its ids must not
@@ -442,18 +436,23 @@ export function deserializeCellValue(raw: string, field: Field): CellValue {
 /**
  * What copying a cell should put on the clipboard.
  *
- * A stored column contributes the text its own type gives. A derived one stores
- * nothing, so its text has to be supplied by whoever could compute it — the view
- * that can see the other table, or the formula's row. Passing no text for a derived
- * column copies an empty cell, because there is nothing stored to copy.
+ * A cell the document cannot read itself contributes the text its reader gave —
+ * a computed column, and a relation, which stores row ids rather than the names
+ * the cell shows. Everything else reads its own text. The supplied text wins
+ * whenever it is there, so this cannot drift from what is on screen.
  */
 export function copyTextFor(
 	field: Field,
 	value: CellValue,
 	computed?: string,
 ): string {
-	if (isDerived(field.type)) {
-		return computed ?? '';
+	if (computed !== undefined) {
+		return computed;
+	}
+	if (readsFromView(field.type)) {
+		// Nothing was able to read it, and copying the stored value would put an
+		// id — or nothing at all — on the clipboard. An empty cell is honest.
+		return '';
 	}
 	return cellToText(field, value);
 }

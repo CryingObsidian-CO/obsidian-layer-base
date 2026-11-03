@@ -27,6 +27,17 @@ export interface FieldCapability {
 	options: boolean;
 	/** The value is not stored in the document; something computes it. */
 	derived: boolean;
+	/**
+	 * The document cannot say what this cell reads as; only the view can.
+	 *
+	 * Two different things land here. A derived column stores nothing, so there is
+	 * no value to read. A `relation` stores row ids, which is not what the cell
+	 * says on screen — reading them gives `r_3f9a`, and that is what got copied
+	 * onto the clipboard, sorted a relation column by id, and titled a row with an
+	 * id instead of a name. Both cases want the same answer from the same place,
+	 * so they share a flag rather than each caller testing for them separately.
+	 */
+	readsFromView: boolean;
 	/** The reader cannot type into it. */
 	readOnly: boolean;
 	/** The required flag may be set on it. */
@@ -118,6 +129,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	text: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -130,6 +142,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	longtext: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -142,6 +155,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	number: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -154,6 +168,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	date: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -166,6 +181,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	datetime: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -177,7 +193,9 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	},
 	relation: {
 		options: false,
+		/* Stored, but as row ids: the document holds the links, not the names. */
 		derived: false,
+		readsFromView: true,
 		readOnly: false,
 		required: true,
 		empty: emptyList,
@@ -190,6 +208,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	lookup: {
 		options: false,
 		derived: true,
+		readsFromView: true,
 		readOnly: true,
 		required: false,
 		empty: emptyText,
@@ -202,6 +221,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	relationBack: {
 		options: false,
 		derived: true,
+		readsFromView: true,
 		readOnly: true,
 		required: false,
 		empty: emptyText,
@@ -214,6 +234,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	autoNumber: {
 		options: false,
 		derived: true,
+		readsFromView: true,
 		readOnly: true,
 		required: false,
 		empty: emptyText,
@@ -227,6 +248,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	rollup: {
 		options: false,
 		derived: true,
+		readsFromView: true,
 		readOnly: true,
 		required: false,
 		empty: emptyText,
@@ -239,6 +261,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	formula: {
 		options: false,
 		derived: true,
+		readsFromView: true,
 		readOnly: true,
 		required: false,
 		empty: emptyText,
@@ -251,6 +274,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	select: {
 		options: true,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -263,6 +287,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	multiSelect: {
 		options: true,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyList,
@@ -275,6 +300,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	checkbox: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyBoolean,
@@ -287,6 +313,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	note: {
 		options: false,
 		derived: false,
+		readsFromView: false,
 		readOnly: false,
 		required: true,
 		empty: emptyText,
@@ -301,6 +328,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 		/* Derived, yet editable: the value lives in a note, and an edit goes back
 		 * there rather than being refused. */
 		derived: true,
+		readsFromView: true,
 		readOnly: false,
 		required: false,
 		empty: emptyText,
@@ -322,4 +350,16 @@ export function capabilityOf(type: FieldType): FieldCapability {
 /** Whether a value has the shape this type stores. */
 export function acceptsValue(type: FieldType, value: CellValue): boolean {
 	return CAPABILITIES[type].accepts(value);
+}
+
+/**
+ * Whether this type's cells can only be read by the view.
+ *
+ * The one question every reader of a cell has to answer before it falls back to
+ * the stored value: copying, sorting, filtering, a footer's count, a row's title.
+ * Asking it here means a reader cannot be right about a formula and wrong about a
+ * relation — which is what happened while each site decided for itself.
+ */
+export function readsFromView(type: FieldType): boolean {
+	return CAPABILITIES[type].readsFromView;
 }

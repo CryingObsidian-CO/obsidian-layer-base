@@ -1,6 +1,16 @@
 import type { CellValue, Field, LayerDoc, LayerRecord } from '../types';
 import { formatCell, relationIds } from './fields';
 
+/**
+ * How a cell of another table reads as text.
+ *
+ * The document cannot answer this for every column: a formula is computed and a
+ * relation holds ids where the cell shows names. So the caller that can see that
+ * table supplies the answer; a caller with none gets the stored value, which is
+ * right for every type that stores what it shows.
+ */
+export type CellReader = (field: Field, record: LayerRecord) => string;
+
 /** One row that points at another, with where it sits in its own table. */
 export interface BacklinkRow {
 	record: LayerRecord;
@@ -35,6 +45,7 @@ function linkedField(target: LayerDoc, fieldId: string): Field | undefined {
 export function relationCandidates(
 	target: LayerDoc,
 	fieldId: string,
+	read?: CellReader,
 ): RelationCandidate[] {
 	const field = linkedField(target, fieldId);
 	if (!field) {
@@ -42,7 +53,9 @@ export function relationCandidates(
 	}
 	const candidates: RelationCandidate[] = [];
 	for (const record of target.records) {
-		const text = formatCell(field, record.cells[fieldId] ?? '');
+		const text = read
+			? read(field, record)
+			: formatCell(field, record.cells[fieldId] ?? '');
 		if (text !== '') {
 			candidates.push({ recordId: record.id, text });
 		}
@@ -62,6 +75,7 @@ export function relationText(
 	target: LayerDoc,
 	fieldId: string,
 	value: CellValue,
+	read?: CellReader,
 ): RelationText {
 	const ids = relationIds(value);
 	if (fieldId === '') {
@@ -90,7 +104,9 @@ export function relationText(
 			broken++;
 			continue;
 		}
-		const text = formatCell(field, record.cells[fieldId] ?? '');
+		const text = read
+			? read(field, record)
+			: formatCell(field, record.cells[fieldId] ?? '');
 		if (text !== '') {
 			texts.push(text);
 		}
@@ -124,13 +140,20 @@ export function lookupChips(
 	 * column falls back to what it stores, which is its row ids.
 	 */
 	readLinks?: (column: Field, value: CellValue) => readonly string[],
+	/**
+	 * What each value reads as, one entry per value, `null` where this module should
+	 * read it itself. A column that computes its own text stores nothing to format,
+	 * so without this it contributes no chip at all — the lookup showed a blank where
+	 * the other table plainly held a value.
+	 */
+	resolved?: readonly (string | null)[],
 ): string[] {
 	const chips: string[] = [];
-	for (const value of values) {
+	for (const [index, value] of values.entries()) {
 		const texts =
 			column.type === 'relation' && readLinks !== undefined
 				? readLinks(column, value)
-				: [formatCell(column, value)];
+				: [resolved?.[index] ?? formatCell(column, value)];
 		for (const text of texts) {
 			if (text.trim() !== '') {
 				chips.push(text);
@@ -156,6 +179,7 @@ export function relationBackIndex(
 	source: LayerDoc,
 	sourceFieldId: string,
 	titleFieldId: string,
+	read?: CellReader,
 ): Map<string, string[]> | null {
 	const rows = relationBackRows(source, sourceFieldId);
 	if (rows === null) {
@@ -172,7 +196,9 @@ export function relationBackIndex(
 			id,
 			pointing.map(({ record, position }) =>
 				titleField
-					? formatCell(titleField, record.cells[titleField.id] ?? '')
+					? read
+						? read(titleField, record)
+						: formatCell(titleField, record.cells[titleField.id] ?? '')
 					: String(position),
 			),
 		);
@@ -226,11 +252,12 @@ export function relationBackText(
 	sourceFieldId: string,
 	targetRecordId: string,
 	titleFieldId = '',
+	read?: CellReader,
 ): RelationText {
 	if (source === null) {
 		return { texts: [], broken: 1 };
 	}
-	const index = relationBackIndex(source, sourceFieldId, titleFieldId);
+	const index = relationBackIndex(source, sourceFieldId, titleFieldId, read);
 	if (index === null) {
 		return { texts: [], broken: 1 };
 	}

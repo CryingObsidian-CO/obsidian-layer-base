@@ -30,6 +30,10 @@ table or a board, independent of your vault's folder structure.
   names of the linked rows, and one naming a lookup, rollup, backlink or note
   property gets what the cell shows. A number column hands the formula its number,
   not the text it is dressed in on screen.
+- **Columns read computed columns** — a relation showing a column the other table
+  computes (formula, rollup, lookup, backlinks, numbering, note property) shows what
+  that cell reads as, and so does a lookup, a backlink title and a rollup gathering
+  it. One answer, asked of the table the column belongs to.
 - **Required columns** — a column you fill in yourself can be marked required; a
   column the table computes (formula, rollup, lookup, backlinks, note property,
   numbering) is not offered that option.

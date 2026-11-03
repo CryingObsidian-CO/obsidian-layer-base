@@ -96,6 +96,25 @@ describe('the chips a lookup draws', () => {
 		expect(lookupChips(text, [])).toEqual([]);
 	});
 
+	/*
+	 * A computed column stores nothing to format, so the caller has to say what the
+	 * value reads as. Without that it contributed no chip at all, and the lookup
+	 * showed a blank where the other table plainly held a value.
+	 */
+	it('takes the text the caller resolved for a computed column', () => {
+		const formula: Field = { id: 'f_formula', name: 'Label', type: 'formula' };
+
+		expect(
+			lookupChips(formula, ['', ''], undefined, ['Ann-x', 'Bob-x']),
+		).toEqual(['Ann-x', 'Bob-x']);
+	});
+
+	it('reads the stored value when the caller resolved nothing', () => {
+		const amount: Field = { id: 'f_amount', name: 'Amount', type: 'number' };
+
+		expect(lookupChips(amount, [10], undefined, [null])).toEqual(['10']);
+	});
+
 	it('reads a link column through the reader the caller supplies', () => {
 		const link: Field = { id: 'f_link', name: 'Link', type: 'relation' };
 		const names = (): readonly string[] => ['Ann', 'Bob'];

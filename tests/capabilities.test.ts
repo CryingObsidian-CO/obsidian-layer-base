@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAPABILITIES, acceptsValue, capabilityOf } from '../src/model/capabilities';
+import { CAPABILITIES, acceptsValue, capabilityOf, readsFromView } from '../src/model/capabilities';
 import {
 	FIELD_TYPES,
 	canBeRequired,
@@ -65,6 +65,33 @@ describe('the capability table', () => {
 
 	it('has an option list for the two types that pick from one', () => {
 		expect(typesWhere(usesOptions)).toEqual(['select', 'multiSelect']);
+	});
+
+	/*
+	 * The one question every reader asks before it falls back to the stored value.
+	 * A relation is the interesting row: its value is stored, so it is not
+	 * "computed", yet the document still cannot say what the cell reads as.
+	 */
+	it('names the types whose text only the view can read', () => {
+		expect(typesWhere(readsFromView)).toEqual([
+			'relation',
+			'lookup',
+			'relationBack',
+			'autoNumber',
+			'rollup',
+			'formula',
+			'noteProp',
+		]);
+	});
+
+	it('sends every type whose value is computed to the view as well', () => {
+		for (const type of FIELD_TYPES) {
+			if (isDerived(type)) {
+				expect(readsFromView(type), type).toBe(true);
+			}
+		}
+		expect(isDerived('relation')).toBe(false);
+		expect(readsFromView('relation')).toBe(true);
 	});
 });
 
@@ -156,6 +183,7 @@ describe('the helpers', () => {
 			expect(isDerived(type)).toBe(CAPABILITIES[type].derived);
 			expect(isReadOnly(type)).toBe(CAPABILITIES[type].readOnly);
 			expect(canBeRequired(type)).toBe(CAPABILITIES[type].required);
+			expect(readsFromView(type)).toBe(CAPABILITIES[type].readsFromView);
 			expect(emptyValueFor(field)).toEqual(CAPABILITIES[type].empty());
 		}
 	});
