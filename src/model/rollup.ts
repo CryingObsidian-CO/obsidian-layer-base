@@ -1,4 +1,5 @@
 import type { CellValue, FieldType, RollupAggregate } from '../types';
+import { capabilityOf } from './capabilities';
 import { dayNumber } from './date';
 
 /**
@@ -184,11 +185,5 @@ function formatNumber(value: number): string {
  * because adding two dates is not a quantity.
  */
 export function aggregatesFor(type: FieldType): readonly RollupAggregate[] {
-	if (type === 'number') {
-		return ['sum', 'average', 'min', 'max', 'count', 'countAll'];
-	}
-	if (type === 'date' || type === 'datetime') {
-		return ['min', 'max', 'count', 'countAll'];
-	}
-	return ['count', 'countAll'];
+	return capabilityOf(type).aggregates;
 }

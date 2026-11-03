@@ -1,4 +1,5 @@
 import type { CellValue, Field, LayerRecord } from '../types';
+import { capabilityOf } from './capabilities';
 import { formatCell, isDerived } from './fields';
 import { dayNumber } from './date';
 
@@ -33,14 +34,7 @@ export type SummaryKind =
  * than a quantity: two dates added together are not a day.
  */
 export function summaryChoicesFor(field: Field): readonly SummaryKind[] {
-	const counts: SummaryKind[] = ['none', 'filled', 'empty', 'unique'];
-	if (field.type === 'number' || field.type === 'autoNumber') {
-		return [...counts, 'sum', 'average', 'min', 'max'];
-	}
-	if (field.type === 'date' || field.type === 'datetime') {
-		return [...counts, 'earliest', 'latest', 'range'];
-	}
-	return counts;
+	return capabilityOf(field.type).summaries;
 }
 
 /** Whether a column may be summarised the given way. */

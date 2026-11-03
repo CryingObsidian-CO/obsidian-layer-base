@@ -1,5 +1,6 @@
 import { setIcon, setTooltip, type App } from 'obsidian';
 import { t } from '../i18n';
+import { capabilityOf } from '../model/capabilities';
 import { canBeRequired, isDerived, specFor, usesOptions } from '../model/fields';
 import {
 	MAX_DECIMALS,
@@ -137,11 +138,7 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 
 /** Whether a column's text form can stand in for a row's name. */
 function canNameARow(field: Field): boolean {
-	return (
-		field.type !== 'relation' &&
-		field.type !== 'relationBack' &&
-		field.type !== 'checkbox'
-	);
+	return capabilityOf(field.type).namesARow;
 }
 
 export class FieldEditorModal extends AnchoredPopover {

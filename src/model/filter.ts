@@ -6,6 +6,7 @@ import type {
 	FilterOperator,
 	LayerRecord,
 } from '../types';
+import { capabilityOf } from './capabilities';
 import { formatCell } from './fields';
 
 /**
@@ -274,30 +275,7 @@ export function filterRecords(
 
 /** The operators a column's type can answer. */
 export function operatorsFor(field: Field): readonly FilterOperator[] {
-	if (field.type === 'checkbox') {
-		return ['checked', 'unchecked'];
-	}
-	if (field.type === 'date' || field.type === 'datetime') {
-		return [
-			'is',
-			'isNot',
-			'greaterThan',
-			'lessThan',
-			'isEmpty',
-			'isNotEmpty',
-		];
-	}
-	if (field.type === 'number' || field.type === 'autoNumber') {
-		return [
-			'is',
-			'isNot',
-			'greaterThan',
-			'lessThan',
-			'isEmpty',
-			'isNotEmpty',
-		];
-	}
-	return ['is', 'isNot', 'contains', 'notContains', 'isEmpty', 'isNotEmpty'];
+	return capabilityOf(field.type).filters;
 }
 
 /** Whether an operator needs a value typed in. */

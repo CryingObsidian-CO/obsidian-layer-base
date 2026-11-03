@@ -2,6 +2,7 @@ import type { CellValue, Field, GridView, LayerDoc, LayerRecord } from '../types
 import { generateId } from '../utils/id';
 import type { FormattedCell } from './clipboard';
 import { forgetFieldSize, forgetRecordSize } from './layout';
+import { acceptsValue } from './capabilities';
 import {
 	cellFromText,
 	emptyValueFor,
@@ -46,31 +47,7 @@ export function setCellValue(
  * thinks every cell is a string.
  */
 function matchesFieldShape(field: Field, value: CellValue): boolean {
-	switch (field.type) {
-		case 'relationBack':
-		case 'rollup':
-		case 'lookup':
-		case 'formula':
-		case 'noteProp':
-		case 'autoNumber':
-			// Derived, never stored: there is no value a caller could set here.
-			return false;
-		case 'multiSelect':
-		case 'relation':
-			return Array.isArray(value);
-		case 'checkbox':
-			return typeof value === 'boolean';
-		case 'number':
-			// `''` is how an empty number cell is cleared.
-			return typeof value === 'number' || value === '';
-		case 'select':
-		case 'text':
-		case 'longtext':
-		case 'note':
-		case 'date':
-		case 'datetime':
-			return typeof value === 'string';
-	}
+	return acceptsValue(field.type, value);
 }
 
 export function setCellFromText(

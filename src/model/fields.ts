@@ -1,6 +1,7 @@
 import type {CellValue, Field, FieldType, SelectOption} from '../types';
 import {displayDateTime, normaliseDate, normaliseDateTime} from './date';
 import {numberText} from './auto-number';
+import {capabilityOf} from './capabilities';
 import {constrainNumber, formatNumber, parseNumber} from './number';
 
 export interface FieldTypeSpec {
@@ -302,7 +303,7 @@ export function specFor(type: FieldType): FieldTypeSpec {
 
 /** Whether a type's cells choose from the field's option list. */
 export function usesOptions(type: FieldType): boolean {
-	return type === 'select' || type === 'multiSelect';
+	return capabilityOf(type).options;
 }
 
 /**
@@ -310,15 +311,7 @@ export function usesOptions(type: FieldType): boolean {
  * not `''`, wherever the shape matters.
  */
 export function emptyValueFor(field: Field): CellValue {
-	switch (field.type) {
-		case 'multiSelect':
-		case 'relation':
-			return [];
-		case 'checkbox':
-			return false;
-		default:
-			return '';
-	}
+	return capabilityOf(field.type).empty();
 }
 
 export function isEmptyCell(value: CellValue): boolean {
@@ -347,28 +340,17 @@ export function isMissingRequired(field: Field, value: CellValue): boolean {
 /**
  * Whether a type's values are computed rather than stored.
  *
- * An `autoNumber` counts its position in the table, so it belongs here: nothing
- * is written down, and the number moves when the rows around it move.
+ * An `autoNumber` counts its position in the table, so it belongs here: nothing is
+ * written down, and the number moves when the rows around it move. The answer is
+ * in the capability table, which is the one place a per-type yes or no is decided.
  */
 export function isDerived(type: FieldType): boolean {
-	return (
-		type === 'relationBack' ||
-		type === 'rollup' ||
-		type === 'lookup' ||
-		type === 'formula' ||
-		type === 'noteProp' ||
-		type === 'autoNumber'
-	);
+	return capabilityOf(type).derived;
 }
 
 /** Whether the table fills this cell in, so nothing here can be typed into. */
 export function isReadOnly(type: FieldType): boolean {
-	// A `noteProp` cell is answered by its note rather than by the document, but it is
-	// still the reader's to change: an edit goes to that file's frontmatter.
-	if (type === 'noteProp') {
-		return false;
-	}
-	return isDerived(type);
+	return capabilityOf(type).readOnly;
 }
 
 /**
@@ -376,15 +358,12 @@ export function isReadOnly(type: FieldType): boolean {
  *
  * The flag means "this cell must not be left empty", so it only makes sense where
  * the reader is the one filling the cell in. The table answers a derived column
- * itself, and an auto number counts its own rows; neither is the reader's to
- * leave empty. A `noteProp` is editable, but it reads another file's frontmatter,
- * so its emptiness is not this table's to enforce — the warning would never fire.
+ * itself, and an auto number counts its own rows; neither is the reader's to leave
+ * empty. A `noteProp` is editable but reads another file's frontmatter, so its
+ * emptiness is not this table's to enforce — the warning would never fire.
  */
 export function canBeRequired(type: FieldType): boolean {
-	if (type === 'noteProp') {
-		return false;
-	}
-	return !isReadOnly(type);
+	return capabilityOf(type).required;
 }
 
 export function cellToText(field: Field, value: CellValue): string {
