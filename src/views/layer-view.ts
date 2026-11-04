@@ -292,7 +292,7 @@ export class LayerView extends TextFileView {
 			return;
 		}
 
-		const {doc, warnings} = parseLayerDoc(data);
+		const {doc, warnings, dropped} = parseLayerDoc(data);
 		this.doc = doc;
 		this.lastSaved = '';
 		/*
@@ -307,6 +307,19 @@ export class LayerView extends TextFileView {
 			console.warn(
 				`[obsidian-layer-base] Repaired ${warnings.length} issue(s) while reading "${this.file?.path ?? 'unknown'}":`,
 				warnings,
+			);
+		}
+
+		if (dropped.length > 0) {
+			/*
+			 * A value that was there is gone now, so the reader gets the column and the
+			 * value itself rather than a count: that is what they would have to put
+			 * back. Shown longer than a passing note, since it is a loss.
+			 */
+			new Notice(t().noticeCellsCleared(dropped), 12000);
+			console.warn(
+				`[obsidian-layer-base] Cleared ${dropped.length} cell(s) that held a value their column cannot take, in "${this.file?.path ?? 'unknown'}":`,
+				dropped,
 			);
 		}
 
@@ -615,7 +628,7 @@ export class LayerView extends TextFileView {
 	): Promise<void> {
 		try {
 			const written = await this.plugin.store.writeExport(folder, name, text);
-			new Notice(t().noticeExportDone(written.name));
+			new Notice(t().noticeExportDone(written.path));
 		} catch (error) {
 			new Notice(t().noticeExportFailed);
 			console.error('[obsidian-layer-base] Failed to export CSV:', error);

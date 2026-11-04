@@ -1,4 +1,5 @@
 import type { CellValue, Field, LayerRecord, Sort, SortOrder } from '../types';
+import { dateMinutes } from './date';
 import { formatCell, optionIds } from './fields';
 import { optionRanks } from './select-options';
 
@@ -48,37 +49,17 @@ function numberOrNull(
 /**
  * A date or date-time as a comparable number, or null.
  *
- * The time of day is kept so two values on the same day still order sensibly; a
- * date-only value counts as the start of that day.
+ * Asked of the date module rather than read here: sorting has to call a value a
+ * date on exactly the terms the editor, the formula engine and the file loader
+ * do, or the same cell is one thing to the column and another to the sort. A
+ * time of day is kept so two values on the same day still order sensibly.
  */
-function dayOrNull(
+function momentOrNull(
 	field: Field,
 	record: LayerRecord,
 	cellText?: CellTextResolver,
 ): number | null {
-	const text = textOf(field, record, cellText).trim();
-	if (text === '') {
-		return null;
-	}
-	const match = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2}))?/.exec(text);
-	if (!match) {
-		return null;
-	}
-	const year = Number(match[1]);
-	const month = Number(match[2]);
-	const day = Number(match[3]);
-	const hours = match[4] === undefined ? 0 : Number(match[4]);
-	const minutes = match[5] === undefined ? 0 : Number(match[5]);
-	if (
-		!Number.isFinite(year) ||
-		!Number.isFinite(month) ||
-		!Number.isFinite(day) ||
-		!Number.isFinite(hours) ||
-		!Number.isFinite(minutes)
-	) {
-		return null;
-	}
-	return (((year * 10000 + month * 100 + day) * 24 + hours) * 60) + minutes;
+	return dateMinutes(textOf(field, record, cellText).trim());
 }
 
 /**
@@ -183,8 +164,8 @@ function compareOne(
 	}
 
 	if (field.type === 'date' || field.type === 'datetime') {
-		const left = dayOrNull(field, a, cellText);
-		const right = dayOrNull(field, b, cellText);
+		const left = momentOrNull(field, a, cellText);
+		const right = momentOrNull(field, b, cellText);
 		if (left === null && right === null) {
 			return 0;
 		}

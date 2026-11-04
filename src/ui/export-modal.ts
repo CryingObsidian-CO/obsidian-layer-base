@@ -53,13 +53,22 @@ class FolderSuggest extends AbstractInputSuggest<TFolder> {
  * rather than assumed. Both default to the board's own, so confirming is one press.
  */
 export class ExportModal extends Modal {
-	private folder: TFolder;
+	/**
+	 * The folder path as typed, which is both what the input shows and what a
+	 * submit uses.
+	 *
+	 * Kept as text rather than as a folder: holding the last folder that existed at
+	 * a typed path meant the input could show one place while the export went to
+	 * another, silently.
+	 */
+	private folderPath: string;
 	private name: string;
 	private errorEl: HTMLElement | null = null;
 
 	constructor(private readonly config: ExportModalOptions) {
 		super(config.app);
-		this.folder = config.boardFile.parent ?? config.app.vault.getRoot();
+		const parent = config.boardFile.parent;
+		this.folderPath = parent && !parent.isRoot() ? parent.path : '';
 		this.name = config.boardFile.basename;
 	}
 
@@ -77,23 +86,20 @@ export class ExportModal extends Modal {
 			type: 'text',
 		});
 		folderInput.placeholder = t().exportFolderPlaceholder;
-		folderInput.value = this.folder.isRoot() ? '' : this.folder.path;
+		folderInput.value = this.folderPath;
 		const folders = this.app.vault
 			.getAllFolders()
 			.slice()
 			.sort((a, b) => a.path.localeCompare(b.path));
 		new FolderSuggest(this.app, folderInput, folders);
 		folderInput.addEventListener('input', () => {
-			const path = normalizePath(folderInput.value.trim());
-			const found =
-				path === '' ? this.app.vault.getRoot() : this.app.vault.getFolderByPath(path);
-			// An unknown path is kept as it was: it is reported on submit, which is
-			// where the reader can do something about it.
-			if (found) {
-				this.folder = found;
-			}
+			// The typed path is the answer; whether a folder exists at it is asked when
+			// the reader is finished typing, so a half-written path does not flash an
+			// error under every keystroke.
+			this.folderPath = normalizePath(folderInput.value.trim());
 			this.paint();
 		});
+		folderInput.addEventListener('blur', () => this.paint(true));
 
 		const nameRow = contentEl.createDiv({ cls: 'layer-field-grid' });
 		nameRow.createDiv({ cls: 'layer-field-label', text: t().exportFileName });
@@ -122,22 +128,31 @@ export class ExportModal extends Modal {
 		window.setTimeout(() => nameInput.select(), 0);
 	}
 
-	/** Shows what will be written, and refuses a name that cannot be used. */
-	private paint(): void {
+	/**
+	 * Shows what is wrong, so the reader can fix it before confirming.
+	 *
+	 * The folder is only reported once the reader is done with that field — on
+	 * blur, or on an attempt to confirm — because every half-typed path is a folder
+	 * that does not exist yet.
+	 */
+	private paint(reportFolder = false): void {
 		const error = this.errorEl;
 		if (!error) {
 			return;
 		}
 		error.empty();
 		error.removeClass('is-visible');
-		const reason = this.problemWith();
+		const reason = reportFolder
+			? this.nameProblem() || this.folderProblem()
+			: this.nameProblem();
 		if (reason !== '') {
 			error.addClass('is-visible');
 			error.setText(reason);
 		}
 	}
 
-	private problemWith(): string {
+	/** What is wrong with the name, or an empty string. */
+	private nameProblem(): string {
 		if (this.name.trim() === '') {
 			return t().exportNameEmpty;
 		}
@@ -148,21 +163,29 @@ export class ExportModal extends Modal {
 	}
 
 	private submit(): void {
-		if (this.problemWith() !== '') {
-			this.paint();
+		const folder = this.folderInVault();
+		if (folder === null || this.nameProblem() !== '') {
+			this.paint(true);
 			return;
 		}
-		this.config.onSubmit({ folder: this.folder, name: this.name.trim() });
+		this.config.onSubmit({ folder, name: this.name.trim() });
 		this.close();
+	}
+
+	/** The folder the typed path names, or null when the vault has none there. */
+	private folderInVault(): TFolder | null {
+		if (this.folderPath === '') {
+			return this.app.vault.getRoot();
+		}
+		return this.app.vault.getFolderByPath(this.folderPath);
+	}
+
+	/** What is wrong with the typed folder path, or an empty string. */
+	private folderProblem(): string {
+		return this.folderInVault() === null ? t().exportFolderInvalid : '';
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
 	}
-}
-
-/** The full path a file will be written to, for reporting back. */
-export function exportPath(folder: TFolder, fileName: string): string {
-	const clean = fileName.endsWith('.csv') ? fileName : `${fileName}.csv`;
-	return folder.isRoot() ? clean : `${folder.path}/${clean}`;
 }

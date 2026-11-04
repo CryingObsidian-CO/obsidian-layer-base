@@ -7,6 +7,7 @@ import {
 import {
 	addDays,
 	dateField as partOfDate,
+	dateMinutes,
 	dateParts,
 	dayNumber,
 	daysInMonth,
@@ -281,5 +282,48 @@ describe('day arithmetic without a clock', () => {
 			time: '08:05',
 		});
 		expect(dateParts('soon')).toBeNull();
+	});
+});
+
+describe('a date as a number to compare by', () => {
+	it('counts a date-only value as the start of its day', () => {
+		expect(dateMinutes('2026-10-18')).toBe(29871360);
+		expect(dateMinutes('2026-10-18T00:00')).toBe(29871360);
+	});
+
+	it('keeps the time of day, and drops the seconds', () => {
+		expect(dateMinutes('2026-10-18T23:00')).toBe(29872740);
+		// The space form is how a date-time reads on screen; the same value either way.
+		expect(dateMinutes('2026-10-18 23:00')).toBe(29872740);
+		// The format stores minutes, so 23:00:59 is the minute 23:00.
+		expect(dateMinutes('2026-10-18T23:00:59')).toBe(29872740);
+	});
+
+	it('keeps a later day after an earlier one however the time is written', () => {
+		expect(dateMinutes('2026-10-19')).toBeGreaterThan(
+			dateMinutes('2026-10-18T23:59') ?? 0,
+		);
+	});
+
+	it('gives no number to a value it cannot read as a date', () => {
+		/*
+		 * A made-up count is worse than none: it would place the value among real
+		 * dates and nothing would look wrong. These are refused by the editor, the
+		 * loader and the formula engine too, so sorting has to refuse them as well.
+		 */
+		for (const text of [
+			'2024-99-99T48:00',
+			'2026-13-01',
+			'2026-02-30',
+			'2023-02-29',
+			'2026-10-18T',
+			// A zone is refused rather than converted: this format has none.
+			'2026-10-18T23:00+08:00',
+			'2026-10-18T23:00Z',
+			'abc',
+			'',
+		]) {
+			expect({ text, minutes: dateMinutes(text) }).toEqual({ text, minutes: null });
+		}
 	});
 });

@@ -7,6 +7,7 @@ import type {
 	LayerRecord,
 } from '../types';
 import { capabilityOf } from './capabilities';
+import { dateMinutes, dayNumber } from './date';
 import { formatCell } from './fields';
 
 /**
@@ -81,24 +82,21 @@ function numberOf(
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** A day count for a date or date-time cell, or null. */
-function dayOf(
+/**
+ * The number a date or date-time cell is compared by.
+ *
+ * A date column is compared by the day it names: it holds no time, and the value
+ * in the condition came from a date picker, which is a day too. A date-time column
+ * keeps the time of day — otherwise "later than 1 February" would be false for
+ * everything that happened on 1 February, which is not what the words say.
+ */
+function momentOf(
 	field: Field,
 	record: LayerRecord,
 	cellText?: CellTextResolver,
 ): number | null {
 	const text = textOf(field, record, cellText).trim();
-	const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(text);
-	if (!match) {
-		return null;
-	}
-	const year = Number(match[1]);
-	const month = Number(match[2]);
-	const day = Number(match[3]);
-	if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
-		return null;
-	}
-	return year * 10000 + month * 100 + day;
+	return field.type === 'datetime' ? dateMinutes(text) : dayNumber(text);
 }
 
 /** Whether the cell holds nothing, by the same rule the grid draws with. */
@@ -210,8 +208,8 @@ export function matchesCondition(
 	// The four comparisons need an order, which dates and numbers have and text
 	// does not: comparing words by size says nothing a reader means.
 	if (field.type === 'date' || field.type === 'datetime') {
-		const left = dayOf(field, record, cellText);
-		const right = dayOf(field, { id: '', created: '', cells: { [field.id]: wanted } });
+		const left = momentOf(field, record, cellText);
+		const right = momentOf(field, { id: '', created: '', cells: { [field.id]: wanted } });
 		if (left === null || right === null) {
 			return false;
 		}

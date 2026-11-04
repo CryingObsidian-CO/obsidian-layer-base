@@ -41,11 +41,23 @@ const OPERATORS: ReadonlySet<string> = new Set([
 	'unchecked',
 ]);
 
+/** A cell whose value was there and could not be read, so it was cleared. */
+export interface DroppedCell {
+	/** The column's name, as the reader knows it. */
+	field: string;
+	/** What the file held, shortened for a message. */
+	value: string;
+	/** Which of the two date types it failed to be. */
+	type: 'date' | 'datetime';
+}
+
 /** Problems found while parsing. The view surfaces these instead of losing data silently. */
 export interface ParseResult {
 	doc: LayerDoc;
 	/** Human-readable notes; empty when the file parsed cleanly. */
 	warnings: string[];
+	/** Values that were dropped rather than kept. */
+	dropped: DroppedCell[];
 }
 
 function isRecordObject(value: unknown): value is Record<string, unknown> {
@@ -315,10 +327,30 @@ export function normalizeCellForField(raw: unknown, type: FieldType): CellValue 
 	}
 }
 
+/**
+ * Whether a value written into a date column is there and is not a date at all.
+ *
+ * Only asked after normalisation has already answered with an empty cell, so a
+ * string surviving it cannot be the reason: such a string is one that was refused.
+ */
+function isUnreadableDate(raw: unknown, type: FieldType): boolean {
+	if (type !== 'date' && type !== 'datetime') {
+		return false;
+	}
+	return typeof raw === 'string' && raw.trim() !== '';
+}
+
+/** A stored value as a warning can quote it, kept short. */
+function quotedValue(raw: unknown): string {
+	const text = String(raw).trim();
+	return text.length > 40 ? `${text.slice(0, 40)}…` : text;
+}
+
 function parseRecord(
 	raw: unknown,
 	fields: Field[],
 	warnings: string[],
+	dropped: DroppedCell[],
 ): LayerRecord | null {
 	if (!isRecordObject(raw)) {
 		return null;
@@ -337,9 +369,21 @@ function parseRecord(
 		if (!(field.id in cellsSource)) {
 			continue;
 		}
-		const value = normalizeCellForField(cellsSource[field.id], field.type);
+		const stored = cellsSource[field.id];
+		const value = normalizeCellForField(stored, field.type);
 		if (!isEmptyCell(value)) {
 			cells[field.id] = value;
+		} else if (isUnreadableDate(stored, field.type)) {
+			/*
+			 * The value is about to be gone, and the next save writes the file without
+			 * it. It is kept apart from the other repairs because it is a loss, not a
+			 * tidy-up: the reader is told which column and which value, not just a count.
+			 */
+			dropped.push({
+				field: field.name,
+				value: quotedValue(stored),
+				type: field.type === 'date' ? 'date' : 'datetime',
+			});
 		}
 	}
 
@@ -630,6 +674,7 @@ export function createEmptyDoc(
  */
 export function parseLayerDoc(text: string): ParseResult {
 	const warnings: string[] = [];
+	const dropped: DroppedCell[] = [];
 
 	let parsed: unknown;
 	try {
@@ -637,12 +682,12 @@ export function parseLayerDoc(text: string): ParseResult {
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		warnings.push(`File is not valid JSON: ${message}`);
-		return {doc: createEmptyDoc(), warnings};
+		return {doc: createEmptyDoc(), warnings, dropped};
 	}
 
 	if (!isRecordObject(parsed)) {
 		warnings.push('File content is not an object; an empty board was used.');
-		return {doc: createEmptyDoc(), warnings};
+		return {doc: createEmptyDoc(), warnings, dropped};
 	}
 
 	const migrated = migrate(parsed, warnings);
@@ -675,7 +720,7 @@ export function parseLayerDoc(text: string): ParseResult {
 
 	const records: LayerRecord[] = [];
 	for (const [index, raw] of asArray(migrated.records).entries()) {
-		const record = parseRecord(raw, fields, warnings);
+		const record = parseRecord(raw, fields, warnings, dropped);
 		if (record) {
 			records.push(record);
 		} else {
@@ -707,6 +752,7 @@ export function parseLayerDoc(text: string): ParseResult {
 			views,
 		},
 		warnings,
+		dropped,
 	};
 }
 

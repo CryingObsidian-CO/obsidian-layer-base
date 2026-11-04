@@ -29,9 +29,11 @@ if (mapped === undefined) {
 }
 
 // EXPECTED_TAG lets a workflow started by hand say which tag it means; otherwise a
-// tag push supplies it.
+// tag push supplies it. `||`, not `??`: a variable that is set but empty is not an
+// answer, and treating it as one would skip the comparison below and let a release
+// built from the wrong commit through.
 const isTag = (process.env.GITHUB_REF ?? '').startsWith('refs/tags/');
-const tag = process.env.EXPECTED_TAG ?? (isTag ? process.env.GITHUB_REF_NAME : '');
+const tag = process.env.EXPECTED_TAG || (isTag ? process.env.GITHUB_REF_NAME : '');
 if (tag !== '' && tag !== manifest.version) {
 	problems.push(`tag ${tag} does not match manifest version ${manifest.version}`);
 }

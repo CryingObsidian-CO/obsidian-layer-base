@@ -107,6 +107,58 @@ describe('dates', () => {
 			keep([date], [{ fieldId: 'f_date', operator: 'is', value: '2026-01-10' }]),
 		).toEqual(['a']);
 	});
+
+	it('matches nothing when the value written in the condition is not a date', () => {
+		/*
+		 * The panel's date picker cannot produce this, but a view written by hand or
+		 * by an older build can. A made-up day count would quietly keep the wrong
+		 * rows; refusing to compare keeps none of them.
+		 */
+		expect(
+			keep([date], [{ fieldId: 'f_date', operator: 'greaterThan', value: '2026-13-45' }]),
+		).toEqual([]);
+	});
+});
+
+describe('a date-time keeps the moment, a date only the day', () => {
+	const at: Field = { id: 'f_at', name: 'At', type: 'datetime' };
+	const times = [
+		row('morning', { f_at: '2026-02-01T09:00' }),
+		row('evening', { f_at: '2026-02-01T18:00' }),
+		row('next', { f_at: '2026-02-02T08:00' }),
+	];
+
+	/** The ids this column keeps under one ordered condition. */
+	function keepAt(
+		operator: FilterCondition['operator'],
+		value: string,
+	): string[] {
+		return filterRecords(times, [at], {
+			conjunction: 'and',
+			conditions: [{ fieldId: 'f_at', operator, value }],
+		}).map((record) => record.id);
+	}
+
+	it('keeps the rest of the day when the condition names only its start', () => {
+		/*
+		 * The defect this pins: with both sides reduced to a day, "later than
+		 * 1 February" was false for everything that happened on 1 February — the
+		 * words say the opposite.
+		 */
+		expect(keepAt('greaterThan', '2026-02-01')).toEqual([
+			'morning',
+			'evening',
+			'next',
+		]);
+	});
+
+	it('keeps only what started before the next day', () => {
+		expect(keepAt('lessThan', '2026-02-02')).toEqual(['morning', 'evening']);
+	});
+
+	it('compares a time written into the condition too', () => {
+		expect(keepAt('greaterThan', '2026-02-01T10:00')).toEqual(['evening', 'next']);
+	});
 });
 
 describe('choices and checkboxes', () => {

@@ -158,6 +158,35 @@ export function dayNumber(text: string): number | null {
 }
 
 /**
+ * A date or date-time as whole minutes since 1970-01-01 00:00, wall clock.
+ *
+ * This is the number a column of dates is ordered and compared by. Rolling the
+ * day into a single count keeps a date-time on one day in front of a date-only
+ * value on the next, and the time of day stays in it so two values on the same
+ * day still order. Null when the text is not one — a half-written or
+ * out-of-range value is not a very old date, and must not be given a number that
+ * would place it among real ones.
+ */
+export function dateMinutes(text: string): number | null {
+	const parts = dateParts(text);
+	if (parts === null) {
+		return null;
+	}
+	const day = dayNumber(parts.date);
+	if (day === null) {
+		return null;
+	}
+	if (parts.time === null) {
+		return day * 1440;
+	}
+	const [hours, minutes] = parts.time.split(':').map(Number);
+	if (hours === undefined || minutes === undefined) {
+		return null;
+	}
+	return day * 1440 + hours * 60 + minutes;
+}
+
+/**
  * The same value moved by a whole number of days, keeping any time it carried.
  *
  * Null when the text is not a date or the shift is not a whole number: a column of

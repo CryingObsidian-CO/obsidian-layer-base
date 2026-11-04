@@ -11,7 +11,9 @@ import { parseLayerDoc } from './schema';
  * Reads are async but a cell has to paint now, so a document is answered from
  * the cache when it is there and `ensure` is what fills it in; the caller is told
  * when a read lands so it can paint again. Entries are dropped whenever the file
- * behind them changes, so a stale table is never shown as the current one.
+ * behind them changes, so a stale table is never shown as the current one — and a
+ * read that was already in flight when the change happened is dropped rather than
+ * stored, since it describes what was there a moment ago.
  */
 export class TableIndex {
 	private readonly cache = new Map<string, LayerDoc>();
@@ -31,6 +33,17 @@ export class TableIndex {
 	 * working it out means listing the vault.
 	 */
 	private readonly resolvedPaths = new Map<string, string>();
+	/**
+	 * One counter per path, bumped whenever what the disk holds changes.
+	 *
+	 * A read cannot be cancelled, and `cachedRead` may hand back the text from
+	 * before the change. Without this, that answer lands in the cache afterwards
+	 * and is served as current until the file is touched again — and a table that
+	 * was deleted mid-read would come back as a document nothing can dismiss. A
+	 * read carries the number it started with, and an answer whose number has moved
+	 * is discarded instead of stored.
+	 */
+	private readonly versions = new Map<string, number>();
 
 	constructor(private readonly app: App) {}
 
@@ -61,9 +74,13 @@ export class TableIndex {
 		if (known !== undefined) {
 			return known === '' ? null : known;
 		}
-		const actual = pickTablePath(storedPath, this.listTables(), (path) =>
-			this.app.vault.getAbstractFileByPath(path) !== null,
-		);
+		const actual = pickTablePath(storedPath, this.listTables(), (path) => {
+			// "A table is here", not "something is here": the stored path may name a
+			// note or a folder, and reading that as the answer ends the search with a
+			// file that cannot be read.
+			const file = this.app.vault.getAbstractFileByPath(path);
+			return file instanceof TFile && isLayerFile(file);
+		});
 		// A miss is remembered as an empty string, so a broken link does not send
 		// every paint back through the vault listing.
 		this.resolvedPaths.set(storedPath, actual ?? '');
@@ -89,10 +106,14 @@ export class TableIndex {
 			return;
 		}
 		this.loading.add(path);
+		const version = this.versions.get(path) ?? 0;
 		void this.app.vault
 			.cachedRead(file)
 			.then((text) => parseLayerDoc(text).doc)
 			.then((doc) => {
+				if ((this.versions.get(path) ?? 0) !== version) {
+					return;
+				}
 				this.cache.set(path, doc);
 			})
 			.catch((error: unknown) => {
@@ -117,6 +138,7 @@ export class TableIndex {
 	/** Drops a cached table, so the next paint reads it again. */
 	forget(path: string): void {
 		// A file that changed or came back is worth trying again.
+		this.invalidate(path);
 		this.unavailable.delete(path);
 		if (this.cache.delete(path)) {
 			this.emit();
@@ -141,6 +163,7 @@ export class TableIndex {
 		plugin.registerEvent(
 			this.app.vault.on('modify', (file) => {
 				if (file instanceof TFile && isLayerFile(file)) {
+					this.invalidate(file.path);
 					if (this.cache.delete(file.path)) {
 						this.emit();
 					}
@@ -157,9 +180,11 @@ export class TableIndex {
 		const structural = (file: unknown, oldPath?: string): void => {
 			this.forgetResolutions();
 			if (file instanceof TFile && isLayerFile(file)) {
+				this.invalidate(file.path);
 				this.cache.delete(file.path);
 			}
 			if (oldPath !== undefined) {
+				this.invalidate(oldPath);
 				this.cache.delete(oldPath);
 			}
 			this.emit();
@@ -192,6 +217,16 @@ export class TableIndex {
 		this.tableList = null;
 		this.resolvedPaths.clear();
 		this.unavailable.clear();
+	}
+
+	/**
+	 * Marks whatever is held for a path as no longer what the disk says.
+	 *
+	 * Called even when nothing is cached: a read may be in flight, and that read
+	 * has to know its answer is out of date before it lands.
+	 */
+	private invalidate(path: string): void {
+		this.versions.set(path, (this.versions.get(path) ?? 0) + 1);
 	}
 
 	private emit(): void {

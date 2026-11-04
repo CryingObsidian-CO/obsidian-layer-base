@@ -570,7 +570,7 @@ body.layer-grid-resizing.is-row-resize * {
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.layer-shell-tab {
+.layer-base-container .layer-shell-tab {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--size-4-1);
@@ -583,14 +583,16 @@ body.layer-grid-resizing.is-row-resize * {
 	cursor: pointer;
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
+	/* Scoped like the toolbar buttons: a tab is not a full-width button. */
+	width: auto;
 }
 
-.layer-shell-tab:hover {
+.layer-base-container .layer-shell-tab:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
 
-.layer-shell-tab.is-active {
+.layer-base-container .layer-shell-tab.is-active {
 	color: var(--text-normal);
 	border-bottom-color: var(--interactive-accent);
 }
@@ -619,7 +621,15 @@ body.layer-grid-resizing.is-row-resize * {
 	flex: 1 1 auto;
 }
 
-.layer-shell-button {
+/*
+ * Scoped to the container that holds the board, not written as a bare class.
+ *
+ * Obsidian styles every button with `button:not(.clickable-icon)`, which is
+ * (0,1,1) — one class plus one type — and a bare `.layer-shell-button` is (0,1,0)
+ * and loses its padding, background and width to it. Naming the container puts
+ * these rules at (0,2,0) and keeps them winning.
+ */
+.layer-base-container .layer-shell-button {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -632,6 +642,11 @@ body.layer-grid-resizing.is-row-resize * {
 	cursor: pointer;
 	font-size: var(--font-ui-smaller);
 	/*
+	 * The app makes every button `width: 100%`, which a toolbar chip has to refuse:
+	 * these are as wide as their label, not as wide as the row.
+	 */
+	width: auto;
+	/*
 	 * A fixed height, because a label and a bare icon do not settle on the same
 	 * one from padding alone — the icon button came out shorter, and two controls
 	 * meant to read as one control should not disagree on their height.
@@ -640,17 +655,17 @@ body.layer-grid-resizing.is-row-resize * {
 	box-sizing: border-box;
 }
 
-.layer-shell-button:hover {
+.layer-base-container .layer-shell-button:hover {
 	background: var(--interactive-hover);
 }
 
-.layer-shell-button.is-primary {
+.layer-base-container .layer-shell-button.is-primary {
 	background: var(--interactive-accent);
 	border-color: var(--interactive-accent);
 	color: var(--text-on-accent);
 }
 
-.layer-shell-button.is-primary:hover {
+.layer-base-container .layer-shell-button.is-primary:hover {
 	background: var(--interactive-accent-hover);
 }
 
@@ -666,12 +681,12 @@ body.layer-grid-resizing.is-row-resize * {
  * The trigger also carries less horizontal padding: it holds only an arrow, and
  * the label button's padding would leave it looking like a second action rather
  * than part of the same one. */
-.layer-shell-split > .layer-shell-button:first-child {
+.layer-base-container .layer-shell-split > .layer-shell-button:first-child {
 	border-top-right-radius: 0;
 	border-bottom-right-radius: 0;
 }
 
-.layer-shell-split > .layer-shell-button + .layer-shell-button {
+.layer-base-container .layer-shell-split > .layer-shell-button + .layer-shell-button {
 	margin-left: -1px;
 	padding: 0 var(--size-4-2);
 	border-top-left-radius: 0;
@@ -685,12 +700,12 @@ body.layer-grid-resizing.is-row-resize * {
  * the outer corners too, so the button would square up while the pointer is on
  * it and round again when it leaves.
  */
-.layer-shell-split > .layer-shell-button:first-child:hover {
+.layer-base-container .layer-shell-split > .layer-shell-button:first-child:hover {
 	border-top-right-radius: 0;
 	border-bottom-right-radius: 0;
 }
 
-.layer-shell-split > .layer-shell-button + .layer-shell-button:hover {
+.layer-base-container .layer-shell-split > .layer-shell-button + .layer-shell-button:hover {
 	border-top-left-radius: 0;
 	border-bottom-left-radius: 0;
 }
@@ -831,7 +846,7 @@ body.layer-grid-dragging-range * {
 }
 
 /* Fills the corner, so the whole cell is the hit target. */
-.layer-grid-select-all {
+.layer-base-container .layer-grid-select-all {
 	position: absolute;
 	top: 0;
 	right: 0;
@@ -849,22 +864,22 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 	cursor: pointer;
 	line-height: 1;
+	width: auto;
 }
 
-.layer-grid-select-all:hover {
+.layer-base-container .layer-grid-select-all:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
 
-.layer-grid-select-all.is-disabled,
-.layer-grid-select-all.is-disabled:hover {
+.layer-base-container .layer-grid-select-all.is-disabled,
+.layer-base-container .layer-grid-select-all.is-disabled:hover {
 	color: var(--text-faint);
 	background: transparent;
 	cursor: default;
 }
 
-/* Keeps the icon from shrinking in a narrow gutter. */
-.layer-grid-select-all svg {
+.layer-base-container .layer-grid-select-all svg {
 	flex: none;
 	width: 14px;
 	height: 14px;
@@ -888,7 +903,7 @@ body.layer-grid-dragging-range * {
  * height needs a definite containing-block height, and a cell's height comes
  * from its row.
  */
-.layer-grid-add-field-button {
+.layer-base-container .layer-grid-add-field-button {
 	position: absolute;
 	top: 0;
 	right: 0;
@@ -906,15 +921,17 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 	cursor: pointer;
 	line-height: 1;
+	/* Sized by its insets, not by the app's `width: 100%` on every button. */
+	width: auto;
 }
 
-.layer-grid-add-field-button:hover {
+.layer-base-container .layer-grid-add-field-button:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
 
 /* `flex: none` keeps the icon from shrinking in a narrow cell. */
-.layer-grid-add-field-button svg {
+.layer-base-container .layer-grid-add-field-button svg {
 	flex: none;
 	width: 16px;
 	height: 16px;
@@ -1200,7 +1217,7 @@ body.layer-grid-dragging-range * {
 }
 
 /* The type control: shows the chosen type, opens the picker. */
-.layer-field-type {
+.modal .layer-field-type {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
@@ -1216,7 +1233,7 @@ body.layer-grid-dragging-range * {
 	text-align: left;
 }
 
-.layer-field-type:hover {
+.modal .layer-field-type:hover {
 	background: var(--background-modifier-form-field-hover);
 }
 
@@ -1445,7 +1462,7 @@ body.layer-grid-dragging-range * {
 	gap: var(--size-4-1);
 }
 
-.layer-formula-chip {
+.modal .layer-formula-chip {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--size-4-1);
@@ -1511,7 +1528,7 @@ body.layer-grid-dragging-range * {
  * row. It is a real button so the arrow keys reach it and a screen reader has
  * something to name.
  */
-.layer-field-option-handle {
+.modal .layer-field-option-handle {
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
@@ -1527,7 +1544,7 @@ body.layer-grid-dragging-range * {
 	touch-action: none;
 }
 
-.layer-field-option-handle:hover {
+.modal .layer-field-option-handle:hover {
 	color: var(--text-muted);
 }
 
@@ -1556,7 +1573,7 @@ body.layer-grid-dragging-range * {
 	padding: 0;
 }
 
-.layer-field-option-remove {
+.modal .layer-field-option-remove {
 	flex: 0 0 auto;
 	padding: 0 var(--size-4-2);
 	background: transparent;
@@ -1566,7 +1583,7 @@ body.layer-grid-dragging-range * {
 	cursor: pointer;
 }
 
-.layer-field-option-remove:hover {
+.modal .layer-field-option-remove:hover {
 	color: var(--text-error);
 }
 
@@ -1819,13 +1836,13 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 }
 
-.layer-sort-remove {
+.modal .layer-sort-remove {
 	flex: 0 0 auto;
 	padding: var(--size-4-1);
 	color: var(--text-faint);
 }
 
-.layer-sort-remove:hover {
+.modal .layer-sort-remove:hover {
 	color: var(--text-error);
 }
 
@@ -1842,7 +1859,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 }
 
 /* A toolbar button that is doing something reads as pressed, not as a label. */
-.layer-shell-button.is-active {
+.layer-base-container .layer-shell-button.is-active {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 }
@@ -2265,7 +2282,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 }
 /* The add-view button at the end of the tab row: quiet, so it does not compete
  * with the views it sits after. */
-.layer-shell-tab-add {
+.layer-base-container .layer-shell-tab-add {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -2275,9 +2292,10 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	box-shadow: none;
 	color: var(--text-faint);
 	cursor: pointer;
+	width: auto;
 }
 
-.layer-shell-tab-add:hover {
+.layer-base-container .layer-shell-tab-add:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }

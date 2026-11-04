@@ -21,7 +21,8 @@ const en = {
 	exportConfirm: 'Export',
 	exportNameEmpty: 'Give the file a name.',
 	exportNameInvalid: 'A file name cannot contain any of these marks: / : * ? < > | and the backslash',
-	noticeExportDone: (name: string) => `Exported to .`,
+	exportFolderInvalid: 'There is no folder at that path.',
+	noticeExportDone: (path: string) => `Exported to ${path}`,
 	noticeExportFailed: 'Could not write the export.',
 	noticeExportEmpty: 'There is nothing to export yet.',
 	noticeCreated: (name: string) => `Created board: ${name}`,
@@ -29,6 +30,16 @@ const en = {
 	noticeFolderMissing: (path: string) => `Folder not found: ${path}`,
 	noticeParseWarnings: (count: number) =>
 		`Repaired ${count} issue(s) while reading this board. See the developer console for details.`,
+	noticeCellsCleared: (cells: readonly { field: string; value: string }[]) => {
+		const list = cells
+			.slice(0, 2)
+			.map((cell) => `${cell.field} (${cell.value})`)
+			.join(', ');
+		if (cells.length === 1) {
+			return `A cell held a value its column could not read, so it was cleared: ${list}. The next save writes the file without it.`;
+		}
+		return `${cells.length} cells held values their columns could not read, so they were cleared: ${list}. The next save writes the file without them.`;
+	},
 	settingFolderName: 'Default folder for new boards',
 	settingFolderDesc: 'Leave empty to create in the vault root.',
 	settingFileNameName: 'Default file name',
@@ -417,7 +428,8 @@ const zh = {
 	exportConfirm: '导出',
 	exportNameEmpty: '请填写文件名。',
 	exportNameInvalid: '文件名不能包含这些字符：/ : * ? < > | 以及反斜杠',
-	noticeExportDone: (name: string) => `已导出到 。`,
+	exportFolderInvalid: '仓库里没有这个目录，检查一下路径。',
+	noticeExportDone: (path: string) => `已导出到 ${path}`,
 	noticeExportFailed: '导出失败，无法写入文件。',
 	noticeExportEmpty: '当前没有可导出的内容。',
 	noticeCreated: (name: string) => `已创建多维看板：${name}`,
@@ -425,6 +437,16 @@ const zh = {
 	noticeFolderMissing: (path: string) => `找不到目录：${path}`,
 	noticeParseWarnings: (count: number) =>
 		`读取看板时修正了 ${count} 处问题，详情见开发者控制台。`,
+	noticeCellsCleared: (cells: readonly { field: string; value: string }[]) => {
+		const list = cells
+			.slice(0, 2)
+			.map((cell) => `${cell.field}（${cell.value}）`)
+			.join('、');
+		if (cells.length === 1) {
+			return `有一格的值这一列读不懂，已经清空：${list}。下次保存就不在文件里了。`;
+		}
+		return `有 ${cells.length} 格的值读不懂，已经清空：${list}。下次保存就不在文件里了。`;
+	},
 	settingFolderName: '新建文件的默认目录',
 	settingFolderDesc: '留空则创建在仓库根目录。',
 	settingFileNameName: '新建文件的默认名称',
@@ -810,7 +832,8 @@ const zhTW = {
 	exportConfirm: '匯出',
 	exportNameEmpty: '請填寫檔案名稱。',
 	exportNameInvalid: '檔案名稱不能包含這些字元：/ : * ? < > | 以及反斜線',
-	noticeExportDone: (name: string) => `已匯出到 。`,
+	exportFolderInvalid: '儲存庫裡沒有這個目錄，檢查一下路徑。',
+	noticeExportDone: (path: string) => `已匯出到 ${path}`,
 	noticeExportFailed: '匯出失敗，無法寫入檔案。',
 	noticeExportEmpty: '目前沒有可匯出的內容。',
 	noticeCreated: (name: string) => `已建立多維看板：${name}`,
@@ -818,6 +841,16 @@ const zhTW = {
 	noticeFolderMissing: (path: string) => `找不到目錄：${path}`,
 	noticeParseWarnings: (count: number) =>
 		`讀取看板時修正了 ${count} 處問題，詳情請見開發者主控台。`,
+	noticeCellsCleared: (cells: readonly { field: string; value: string }[]) => {
+		const list = cells
+			.slice(0, 2)
+			.map((cell) => `${cell.field}（${cell.value}）`)
+			.join('、');
+		if (cells.length === 1) {
+			return `有一格的值這一欄讀不懂，已經清空：${list}。下次儲存就不在檔案裡了。`;
+		}
+		return `有 ${cells.length} 格的值讀不懂，已經清空：${list}。下次儲存就不在檔案裡了。`;
+	},
 	settingFolderName: '新建檔案的預設目錄',
 	settingFolderDesc: '留空則建立在儲存庫根目錄。',
 	settingFileNameName: '新建檔案的預設名稱',

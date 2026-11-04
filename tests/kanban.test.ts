@@ -8,6 +8,7 @@ import {
 	type KanbanColumn,
 } from '../src/model/kanban';
 import type { CellValue, Field, KanbanView, LayerRecord } from '../src/types';
+import { relationIds } from '../src/model/fields';
 
 function row(id: string, cells: Record<string, CellValue>): LayerRecord {
 	return { id, created: '2026-01-01T00:00:00.000Z', cells };
@@ -236,6 +237,51 @@ describe('what a drop writes', () => {
 			omitted: 0,
 		};
 		expect(valueForColumn(number, numberColumn)).toBe(42);
+	});
+});
+
+describe('a board grouped by a relation', () => {
+	const link: Field = { id: 'f_link', name: 'Link', type: 'relation' };
+	const NAMES: Record<string, string> = { r_ann: 'Ann', r_bob: 'Bob' };
+	/** What the grid shows: the names of the rows a cell links. */
+	const show = (record: LayerRecord): string =>
+		relationIds(record.cells.f_link ?? '')
+			.map((id) => NAMES[id] ?? id)
+			.join(', ');
+
+	const columns = groupRecords(
+		[
+			row('a', { f_link: ['r_ann'] }),
+			row('b', { f_link: ['r_ann', 'r_bob'] }),
+			row('c', {}),
+		],
+		link,
+		50,
+		(_field, record) => show(record),
+	);
+	const annAndBob = columns.find((column) => column.title === 'Ann, Bob') as KanbanColumn;
+	const ungrouped = columns[columns.length - 1] as KanbanColumn;
+
+	it('groups by the names on screen', () => {
+		expect(columns.map((column) => column.title)).toEqual(['Ann', 'Ann, Bob', '']);
+	});
+
+	it('keeps the ids it was grouped from, since a title cannot give them back', () => {
+		expect(annAndBob.value).toEqual(['r_ann', 'r_bob']);
+	});
+
+	it('links those rows on a drop instead of clearing them', () => {
+		// The defect this pins: this used to answer `[]`, so dragging a card into a
+		// relation column quietly unlinked the row — a drop could only ever unlink.
+		expect(valueForColumn(link, annAndBob)).toEqual(['r_ann', 'r_bob']);
+	});
+
+	it('still clears a link when the card is dropped on no value', () => {
+		expect(valueForColumn(link, ungrouped)).toEqual([]);
+	});
+
+	it('leaves every column droppable', () => {
+		expect(columns.every((column) => column.droppable)).toBe(true);
 	});
 });
 

@@ -13,13 +13,19 @@ export function tableBasename(path: string): string {
  * when exactly one table still carries that filename, it is the one. Two matches
  * are left unresolved rather than guessed between — picking one would silently
  * point a link at the wrong table.
+ *
+ * `isTable` has to answer "is a table here", not "is there something here". The
+ * stored path can name a note, an attachment or a folder; taking that for the
+ * answer leaves the cell empty, because the thing is not a `.layer` file and
+ * nothing gets read — and the by-name fallback that would have found the table
+ * never runs, since this branch already said the search was over.
  */
 export function pickTablePath(
 	storedPath: string,
 	tables: readonly string[],
-	exists: (path: string) => boolean,
+	isTable: (path: string) => boolean,
 ): string | null {
-	if (exists(storedPath)) {
+	if (isTable(storedPath)) {
 		return storedPath;
 	}
 	const wanted = tableBasename(storedPath);

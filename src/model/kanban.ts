@@ -17,8 +17,13 @@ export type DisplayResolver = (field: Field, record: LayerRecord) => string;
 export interface KanbanColumn {
 	/**
 	 * What this column groups by, as the value to write back when a card is
-	 * dropped here. `null` is the ungrouped column, which nothing can be dropped
-	 * into: a row reaches it by having no value at all.
+	 * dropped here. `null` is the ungrouped column: dropping there is how a row
+	 * ends up with no value at all.
+	 *
+	 * For most types this is the title, because a row sits under the text its cell
+	 * shows. A relation column carries the row ids its cell held instead: its title
+	 * is the names on screen, and no name can be turned back into ids — which is
+	 * why an early version wrote an empty list on a drop and so unlinked the row.
 	 */
 	value: CellValue | null;
 	/** What the column header reads. */
@@ -75,8 +80,9 @@ function groupTextOf(
  * The value to write when a card is dropped into a column.
  *
  * A choice column is written by id, so the column's title has to be turned back
- * into the option it names. Everything else is written as the text it shows, which
- * is what the board compares against.
+ * into the option it names. Everything else is written as the value the column
+ * carries, which is the text it shows — except a relation, whose column carries
+ * the row ids themselves.
  */
 export function valueForColumn(field: Field, column: KanbanColumn): CellValue {
 	if (column.value === null) {
@@ -91,13 +97,10 @@ export function valueForColumn(field: Field, column: KanbanColumn): CellValue {
 		);
 		return option ? option.id : name;
 	}
-	if (field.type === 'multiSelect' || field.type === 'relation') {
+	if (field.type === 'multiSelect') {
 		// Replacing, not adding: the card ends up in exactly the column it was
 		// dropped on, which is what the whole-selection grouping means.
 		const name = String(column.value);
-		if (field.type === 'relation') {
-			return [];
-		}
 		const option = field.options?.find((candidate) => candidate.name === name);
 		return option ? [option.id] : [];
 	}
@@ -171,7 +174,15 @@ export function groupRecords(
 		if (existing) {
 			existing.ids.push(record.id);
 		} else {
-			groups.set(key, { value: key, ids: [record.id] });
+			/*
+			 * A relation column keeps the cell it was grouped from rather than its
+			 * title: the title is the names on screen, and names cannot be turned back
+			 * into row ids. The first row to land in a column decides for it, which is
+			 * the same as the other types, where the first row's text is the title.
+			 */
+			const value: CellValue =
+				field.type === 'relation' ? relationIds(record.cells[field.id] ?? '') : key;
+			groups.set(key, { value, ids: [record.id] });
 		}
 	}
 

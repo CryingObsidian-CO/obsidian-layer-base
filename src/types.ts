@@ -138,12 +138,25 @@ export type FormulaResultType = 'number' | 'text' | 'boolean';
  * A date is `YYYY-MM-DD`; a date-time is `YYYY-MM-DDTHH:mm` in **local wall-clock
  * time**, carrying no zone and never converted — what was entered is what is
  * shown, in any timezone.
+ *
+ * The union of every shape on purpose, not a mapping from field type to shape: a
+ * `Field` is looked up at runtime, so `tsc` cannot tie a cell to the type of the
+ * column it sits in. "One field, one shape" is enforced where a value enters the
+ * document rather than in the type — `normalizeCellForField` on load, and
+ * `acceptsValue` inside `setCellValue` on write — and every reader asks the
+ * field's type before it touches a value.
  */
 export type CellValue = string | string[] | boolean | number;
 
 export interface Record_ {
 	id: string;
 	created: string;
+	/**
+	 * Keyed by field id, and written through `setCellValue` / `setCellFromText`
+	 * only: that is where the shape is checked against the column's type. An
+	 * assignment made here directly is not checked by anything, and puts a value
+	 * the grid's readers were told could not exist into the document.
+	 */
 	cells: Record<string, CellValue>;
 }
 

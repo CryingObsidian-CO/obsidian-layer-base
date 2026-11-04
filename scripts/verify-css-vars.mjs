@@ -6,16 +6,46 @@
 import { existsSync, openSync, readSync, closeSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
+/*
+ * The header of an asar archive is a directory listing, a few hundred kilobytes in
+ * practice. This bound exists so four arbitrary bytes in a file that is not an
+ * archive cannot ask for a multi-gigabyte zero-filled allocation.
+ */
+const MAX_HEADER_BYTES = 64 * 1024 * 1024;
+
 /** Reads a file out of an .asar archive without needing the asar package. */
 function readFromAsar(asarPath, wanted) {
 	const fd = openSync(asarPath, 'r');
 	try {
+		/*
+		 * Every value below comes from the file, so none of them is trusted: a read
+		 * can come up short, the header length is four arbitrary bytes, and the
+		 * header may not be JSON at all. Each is checked before it is used, so a file
+		 * that is not an archive says so — rather than surfacing later as a JSON
+		 * error about a file that never held any JSON.
+		 */
 		const prefix = Buffer.alloc(16);
-		readSync(fd, prefix, 0, 16, 0);
+		if (readSync(fd, prefix, 0, 16, 0) !== 16) {
+			throw new Error('too small to be an asar archive (no 16-byte prefix)');
+		}
 		const headerSize = prefix.readUInt32LE(12);
+		if (
+			!Number.isInteger(headerSize) ||
+			headerSize <= 0 ||
+			headerSize > MAX_HEADER_BYTES
+		) {
+			throw new Error(`not an asar archive (header length ${headerSize})`);
+		}
 		const headerBuf = Buffer.alloc(headerSize);
-		readSync(fd, headerBuf, 0, headerSize, 16);
-		const header = JSON.parse(headerBuf.toString('utf8'));
+		if (readSync(fd, headerBuf, 0, headerSize, 16) !== headerSize) {
+			throw new Error(`truncated asar header (${headerSize} bytes expected)`);
+		}
+		let header;
+		try {
+			header = JSON.parse(headerBuf.toString('utf8'));
+		} catch (cause) {
+			throw new Error('asar header is not JSON', { cause });
+		}
 		const base = 16 + headerSize;
 
 		const walk = (node, trail = '') => {

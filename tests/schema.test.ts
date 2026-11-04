@@ -96,6 +96,38 @@ describe('parseLayerDoc', () => {
 		});
 	});
 
+	describe('a date it cannot read', () => {
+		it('clears the cell, and says which one it cleared', () => {
+			/*
+			 * The cell is about to be gone and the next save writes the file without
+			 * it, so the row and the column have to be named: an empty cell with no
+			 * explanation reads as "the plugin lost my data".
+			 */
+			const raw = JSON.parse(VALID) as Record<string, unknown>;
+			(raw.fields as unknown[]).push({ id: 'f_due', name: '截止', type: 'date' });
+			(raw.fields as unknown[]).push({ id: 'f_at', name: '开始', type: 'datetime' });
+			(raw.records as Record<string, unknown>[])[0]!.cells = {
+				f_a: '写方案',
+				f_b: 'o_1',
+				f_due: '2026-02-30',
+				f_at: '2026-02-01T48:00',
+			};
+			const { doc, warnings, dropped } = parseLayerDoc(JSON.stringify(raw));
+
+			expect(doc.records[0]?.cells.f_due).toBeUndefined();
+			expect(doc.records[0]?.cells.f_at).toBeUndefined();
+			/*
+			 * Reported apart from the other repairs: a dropped value is a loss, and the
+			 * notice names the column and the value so it can be put back.
+			 */
+			expect(warnings).toEqual([]);
+			expect(dropped).toEqual([
+				{ field: '截止', value: '2026-02-30', type: 'date' },
+				{ field: '开始', value: '2026-02-01T48:00', type: 'datetime' },
+			]);
+		});
+	});
+
 	describe('protects the id-keyed data invariants', () => {
 		it('drops cells pointing at fields that no longer exist', () => {
 			const raw = JSON.parse(VALID) as Record<string, unknown>;

@@ -72,6 +72,63 @@ describe('ordering by a column', () => {
 		]);
 	});
 
+	it('puts a later day after an earlier one however the time is written', () => {
+		const rows = [
+			row('next', { f_at: '2026-10-19' }),
+			row('late', { f_at: '2026-10-18T23:00' }),
+		];
+		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'asc' }])).toEqual([
+			'late',
+			'next',
+		]);
+	});
+
+	it('keeps the minute of a value written with seconds', () => {
+		// Seconds are not stored, so 23:00:59 is the minute 23:00 — but it is still
+		// a real moment and must not fall in with the unreadable ones.
+		const rows = [
+			row('sometime', { f_at: '2026-10-18T23:00:59' }),
+			row('earlier', { f_at: '2026-10-18T22:00' }),
+		];
+		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'asc' }])).toEqual([
+			'earlier',
+			'sometime',
+		]);
+	});
+
+	it('keeps a value it cannot read as a date with the empty ones', () => {
+		/*
+		 * A hand-edited file can hold `2026-13-45`. It is not a very late date: the
+		 * editor refuses it, the formula engine cannot read it and the loader drops
+		 * it, so sorting gives it no place among real dates either.
+		 */
+		const rows = [
+			row('bad', { f_at: '2026-13-45' }),
+			row('real', { f_at: '2026-10-18' }),
+		];
+		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'asc' }])).toEqual([
+			'bad',
+			'real',
+		]);
+		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'desc' }])).toEqual([
+			'real',
+			'bad',
+		]);
+	});
+
+	it('does not read a value carrying a time zone as local time', () => {
+		// The format has no zones to convert between: such a value is unreadable,
+		// not midnight somewhere else.
+		const rows = [
+			row('zoned', { f_at: '2026-10-20T00:00+08:00' }),
+			row('plain', { f_at: '2026-10-18' }),
+		];
+		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'asc' }])).toEqual([
+			'zoned',
+			'plain',
+		]);
+	});
+
 	it('puts unticked rows before ticked ones', () => {
 		const rows = [row('a', { f_box: true }), row('b', { f_box: false })];
 		expect(orderOf(rows, [box], [{ fieldId: 'f_box', order: 'asc' }])).toEqual([
