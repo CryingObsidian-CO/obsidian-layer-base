@@ -7,7 +7,7 @@ import type {
 	LayerRecord,
 } from '../types';
 import { capabilityOf } from './capabilities';
-import { dateMinutes, dayNumber } from './date';
+import { dateMinutes, dayNumber, normaliseDateTime } from './date';
 import { formatCell } from './fields';
 import { parseShownNumber } from './number';
 
@@ -127,6 +127,61 @@ function wantedText(condition: FilterCondition): string {
 }
 
 /**
+ * Whether a cell holds exactly what the condition names.
+ *
+ * Decided from what the value means, not from how it is written: a date-time cell
+ * reads "2026-02-01 09:00" while the picker that filled the condition holds
+ * "2026-02-01", so comparing the two as text could never be true — and "is not"
+ * was then true of every row.
+ *
+ * `null` means the condition names nothing that can be compared — an empty box, a
+ * word where a number belongs, a date that is not one. The two operators then
+ * agree to keep no rows, rather than one matching every row holding zero while the
+ * other matches all the rest.
+ */
+function sameAsWanted(
+	field: Field,
+	record: LayerRecord,
+	wanted: string,
+	cellText?: CellTextResolver,
+): boolean | null {
+	if (field.type === 'number' || field.type === 'autoNumber') {
+		const right = wanted.trim() === '' ? Number.NaN : Number(wanted);
+		if (!Number.isFinite(right)) {
+			return null;
+		}
+		return numberOf(field, record, cellText) === right;
+	}
+	if (field.type === 'date' || field.type === 'datetime') {
+		const picked = momentOf(field, { id: '', created: '', cells: { [field.id]: wanted } });
+		if (picked === null) {
+			return null;
+		}
+		const cell = momentOf(field, record, cellText);
+		if (cell === null) {
+			// The cell holds nothing this column can read, so it is not that day.
+			return false;
+		}
+		/*
+		 * A picker supplies a day and no time, so a day is compared as a day — the
+		 * same reading the ordered operators use. A date column already counts in
+		 * days; a date-time counts in minutes, so its day is where those minutes
+		 * fall. A condition written out with a time asks about that minute and is
+		 * answered to the minute, which is what "is 1 February 09:00" says.
+		 */
+		if (field.type === 'date') {
+			return cell === picked;
+		}
+		return normaliseDateTime(wanted) === null
+			? Math.floor(cell / 1440) === Math.floor(picked / 1440)
+			: cell === picked;
+	}
+	return (
+		textOf(field, record, cellText).trim().toLowerCase() === wanted.trim().toLowerCase()
+	);
+}
+
+/**
  * Whether one row passes one condition.
  *
  * Operators are matched to what the column can actually answer: a number column is
@@ -188,17 +243,13 @@ export function matchesCondition(
 
 	const shown = textOf(field, record, cellText);
 
-	if (operator === 'is') {
-		if (field.type === 'number' || field.type === 'autoNumber') {
-			return numberOf(field, record, cellText) === Number(wanted);
+	if (operator === 'is' || operator === 'isNot') {
+		const same = sameAsWanted(field, record, wanted, cellText);
+		if (same === null) {
+			// Nothing to compare against: both operators keep no rows.
+			return false;
 		}
-		return shown.trim().toLowerCase() === wanted.trim().toLowerCase();
-	}
-	if (operator === 'isNot') {
-		if (field.type === 'number' || field.type === 'autoNumber') {
-			return numberOf(field, record, cellText) !== Number(wanted);
-		}
-		return shown.trim().toLowerCase() !== wanted.trim().toLowerCase();
+		return operator === 'is' ? same : !same;
 	}
 	if (operator === 'contains') {
 		return shown.toLowerCase().includes(wanted.toLowerCase());
@@ -219,8 +270,10 @@ export function matchesCondition(
 	}
 
 	const left = numberOf(field, record, cellText);
-	const right = Number(wanted);
-	if (left === null || Number.isNaN(right)) {
+	// A blank or unreadable box names no number; comparing against zero would be a
+	// condition the reader never wrote.
+	const right = wanted.trim() === '' ? Number.NaN : Number(wanted);
+	if (left === null || !Number.isFinite(right)) {
 		return false;
 	}
 	return compareBy(operator, left, right);

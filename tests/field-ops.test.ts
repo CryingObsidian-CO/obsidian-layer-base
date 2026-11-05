@@ -9,7 +9,7 @@ import {
 } from '../src/model/records';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { addBoardView } from '../src/model/views';
-import type { Field, KanbanView, LayerDoc, SelectOption } from '../src/types';
+import type { Field, GridView, KanbanView, LayerDoc, SelectOption } from '../src/types';
 
 const OPTIONS: SelectOption[] = [
 	{ id: 'o_1', name: 'To do', color: 'default' },
@@ -59,6 +59,78 @@ describe('removeField', () => {
 		expect(view.filter.conditions).toEqual([
 			{ fieldId: 'f_title', operator: 'is', value: 'x' },
 		]);
+	});
+
+	it('clears the footer and the tint that named the removed column', () => {
+		const doc = newDoc();
+		const view = doc.views[0] as GridView;
+		view.colorRules = [
+			{ fieldId: 'f_status', operator: 'is', value: 'o_1', color: 'red' },
+		];
+		view.summaries = { f_status: 'filled', f_title: 'unique' };
+
+		removeField(doc, 'f_status');
+
+		expect(view.colorRules).toBeUndefined();
+		// A footer for another column is someone's setting, not debris.
+		expect(view.summaries).toEqual({ f_title: 'unique' });
+	});
+
+	it('clears the kanban settings that named the removed column', () => {
+		const doc = newDoc();
+		doc.fields.push({ id: 'f_note', name: 'Note', type: 'text' });
+		const board: KanbanView = {
+			id: 'v_board',
+			name: 'Board',
+			type: 'kanban',
+			groupByFieldId: 'f_note',
+			cardFieldIds: ['f_status', 'f_title'],
+			titleFieldId: 'f_status',
+			filter: { conjunction: 'and', conditions: [] },
+			sorts: [],
+			hiddenFieldIds: [],
+		};
+		doc.views.push(board);
+
+		removeField(doc, 'f_status');
+
+		expect(board.titleFieldId).toBeUndefined();
+		expect(board.cardFieldIds).toEqual(['f_title']);
+	});
+
+	it('clears what other columns pointed at', () => {
+		const doc = newDoc();
+		doc.fields.push({
+			id: 'f_dep',
+			name: 'Dep',
+			type: 'rollup',
+			linkFieldId: 'f_status',
+			backFieldId: 'f_status',
+			backTitleFieldId: 'f_status',
+			rollupSourceFieldId: 'f_status',
+			rollupFieldId: 'f_status',
+			lookupSourceFieldId: 'f_status',
+			lookupFieldId: 'f_status',
+			numberGroupFieldId: 'f_status',
+			noteFieldId: 'f_status',
+		});
+
+		removeField(doc, 'f_status');
+
+		const dep = doc.fields.find((field) => field.id === 'f_dep') as Field;
+		for (const key of [
+			'linkFieldId',
+			'backFieldId',
+			'backTitleFieldId',
+			'rollupSourceFieldId',
+			'rollupFieldId',
+			'lookupSourceFieldId',
+			'lookupFieldId',
+			'numberGroupFieldId',
+			'noteFieldId',
+		] as const) {
+			expect({ key, value: dep[key] }).toEqual({ key, value: undefined });
+		}
 	});
 
 	it('repoints a board whose grouping field was deleted', () => {
@@ -205,6 +277,31 @@ describe('changeFieldType', () => {
 		changeFieldType(doc, 'f_status', 'text');
 
 		expect(doc.fields[1]?.options).toBeUndefined();
+	});
+
+	it('drops the note column and key when leaving a note property', () => {
+		const doc = newDoc();
+		const field = doc.fields[1] as Field;
+		field.type = 'noteProp';
+		field.noteFieldId = 'f_title';
+		field.frontmatterKey = 'status';
+
+		changeFieldType(doc, 'f_status', 'text');
+
+		// Both belong to that type alone; kept, they name a source nothing reads.
+		expect(field.noteFieldId).toBeUndefined();
+		expect(field.frontmatterKey).toBeUndefined();
+	});
+
+	it('keeps a note property intact when the change is to itself', () => {
+		const doc = newDoc();
+		const field = doc.fields[1] as Field;
+		field.type = 'noteProp';
+		field.noteFieldId = 'f_title';
+		field.frontmatterKey = 'status';
+
+		expect(changeFieldType(doc, 'f_status', 'noteProp')).toBe(0);
+		expect(field.noteFieldId).toBe('f_title');
 	});
 
 	it('does nothing when the type is unchanged', () => {

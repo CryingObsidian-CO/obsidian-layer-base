@@ -149,7 +149,11 @@ function renderValue(
 	input.value = condition.value === undefined ? '' : String(shown);
 	input.addEventListener('input', () => {
 		condition.value = counts
-			? storedNumber(Number(input.value), field.numberFormat)
+			? // A cleared box names no number: storing the zero an empty input reads as
+				// would turn "no value yet" into a filter on 0.
+				input.value.trim() === ''
+				? ''
+				: storedNumber(Number(input.value), field.numberFormat)
 			: input.value;
 		onChange(false);
 	});

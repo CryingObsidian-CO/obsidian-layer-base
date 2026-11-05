@@ -1,6 +1,6 @@
 import type { CellValue, FieldType, RollupAggregate } from '../types';
 import { capabilityOf } from './capabilities';
-import { dayNumber } from './date';
+import { dateMinutes } from './date';
 import { parseShownNumber } from './number';
 
 /**
@@ -67,10 +67,18 @@ function asText(value: Gathered): string {
 	return '';
 }
 
-/** Whether a gathered value reads as a calendar date, for the date comparisons. */
-function asDay(value: Gathered): number | null {
+/**
+ * Where a gathered value sits in time, in minutes.
+ *
+ * Measured in minutes rather than in days because a date-time column keeps its
+ * time: reduced to a day, two values from 09:00 and 18:00 tie, the strict
+ * comparison keeps whichever came first, and a "latest deadline" rollup answered
+ * 09:00. A value naming only a day sits at the start of it, so a date column reads
+ * exactly as it did.
+ */
+function asMoment(value: Gathered): number | null {
 	const text = asText(value).trim();
-	return text === '' ? null : dayNumber(text);
+	return text === '' ? null : dateMinutes(text);
 }
 
 /**
@@ -118,12 +126,13 @@ export function aggregateRollup(
 	}
 
 	// The rest are min and max, which compare numbers and dates. A column of dates
-	// answers with the date itself, so the reader sees the day rather than a count.
-	const dayNumbers = filled
-		.map(asDay)
-		.filter((day): day is number => day !== null);
-	if (dayNumbers.length === filled.length) {
-		const chosen = pickDay(filled, dayNumbers, how);
+	// answers with the date itself, so the reader sees the day rather than a count —
+	// and with a date-time, the time of the day it answers with too.
+	const moments = filled
+		.map(asMoment)
+		.filter((moment): moment is number => moment !== null);
+	if (moments.length === filled.length) {
+		const chosen = pickMoment(filled, moments, how);
 		return chosen === null ? null : { text: asText(chosen), kind: 'text' };
 	}
 
@@ -153,19 +162,19 @@ function pickNumber(numbers: readonly number[], how: RollupAggregate): number | 
 	);
 }
 
-function pickDay(
+function pickMoment(
 	values: readonly Gathered[],
-	days: readonly number[],
+	moments: readonly number[],
 	how: RollupAggregate,
 ): Gathered | null {
 	if (values.length === 0) {
 		return null;
 	}
 	let bestIndex = 0;
-	for (let index = 1; index < days.length; index += 1) {
-		const day = days[index] as number;
-		const best = days[bestIndex] as number;
-		if (how === 'min' ? day < best : day > best) {
+	for (let index = 1; index < moments.length; index += 1) {
+		const moment = moments[index] as number;
+		const best = moments[bestIndex] as number;
+		if (how === 'min' ? moment < best : moment > best) {
 			bestIndex = index;
 		}
 	}

@@ -108,6 +108,29 @@ describe('setRowHeight', () => {
 
 		expect('r_a' in view.rowHeights).toBe(false);
 	});
+
+	it('keeps a row dragged to the default height when the table is not on it', () => {
+		const { view } = newDoc();
+		setRowHeightPreset(view, 'compact');
+		setRowHeight(view, 'r_a', DEFAULT_ROW_HEIGHT);
+
+		/*
+		 * 42 in a table of 24-high rows is a row of its own. Dropping the key here
+		 * would have made it snap back to 24 the moment it was let go.
+		 */
+		expect(view.rowHeights.r_a).toBe(DEFAULT_ROW_HEIGHT);
+		expect(rowHeightOf(view, 'r_a')).toBe(DEFAULT_ROW_HEIGHT);
+	});
+
+	it('drops the key when the height returns to the base it belongs to', () => {
+		const { view } = newDoc();
+		setRowHeightPreset(view, 'compact');
+		setRowHeight(view, 'r_a', 80);
+		setRowHeight(view, 'r_a', ROW_HEIGHTS.compact);
+
+		expect('r_a' in view.rowHeights).toBe(false);
+		expect(rowHeightOf(view, 'r_a')).toBe(ROW_HEIGHTS.compact);
+	});
 });
 
 describe('sizes follow their field and record', () => {

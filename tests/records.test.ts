@@ -306,6 +306,40 @@ describe('duplicateField', () => {
 		expect(doc.fields.filter((f) => f.primary)).toHaveLength(1);
 	});
 
+	it('carries the column a note property reads, but not the key it writes', () => {
+		const doc = newDoc();
+		const source = doc.fields[1] as Field;
+		source.type = 'noteProp';
+		source.noteFieldId = 'f_notes';
+		source.frontmatterKey = 'status';
+
+		const copy = duplicateField(doc, source.id) as Field;
+
+		/*
+		 * Without the source column the copy reads nothing at all. With the key it
+		 * would write over the original's value, which lives in a note both columns
+		 * would be editing.
+		 */
+		expect(copy.noteFieldId).toBe('f_notes');
+		expect(copy.frontmatterKey).toBeUndefined();
+	});
+
+	it('carries the settings a computed column reads from', () => {
+		const doc = newDoc();
+		const source = doc.fields[1] as Field;
+		source.type = 'rollup';
+		source.rollupSourceFieldId = 'f_link';
+		source.rollupFieldId = 'f_amount';
+		source.rollupAggregate = 'sum';
+
+		const copy = duplicateField(doc, source.id) as Field;
+
+		expect(copy.type).toBe('rollup');
+		expect(copy.rollupSourceFieldId).toBe('f_link');
+		expect(copy.rollupFieldId).toBe('f_amount');
+		expect(copy.rollupAggregate).toBe('sum');
+	});
+
 	it('returns null for a field that is gone', () => {
 		const doc = newDoc();
 		expect(duplicateField(doc, 'f_missing')).toBeNull();

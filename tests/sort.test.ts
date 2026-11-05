@@ -24,6 +24,26 @@ function orderOf(
 }
 
 describe('ordering by a column', () => {
+	it('orders a number against a word by a fixed rule, not by the collator', () => {
+		const rows = [
+			row('a', { f_text: '1.5a' }),
+			row('b', { f_text: '1.5' }),
+			row('c', { f_text: '1.25' }),
+		];
+
+		/*
+		 * The defect this pins: a mixed pair went to the collator, which compares
+		 * digit runs rather than values. `1.25 < 1.5` (both numbers), `1.5 < 1.5a`
+		 * (a prefix) and `1.5a < 1.25` (`5` < `25`) together make a cycle, and a
+		 * comparator with no order in it leaves `sort` to answer at random.
+		 */
+		expect(orderOf(rows, [text], [{ fieldId: 'f_text', order: 'asc' }])).toEqual([
+			'c',
+			'b',
+			'a',
+		]);
+	});
+
 	it('sorts numbers as numbers, not as the text they show', () => {
 		const rows = [
 			row('a', { f_num: 10 }),

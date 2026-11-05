@@ -79,6 +79,56 @@ describe('placeAtAnchor', () => {
 		expect(el.style.left).toBe('8px');
 	});
 
+	it('stays at the left edge when the panel is wider than the window', () => {
+		const el = panel();
+		const narrow: Viewport = { width: 320, height: 800 };
+
+		/*
+		 * 360 wide in a 320 window: the cap on the right is -48, smaller than the
+		 * margin. With the margin applied last the panel stays at the left edge and
+		 * runs off the right; before, it slid off the left instead.
+		 */
+		place(
+			el,
+			rect({ left: 250, right: 290 }),
+			rect({ width: 360, height: 200 }),
+			narrow,
+		);
+
+		expect(el.style.left).toBe('8px');
+	});
+
+	it('holds a tall panel inside the window instead of drawing past the bottom', () => {
+		const el = panel();
+
+		// 700 tall in a 400 window: no side can hold it, so it starts at the margin.
+		place(el, rect(), rect({ height: 700 }), SHORT);
+
+		expect(el.style.top).toBe('8px');
+	});
+
+	it('pulls a panel back into the window when the trigger is scrolled past the end', () => {
+		const el = panel();
+		const anchor = rect({ top: 500, bottom: 540 });
+
+		// The trigger is off the bottom of a 400-high window; the panel still lands
+		// where its own height allows: 400 - 200 - 8.
+		place(el, anchor, rect({ height: 200 }), SHORT);
+
+		expect(el.style.top).toBe('192px');
+	});
+
+	it('counts the margin as room it cannot use when choosing a side', () => {
+		const el = panel();
+		// 53 tall with 52 usable below (60 raw, less the margin) and plenty above.
+		const anchor = rect({ top: 300, bottom: 340 });
+
+		place(el, anchor, rect({ height: 53 }), SHORT);
+
+		// Below would clip a pixel off the bottom, so it opens above instead.
+		expect(el.style.top).toBe('239px'); // 300 - 53 - 8
+	});
+
 	it('leaves the panel untouched when there is no anchor', () => {
 		const el = panel();
 

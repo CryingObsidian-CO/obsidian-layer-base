@@ -310,6 +310,36 @@ describe('the column limit', () => {
 		// A distinct value per row, and nothing ungrouped: the limit is what is drawn.
 		expect(groupRecords(rows, number, 5)).toHaveLength(5);
 	});
+
+	it('keeps a slot for the no-value column, whose cards have nowhere else to be', () => {
+		const rows = [
+			row('a', { f_text: 'apple' }),
+			row('b', { f_text: 'pear' }),
+			row('c', { f_text: '' }),
+		];
+		const drawn = groupRecords(rows, text, 2);
+
+		/*
+		 * Two named columns would fill the limit and drop the card with no value —
+		 * and the board can only say how many *columns* it left out, not that a card
+		 * went with one of them.
+		 */
+		expect(titles(drawn)).toEqual(['apple', '']);
+		expect(drawn[1]?.recordIds).toEqual(['c']);
+	});
+
+	it('draws only the no-value column when the limit is one', () => {
+		const rows = [row('a', { f_text: 'apple' }), row('b', { f_text: '' })];
+
+		expect(titles(groupRecords(rows, text, 1))).toEqual(['']);
+	});
+
+	it('draws the whole board when the limit is not a number', () => {
+		const rows = [row('a', { f_text: 'apple' }), row('b', { f_text: 'pear' })];
+
+		// `Math.max(1, NaN)` is NaN and `slice(0, NaN)` is an empty board.
+		expect(titles(groupRecords(rows, text, Number.NaN))).toEqual(['apple', 'pear']);
+	});
 });
 
 describe('showing the columns a column could hold', () => {
@@ -361,13 +391,16 @@ describe('showing the columns a column could hold', () => {
 		]);
 	});
 
-	it('counts the unused columns against the limit', () => {
+	it('counts the unused columns against the limit, keeping a slot for the no-value one', () => {
 		/*
-		 * The limit is about what is drawn, and the ungrouped column comes after the
-		 * values, so a board that is already at its limit drops that one rather than
-		 * displacing a value the column really holds.
+		 * The limit is about what is drawn, and the no-value column holds the cards
+		 * that have nowhere else to be, so it keeps a slot — the unused named columns
+		 * are what the board leaves out.
 		 */
-		expect(groupRecords(rows, status, 3, undefined, true)).toHaveLength(3);
+		const drawn = groupRecords(rows, status, 3, undefined, true);
+
+		expect(drawn).toHaveLength(3);
+		expect(titles(drawn)).toEqual(['To do', 'Doing', '']);
 	});
 });
 
@@ -498,5 +531,31 @@ describe('the columns a card prints', () => {
 			boardView({ cardFieldIds: ['gone', text.id] }),
 		);
 		expect(columns.shown.map((field) => field.id)).toEqual([text.id]);
+	});
+});
+
+describe('a board grouped by a percentage', () => {
+	const rate: Field = { id: 'f_rate', name: 'Rate', type: 'number', numberFormat: 'percent' };
+	// Stored as proportions, so these read as "10%" and "2%".
+	const rows = [row('a', { f_rate: 0.1 }), row('b', { f_rate: 0.02 })];
+
+	it('orders its columns by the number behind the title', () => {
+		/*
+		 * `Number("10%")` is NaN for every column, and a comparator that answers NaN
+		 * leaves the order to whatever `sort` feels like — here, the order the rows
+		 * arrived in.
+		 */
+		expect(groupRecords(rows, rate, 10).map((column) => column.title)).toEqual([
+			'2%',
+			'10%',
+		]);
+	});
+
+	it('writes the proportion back when a card is dropped on a column', () => {
+		const columns = groupRecords(rows, rate, 10);
+		const ten = columns.find((column) => column.title === '10%') as KanbanColumn;
+
+		// The column carries "10%", and the cell it writes into holds 0.1.
+		expect(valueForColumn(rate, ten)).toBe(0.1);
 	});
 });

@@ -2,6 +2,7 @@ import type { CellValue, Field, LayerRecord } from '../types';
 import { capabilityOf } from './capabilities';
 import { formatCell, isDerived } from './fields';
 import { dayNumber } from './date';
+import { parseShownNumber } from './number';
 
 /**
  * What a column's footer reports.
@@ -125,18 +126,30 @@ export function summarize(
 		return '';
 	}
 	if (kind === 'sum') {
-		return formatCell(field, round(sumOf(numbers)));
+		return figureOf(field, round(sumOf(numbers)));
 	}
 	if (kind === 'average') {
-		return formatCell(field, round(sumOf(numbers) / numbers.length));
+		return figureOf(field, round(sumOf(numbers) / numbers.length));
 	}
 	if (kind === 'min') {
-		return formatCell(field, Math.min(...numbers));
+		return figureOf(field, Math.min(...numbers));
 	}
 	if (kind === 'max') {
-		return formatCell(field, Math.max(...numbers));
+		return figureOf(field, Math.max(...numbers));
 	}
 	return '';
+}
+
+/**
+ * A total written in the column's own terms.
+ *
+ * A number column formats the figure the way its cells read, so a per cent total
+ * keeps its sign. An auto-numbered column has no cell to format — its numbers come
+ * from the view — so the figure is written plainly, without the padding a serial
+ * number carries: a total is not a serial.
+ */
+function figureOf(field: Field, value: number): string {
+	return field.type === 'autoNumber' ? String(value) : formatCell(field, value);
 }
 
 /** The numbers a column holds, skipping blanks and anything that is not a number. */
@@ -147,25 +160,33 @@ function numericValues(
 ): number[] {
 	const numbers: number[] = [];
 	for (const record of records) {
+		const value: CellValue = record.cells[field.id] ?? '';
+		/*
+		 * A stored number is the value itself. Its display text is a rounding of it —
+		 * and in a per cent column that text carries a `%`, which reads as no number
+		 * at all, so a footer drawn from the text found nothing to add and stayed
+		 * blank for every percentage the column held.
+		 */
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			numbers.push(value);
+			continue;
+		}
+		/*
+		 * Nothing stored to read: a computed column's value arrives as the text the
+		 * view draws, and an auto-numbered cell has no cell of its own either.
+		 */
+		let text = '';
 		if (textOf) {
-			const text = textOf(record).trim();
-			// Blank is not zero: an empty cell contributes nothing to a total.
-			const number = text === '' ? Number.NaN : Number(text);
-			if (Number.isFinite(number)) {
-				numbers.push(number);
-			}
-			continue;
+			text = textOf(record).trim();
+		} else if (!isDerived(field.type)) {
+			text = formatCell(field, value).trim();
 		}
-		if (isDerived(field.type)) {
-			continue;
-		}
-		const value = record.cells[field.id] ?? '';
-		const text = formatCell(field, value).trim();
 		if (text === '') {
+			// Blank is not zero: an empty cell contributes nothing to a total.
 			continue;
 		}
-		const number = typeof value === 'number' ? value : Number(text);
-		if (Number.isFinite(number)) {
+		const number = parseShownNumber(text);
+		if (number !== null) {
 			numbers.push(number);
 		}
 	}

@@ -22,31 +22,36 @@ export function visibleCount(
 	return fields.filter((field) => !hidden.has(field.id)).length;
 }
 
+/** What asking to hide or show a column came to. */
+export type HiddenChange = 'changed' | 'unchanged' | 'refused';
+
 /**
- * Hides or shows a column in this view, answering whether it changed.
+ * Hides or shows a column in this view.
  *
- * Refuses to hide the last visible column: the table would have nothing left to
- * draw, and there is no way back from a table with no columns in it.
+ * Asked for the state the column is already in, it is left alone and answers
+ * `unchanged` — that is not a refusal, and there is nothing to tell the reader
+ * about. Only `refused` means the request was turned down, which happens for one
+ * reason: the last visible column cannot be hidden, because a table with nothing
+ * left to draw has no way to reach a column again.
+ *
+ * The two are told apart because the caller shows a message on a refusal, and
+ * "the last visible column cannot be hidden" over a column that was already hidden
+ * reads as a broken button.
  */
 export function setHidden(
 	view: View,
 	field: Field,
 	fields: readonly Field[],
 	hidden: boolean,
-): boolean {
-	if (hidden) {
-		if (visibleCount(fields, view) <= 1) {
-			return false;
-		}
-		if (view.hiddenFieldIds.includes(field.id)) {
-			return false;
-		}
-		view.hiddenFieldIds = [...view.hiddenFieldIds, field.id];
-		return true;
+): HiddenChange {
+	if (view.hiddenFieldIds.includes(field.id) === hidden) {
+		return 'unchanged';
 	}
-	if (!view.hiddenFieldIds.includes(field.id)) {
-		return false;
+	if (hidden && visibleCount(fields, view) <= 1) {
+		return 'refused';
 	}
-	view.hiddenFieldIds = view.hiddenFieldIds.filter((id) => id !== field.id);
-	return true;
+	view.hiddenFieldIds = hidden
+		? [...view.hiddenFieldIds, field.id]
+		: view.hiddenFieldIds.filter((id) => id !== field.id);
+	return 'changed';
 }

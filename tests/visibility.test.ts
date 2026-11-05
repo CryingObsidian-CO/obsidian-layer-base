@@ -27,7 +27,7 @@ describe('hiding a column in a view', () => {
 		const view = tableView(doc);
 		expect(visibleCount(doc.fields, view)).toBe(3);
 
-		expect(setHidden(view, b, doc.fields, true)).toBe(true);
+		expect(setHidden(view, b, doc.fields, true)).toBe('changed');
 		expect(isHidden(view, b.id)).toBe(true);
 		expect(visibleCount(doc.fields, view)).toBe(2);
 	});
@@ -36,7 +36,7 @@ describe('hiding a column in a view', () => {
 		const doc = board([a, b]);
 		const view = tableView(doc);
 		setHidden(view, b, doc.fields, true);
-		expect(setHidden(view, b, doc.fields, false)).toBe(true);
+		expect(setHidden(view, b, doc.fields, false)).toBe('changed');
 		expect(isHidden(view, b.id)).toBe(false);
 		expect(visibleCount(doc.fields, view)).toBe(2);
 	});
@@ -49,12 +49,26 @@ describe('hiding a column in a view', () => {
 		expect(doc.fields.map((field) => field.id)).toEqual([a.id, b.id]);
 	});
 
-	it('answers false when nothing changed', () => {
+	it('answers unchanged when nothing changed', () => {
 		const doc = board([a, b]);
 		const view = tableView(doc);
-		expect(setHidden(view, b, doc.fields, false)).toBe(false);
+		expect(setHidden(view, b, doc.fields, false)).toBe('unchanged');
 		setHidden(view, b, doc.fields, true);
-		expect(setHidden(view, b, doc.fields, true)).toBe(false);
+		expect(setHidden(view, b, doc.fields, true)).toBe('unchanged');
+	});
+
+	it('is unchanged, not refused, when the column asked for is already hidden', () => {
+		/*
+		 * Only one column is still visible, so the old guard fired — and the caller
+		 * told the reader "the last visible column cannot be hidden" about a column
+		 * that was hidden already, which reads as a broken button.
+		 */
+		const doc = board([a, b]);
+		const view = tableView(doc);
+		setHidden(view, a, doc.fields, true);
+
+		expect(setHidden(view, a, doc.fields, true)).toBe('unchanged');
+		expect(visibleCount(doc.fields, view)).toBe(1);
 	});
 });
 
@@ -67,7 +81,7 @@ describe('the last visible column', () => {
 		const doc = board([a, b]);
 		const view = tableView(doc);
 		setHidden(view, a, doc.fields, true);
-		expect(setHidden(view, b, doc.fields, true)).toBe(false);
+		expect(setHidden(view, b, doc.fields, true)).toBe('refused');
 		expect(visibleCount(doc.fields, view)).toBe(1);
 	});
 
@@ -75,10 +89,10 @@ describe('the last visible column', () => {
 		const doc = board([a, b]);
 		const view = tableView(doc);
 		setHidden(view, a, doc.fields, true);
-		expect(setHidden(view, b, doc.fields, true)).toBe(false);
+		expect(setHidden(view, b, doc.fields, true)).toBe('refused');
 
 		setHidden(view, a, doc.fields, false);
-		expect(setHidden(view, b, doc.fields, true)).toBe(true);
+		expect(setHidden(view, b, doc.fields, true)).toBe('changed');
 	});
 });
 

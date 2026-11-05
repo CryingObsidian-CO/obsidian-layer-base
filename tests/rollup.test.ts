@@ -30,6 +30,18 @@ describe('reducing the gathered values', () => {
 		expect(text(['2026-10-18', '2026-03-07', '2026-12-01'], 'max')).toBe('2026-12-01');
 	});
 
+	it('keeps the time of day when the values are date-times', () => {
+		const times = ['2026-03-07T09:00', '2026-03-07T18:00'];
+
+		/*
+		 * Both values fall on the same day, so a comparison of days made them a tie
+		 * and the first one won: the latest deadline of a day answered 09:00.
+		 */
+		expect(text(times, 'min')).toBe('2026-03-07T09:00');
+		expect(text(times, 'max')).toBe('2026-03-07T18:00');
+		expect(text(['2026-03-07T18:00', '2026-03-08T09:00'], 'max')).toBe('2026-03-08T09:00');
+	});
+
 	it('counts the filled values, not the rows', () => {
 		expect(text([1, '', 3], 'count')).toBe('2');
 		expect(text([1, '', 3], 'countAll')).toBe('3');

@@ -116,13 +116,22 @@ export function setColumnWidth(
 	}
 }
 
+/**
+ * The height one row was dragged to, or the key dropped when it is the table's.
+ *
+ * The comparison is against the height this view is actually drawing with, not
+ * against the default: a row dragged to 42 in a table of 24-high rows is a row of
+ * its own, and dropping the key would have snapped it back to 24 the moment it was
+ * let go.
+ */
 export function setRowHeight(
 	view: GridView,
 	recordId: string,
 	height: number,
 ): void {
 	const clamped = clampRowHeight(height);
-	if (clamped === DEFAULT_ROW_HEIGHT) {
+	const base = view.rowHeight ?? DEFAULT_ROW_HEIGHT;
+	if (clamped === base) {
 		delete view.rowHeights[recordId];
 	} else {
 		view.rowHeights[recordId] = clamped;

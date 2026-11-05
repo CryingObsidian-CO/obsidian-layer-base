@@ -6,6 +6,7 @@ import {
 	type SummaryKind,
 } from '../src/model/summary';
 import type { CellValue, Field, LayerRecord } from '../src/types';
+import { formatCell } from '../src/model/fields';
 
 function row(id: string, cells: Record<string, CellValue>): LayerRecord {
 	return { id, created: '2026-01-01T00:00:00.000Z', cells };
@@ -138,6 +139,39 @@ describe('adding up', () => {
 			row('c', { f_pct: 0.3 }),
 		];
 		expect(summarize(percent, percentages, 'sum')).toBe('60%');
+	});
+
+	it('counts the stored values when the footer is drawn from the text on screen', () => {
+		const percentages = [
+			row('a', { f_pct: 0.1 }),
+			row('b', { f_pct: 0.2 }),
+			row('c', { f_pct: 0.3 }),
+		];
+		const shown = (record: LayerRecord) => formatCell(percent, record.cells.f_pct ?? '');
+
+		/*
+		 * The grid always supplies this reader, and a per cent cell reads "10%".
+		 * Reading that as a number found nothing, so every per cent total was blank.
+		 */
+		expect(summarize(percent, percentages, 'sum', shown)).toBe('60%');
+		expect(summarize(percent, percentages, 'average', shown)).toBe('20%');
+		expect(summarize(percent, percentages, 'min', shown)).toBe('10%');
+		expect(summarize(percent, percentages, 'max', shown)).toBe('30%');
+	});
+
+	it('writes a total for an auto-numbered column, which has no cells to format', () => {
+		const serial: Field = { id: 'f_no', name: 'No', type: 'autoNumber', numberLength: 2 };
+		const rows = [row('a', {}), row('b', {})];
+		const texts = new Map([
+			['a', '01'],
+			['b', '02'],
+		]);
+
+		/*
+		 * The numbers come from the view, and there is no cell formatter to write the
+		 * total with — the footer was blank however many rows the column numbered.
+		 */
+		expect(summarize(serial, rows, 'sum', (record) => texts.get(record.id) ?? '')).toBe('3');
 	});
 
 	it('answers nothing when there is nothing to add', () => {

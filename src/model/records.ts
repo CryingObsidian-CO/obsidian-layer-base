@@ -293,6 +293,20 @@ export function clearRecord(doc: LayerDoc, recordId: string): boolean {
 	return true;
 }
 
+/**
+ * A second column configured like this one.
+ *
+ * Everything the column is set up with comes along — the formula, the rollup's
+ * source and target, the note a property reads — because that setup is the reason
+ * for duplicating rather than adding an empty column. Copied by spread rather than
+ * by name, so a setting added to `Field` later arrives here without anyone
+ * remembering to list it.
+ *
+ * Three things are deliberately not copied: the id (it is a new column), `primary`
+ * (a table has one), and `frontmatterKey` — the key is the address of a value that
+ * lives in someone's note, and two columns writing one key would overwrite each
+ * other. The copy reads its own key, which the reader names in the column settings.
+ */
 export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	const index = doc.fields.findIndex((f) => f.id === fieldId);
 	const source = doc.fields[index];
@@ -300,76 +314,37 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 		return null;
 	}
 	const copy: Field = {
+		...source,
 		id: generateId('f'),
 		name: `${source.name} copy`,
-		type: source.type,
 	};
+	delete copy.primary;
+	delete copy.frontmatterKey;
 	if (source.options) {
-		copy.options = source.options.map((o) => ({ ...o, id: generateId('o') }));
-	}
-	if (source.required) {
-		copy.required = true;
-	}
-	if (source.frontmatterKey) {
-		copy.frontmatterKey = source.frontmatterKey;
-	}
-	if (source.numberFormat) {
-		copy.numberFormat = source.numberFormat;
-	}
-	if (source.decimals !== undefined) {
-		copy.decimals = source.decimals;
-	}
-	if (source.min !== undefined) {
-		copy.min = source.min;
-	}
-	if (source.max !== undefined) {
-		copy.max = source.max;
-	}
-	if (source.linkPath) {
-		copy.linkPath = source.linkPath;
-	}
-	if (source.linkFieldId) {
-		copy.linkFieldId = source.linkFieldId;
-	}
-	if (source.backPath) {
-		copy.backPath = source.backPath;
-	}
-	if (source.backFieldId) {
-		copy.backFieldId = source.backFieldId;
-	}
-	if (source.backTitleFieldId) {
-		copy.backTitleFieldId = source.backTitleFieldId;
-	}
-	if (source.formula) {
-		copy.formula = source.formula;
-	}
-	if (source.formulaType) {
-		copy.formulaType = source.formulaType;
-	}
-	if (source.numberLength !== undefined) {
-		copy.numberLength = source.numberLength;
-	}
-	if (source.numberGroupFieldId) {
-		copy.numberGroupFieldId = source.numberGroupFieldId;
-	}
-	if (source.rollupSourceFieldId) {
-		copy.rollupSourceFieldId = source.rollupSourceFieldId;
-	}
-	if (source.rollupFieldId) {
-		copy.rollupFieldId = source.rollupFieldId;
-	}
-	if (source.rollupAggregate) {
-		copy.rollupAggregate = source.rollupAggregate;
-	}
-	if (source.lookupSourceFieldId) {
-		copy.lookupSourceFieldId = source.lookupSourceFieldId;
-	}
-	if (source.lookupFieldId) {
-		copy.lookupFieldId = source.lookupFieldId;
+		copy.options = source.options.map((option) => ({ ...option, id: generateId('o') }));
 	}
 	doc.fields.splice(index + 1, 0, copy);
 	return copy;
 }
+
+/**
+ * Every setting on one column that names another column by id.
+ *
+ * A deleted column has to be forgotten by all of them: each is looked up while a
+ * cell is being worked out, and an id that resolves to nothing draws an empty
+ * relation, a rollup with no source, or a numbering that counts by nothing.
+ */
+const FIELD_REFERENCES = [
+	'linkFieldId',
+	'backFieldId',
+	'backTitleFieldId',
+	'rollupSourceFieldId',
+	'rollupFieldId',
+	'lookupSourceFieldId',
+	'lookupFieldId',
+	'numberGroupFieldId',
+	'noteFieldId',
+] as const;
 
 export function removeField(doc: LayerDoc, fieldId: string): boolean {
 	const index = doc.fields.findIndex((f) => f.id === fieldId);
@@ -380,6 +355,20 @@ export function removeField(doc: LayerDoc, fieldId: string): boolean {
 
 	for (const record of doc.records) {
 		delete record.cells[fieldId];
+	}
+
+	/*
+	 * A column is more than its cells: other columns name it by id, and an id that
+	 * no longer resolves is a relation with no target column, a rollup with no
+	 * source, a numbering that counts by nothing. Those references go with it,
+	 * rather than being left for a reader to look up and find missing.
+	 */
+	for (const field of doc.fields) {
+		for (const key of FIELD_REFERENCES) {
+			if (field[key] === fieldId) {
+				delete field[key];
+			}
+		}
 	}
 
 	for (let i = 0; i < doc.views.length; i++) {
@@ -394,11 +383,28 @@ export function removeField(doc: LayerDoc, fieldId: string): boolean {
 		);
 		if (view.type === 'grid') {
 			forgetFieldSize(view, fieldId);
+			// A tint names the column it reads, and so does a footer.
+			if (view.colorRules) {
+				view.colorRules = view.colorRules.filter((rule) => rule.fieldId !== fieldId);
+				if (view.colorRules.length === 0) {
+					delete view.colorRules;
+				}
+			}
+			if (view.summaries) {
+				delete view.summaries[fieldId];
+				if (Object.keys(view.summaries).length === 0) {
+					delete view.summaries;
+				}
+			}
 		}
 		if (view.type !== 'kanban') {
 			continue;
 		}
 		view.cardFieldIds = view.cardFieldIds.filter((id) => id !== fieldId);
+		// Without a title column a card falls back to the table's primary column.
+		if (view.titleFieldId === fieldId) {
+			delete view.titleFieldId;
+		}
 		if (view.groupByFieldId !== fieldId) {
 			continue;
 		}
@@ -546,6 +552,12 @@ export function changeFieldType(
 	if (nextType !== 'lookup') {
 		delete field.lookupSourceFieldId;
 		delete field.lookupFieldId;
+	}
+	// A note property reads one key of the file a note column points at: both the
+	// column and the key belong to that type alone.
+	if (nextType !== 'noteProp') {
+		delete field.noteFieldId;
+		delete field.frontmatterKey;
 	}
 
 	return dropped;

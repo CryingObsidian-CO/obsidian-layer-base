@@ -1,5 +1,6 @@
 import type { CellValue, Field, KanbanView, LayerRecord } from '../types';
 import { emptyValueFor, formatCell, isDerived, relationIds } from './fields';
+import { parseNumberIn, parseShownNumber } from './number';
 
 /**
  * Turning rows into the columns of a board.
@@ -108,8 +109,14 @@ export function valueForColumn(field: Field, column: KanbanColumn): CellValue {
 		return column.value === true;
 	}
 	if (field.type === 'number' || field.type === 'autoNumber') {
-		const number = Number(column.value);
-		return Number.isFinite(number) ? number : '';
+		/*
+		 * The column carries the text the cell shows, so it is read back the way a
+		 * typed value would be: "42%" in a percent column is 0.42. `Number()` on that
+		 * text is NaN, which wrote a blank — the drop cleared the cell instead of
+		 * moving it.
+		 */
+		const parsed = parseNumberIn(field, String(column.value));
+		return parsed === null ? '' : parsed;
 	}
 	return column.value;
 }
@@ -204,15 +211,28 @@ export function groupRecords(
 		}))
 		.sort((a, b) => compareTitles(field, a.title, b.title));
 
-	const columns: KanbanColumn[] = [...ordered];
-
 	/*
-	 * Appended rather than prepended, and only when there is something for it to
-	 * hold: an empty "no value" column is a column nobody has filled, so it follows
-	 * the same rule as the other unused ones. It stays droppable either way — a card
-	 * dragged out of a status has to be able to end up with none.
+	 * The limit counts what is drawn; a board with more distinct values than that
+	 * says how many it left out rather than pretending they do not exist.
+	 *
+	 * The "no value" column is drawn last but is not the one to drop: its cards have
+	 * no other column to be in, and the board can only report how many *columns* it
+	 * left out, not which — so it keeps a slot and the named ones share the rest.
 	 */
-	if (ungrouped.length > 0 || showEmpty) {
+	const budget = Math.max(
+		1,
+		Math.floor(Number.isFinite(limit) ? limit : DEFAULT_COLUMN_LIMIT),
+	);
+	const drawsUngrouped = ungrouped.length > 0 || showEmpty;
+	const columns: KanbanColumn[] = ordered.slice(0, drawsUngrouped ? budget - 1 : budget);
+
+	if (drawsUngrouped) {
+		/*
+		 * Last, and only when there is something for it to hold: an empty "no value"
+		 * column is a column nobody has filled, so it follows the same rule as the
+		 * other unused ones. It stays droppable either way — a card dragged out of a
+		 * status has to be able to end up with none.
+		 */
 		columns.push({
 			value: null,
 			title: '',
@@ -221,10 +241,7 @@ export function groupRecords(
 			omitted: 0,
 		});
 	}
-
-	// The limit counts what is drawn; a board with more distinct values than that
-	// says how many it left out rather than pretending they do not exist.
-	return columns.slice(0, Math.max(1, limit));
+	return columns;
 }
 
 /**
@@ -245,7 +262,17 @@ function compareTitles(field: Field, a: string, b: string): number {
 		return indexOf(a) - indexOf(b);
 	}
 	if (field.type === 'number' || field.type === 'autoNumber') {
-		return Number(a) - Number(b);
+		/*
+		 * Compared by the number behind the title, not by `Number(title)`: a percent
+		 * column's titles are "9%" and "10%", which is NaN for both — and a comparator
+		 * answering NaN leaves `sort` free to keep any order at all.
+		 */
+		const left = parseShownNumber(a);
+		const right = parseShownNumber(b);
+		if (left !== null && right !== null) {
+			return left - right;
+		}
+		return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 	}
 	if (field.type === 'checkbox') {
 		return a === 'true' ? 1 : b === 'true' ? -1 : 0;

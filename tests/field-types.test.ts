@@ -188,6 +188,16 @@ describe('serializeCellValue', () => {
 	it('falls back to a comma list when the stored text is not JSON', () => {
 		expect(deserializeCellValue('o_1,o_2', multi)).toEqual(['o_1', 'o_2']);
 	});
+
+	it('reads a legacy string that happens to parse as JSON as a list, not as nothing', () => {
+		/*
+		 * These parse, but none of them is a list. Answering [] would empty the cell
+		 * and lose the id that is sitting in it.
+		 */
+		expect(deserializeCellValue('5', multi)).toEqual(['5']);
+		expect(deserializeCellValue('true', multi)).toEqual(['true']);
+		expect(deserializeCellValue('{}', multi)).toEqual(['{}']);
+	});
 });
 
 describe('normalizeCellForField', () => {

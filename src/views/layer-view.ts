@@ -2708,8 +2708,13 @@ export class LayerView extends TextFileView {
 		if (!field) {
 			return;
 		}
-		if (!setHidden(view, field, doc.fields, hidden)) {
-			new Notice(t().viewFieldsLastColumn);
+		const outcome = setHidden(view, field, doc.fields, hidden);
+		if (outcome !== 'changed') {
+			// Only a refusal is worth telling the reader about: a column already in
+			// the state asked for changed nothing, and it was not turned down.
+			if (outcome === 'refused') {
+				new Notice(t().viewFieldsLastColumn);
+			}
 			return;
 		}
 		this.markDirty();

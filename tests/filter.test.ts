@@ -93,6 +93,29 @@ describe('the number operators', () => {
 			[],
 		);
 	});
+
+	it('keeps nothing when the box names no number, whichever way it asks', () => {
+		/*
+		 * A blank box read as 0 made "is" match every zero while "is not" matched
+		 * every other row: one unreadable condition, two opposite wrong answers.
+		 * Keeping no rows is the same answer from both, and says the filter is
+		 * unfinished rather than inventing a zero to compare against.
+		 */
+		for (const operator of ['is', 'isNot', 'greaterThan', 'lessThan'] as const) {
+			expect(keep([number], [{ fieldId: 'f_num', operator, value: '' }])).toEqual([]);
+			expect(keep([number], [{ fieldId: 'f_num', operator, value: 'abc' }])).toEqual([]);
+		}
+	});
+
+	it('matches a stored zero when zero is what was asked for', () => {
+		const withZero = [row('zero', { f_num: 0 }), row('five', { f_num: 5 })];
+		expect(
+			filterRecords(withZero, [number], {
+				conjunction: 'and',
+				conditions: [{ fieldId: 'f_num', operator: 'is', value: 0 }],
+			}).map((record) => record.id),
+		).toEqual(['zero']);
+	});
 });
 
 describe('dates', () => {
@@ -158,6 +181,25 @@ describe('a date-time keeps the moment, a date only the day', () => {
 
 	it('compares a time written into the condition too', () => {
 		expect(keepAt('greaterThan', '2026-02-01T10:00')).toEqual(['evening', 'next']);
+	});
+
+	it('matches a day the picker named, whatever time that day holds', () => {
+		/*
+		 * The condition holds a day and no time, so text equality could never be
+		 * true — "is 1 February" matched nothing and "is not" matched everything.
+		 */
+		expect(keepAt('is', '2026-02-01')).toEqual(['morning', 'evening']);
+		expect(keepAt('isNot', '2026-02-01')).toEqual(['next']);
+	});
+
+	it('does not match a day it is not', () => {
+		expect(keepAt('is', '2026-02-03')).toEqual([]);
+		expect(keepAt('isNot', '2026-02-03')).toEqual(['morning', 'evening', 'next']);
+	});
+
+	it('answers to the minute when the condition carries a time', () => {
+		expect(keepAt('is', '2026-02-01T09:00')).toEqual(['morning']);
+		expect(keepAt('is', '2026-02-01 18:00')).toEqual(['evening']);
 	});
 });
 

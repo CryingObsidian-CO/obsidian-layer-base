@@ -207,6 +207,13 @@ function compareOne(
 	 * text, and the collator gets decimals wrong: `1.5` came before `1.25`, because
 	 * numeric collation compares digit runs and `5` is smaller than `25`. A text
 	 * column that happens to hold numbers reads the same way to a reader's eye.
+	 *
+	 * A cell holding a number is settled against a cell holding words by a fixed
+	 * rule rather than by the collator. Left to the collator those pairs compared
+	 * digit runs, which is not the same question as "is this a number", and three
+	 * values were enough to make a cycle out of it: `1.25`, `1.5`, `1.5a` came out
+	 * as `1.25 < 1.5`, `1.5 < 1.5a` and `1.5a < 1.25`. A comparator like that has no
+	 * order to find, so `sort` returns whatever its algorithm happens to produce.
 	 */
 	const leftText = textOf(field, a, cellText);
 	const rightText = textOf(field, b, cellText);
@@ -214,6 +221,14 @@ function compareOne(
 	const right = plainNumber(rightText);
 	if (left !== null && right !== null) {
 		return left - right;
+	}
+	// Numbers first, words after: one fixed answer for every mixed pair, and it
+	// agrees with the numeric order above rather than cutting across it.
+	if (left !== null) {
+		return -1;
+	}
+	if (right !== null) {
+		return 1;
 	}
 	return leftText.localeCompare(rightText, undefined, {
 		numeric: true,

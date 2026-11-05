@@ -7,6 +7,7 @@ import {
 } from '../src/io/schema';
 import { FutureVersionError } from '../src/io/migrate';
 import { LAYER_FORMAT_VERSION } from '../src/types';
+import type { GridView } from '../src/types';
 
 const VALID = JSON.stringify({
 	version: 1,
@@ -420,5 +421,30 @@ describe('createEmptyDoc', () => {
 		const doc = createEmptyDoc();
 		expect(doc.fields.map((f) => f.name)).toEqual(['Title', 'Status']);
 		expect(doc.views.map((v) => v.name)).toEqual(['Table']);
+	});
+
+	it('keeps a column footer across a save and a reload', () => {
+		const doc = createEmptyDoc('Board');
+		const view = doc.views[0] as GridView;
+		const title = doc.fields[0]?.id as string;
+		view.summaries = { [title]: 'unique' };
+
+		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
+		const reloaded = parsed.views[0] as GridView;
+
+		// A setting nobody reads back is a setting the reader loses on every reload.
+		expect(reloaded.summaries).toEqual({ [title]: 'unique' });
+	});
+
+	it('drops a footer the column cannot report', () => {
+		const doc = createEmptyDoc('Board');
+		const view = doc.views[0] as GridView;
+		const title = doc.fields[0]?.id as string;
+		// A sum of text is a figure that means nothing.
+		view.summaries = { [title]: 'sum' };
+
+		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
+
+		expect((parsed.views[0] as GridView).summaries).toBeUndefined();
 	});
 });

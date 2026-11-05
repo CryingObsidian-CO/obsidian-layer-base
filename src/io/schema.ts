@@ -20,6 +20,7 @@ import {normaliseDate, normaliseDateTime} from '../model/date';
 import {normaliseDecimals, parseNumber} from '../model/number';
 import {clampRowHeight} from '../model/layout';
 import {OPTION_PALETTE} from '../model/select-options';
+import {canSummarize, type SummaryKind} from '../model/summary';
 import {FutureVersionError, fileVersion, migrate} from './migrate';
 
 /**
@@ -563,6 +564,7 @@ function parseView(
 		return kanban;
 	}
 	const colorRules = parseColorRules(raw.colorRules, fieldIds);
+	const summaries = parseSummaries(raw.summaries, fields);
 	return {
 		...base,
 		type: 'grid',
@@ -571,6 +573,7 @@ function parseView(
 		rowHeights: parseSizes(raw.rowHeights, recordIds),
 		...(raw.wrap === true ? {wrap: true} : {}),
 		...(colorRules.length > 0 ? {colorRules} : {}),
+		...(summaries !== undefined ? {summaries} : {}),
 	};
 }
 
@@ -601,6 +604,33 @@ function parseSizes(raw: unknown, knownIds: ReadonlySet<string>): Record<string,
 		}
 	}
 	return sizes;
+}
+
+/**
+ * Which columns report a footer, keeping only what the column can answer.
+ *
+ * Read back rather than dropped: a footer is a setting someone chose, and a kind
+ * the column cannot report — a sum of dates, say — would draw a figure that means
+ * nothing, so it goes instead of the whole map.
+ */
+function parseSummaries(
+	raw: unknown,
+	fields: readonly Field[],
+): Record<string, SummaryKind> | undefined {
+	if (!isRecordObject(raw)) {
+		return undefined;
+	}
+	const chosen: Record<string, SummaryKind> = {};
+	for (const [fieldId, kind] of Object.entries(raw)) {
+		const field = fields.find((one) => one.id === fieldId);
+		if (!field || typeof kind !== 'string' || kind === 'none') {
+			continue;
+		}
+		if (canSummarize(field, kind as SummaryKind)) {
+			chosen[fieldId] = kind as SummaryKind;
+		}
+	}
+	return Object.keys(chosen).length > 0 ? chosen : undefined;
 }
 
 /** Default names for a freshly created board. */

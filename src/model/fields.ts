@@ -409,19 +409,33 @@ export function serializeCellValue(value: CellValue): string {
 	return JSON.stringify(value);
 }
 
+/**
+ * Ids read from text that is meant to be a list.
+ *
+ * The stored form is a JSON array; anything else is a hand-written or legacy
+ * string. Text that parses but is not an array — `"5"`, `"true"`, `"{}"` — is one
+ * of those strings, not an empty cell: answering [] would empty the cell and lose
+ * what was written there, which is the one thing a repair must not do.
+ */
+function parseIds(raw: string): string[] {
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (Array.isArray(parsed)) {
+			return optionIds(parsed as CellValue);
+		}
+	} catch {
+		// Not JSON at all, so it is a list of ids written out by hand.
+	}
+	return raw
+		.split(',')
+		.map((part) => part.trim())
+		.filter((part) => part !== '');
+}
+
 /** The inverse of `serializeCellValue`, read back for a specific field. */
 export function deserializeCellValue(raw: string, field: Field): CellValue {
 	if (field.type === 'multiSelect' || field.type === 'relation') {
-		try {
-			const parsed: unknown = JSON.parse(raw);
-			return optionIds(parsed as CellValue);
-		} catch {
-			// A hand-written or legacy string: fall back to a comma-separated list.
-			return raw
-				.split(',')
-				.map((part) => part.trim())
-				.filter((part) => part !== '');
-		}
+		return parseIds(raw);
 	}
 	if (field.type === 'checkbox') {
 		return raw === 'true';
