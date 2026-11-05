@@ -140,7 +140,8 @@ describe('what every type reads as', () => {
 
 	it('formats a number by its settings', () => {
 		expect(formatCell(field('number'), 42)).toBe('42');
-		expect(formatCell(field('number', { numberFormat: 'percent' }), 50)).toBe('50%');
+		// A percent field stores a proportion: half is shown as fifty percent.
+		expect(formatCell(field('number', { numberFormat: 'percent' }), 0.5)).toBe('50%');
 	});
 
 	it('shows a date and a date-time as they read', () => {

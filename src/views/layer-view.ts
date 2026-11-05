@@ -10,6 +10,7 @@ import {
 import {LAYER_EXTENSION, VIEW_TYPE_LAYER} from '../constants';
 import {t} from '../i18n';
 import {parseLayerDoc, serializeLayerDoc} from '../io/schema';
+import {FutureVersionError} from '../io/migrate';
 import type LayerBasePlugin from '../main';
 import {
 	addField,
@@ -74,16 +75,17 @@ import {
 } from '../model/layout';
 import {colorRulesOf, rowColorOf, rowTint, setColorRules} from '../model/colors';
 import {affectedByEdit} from '../model/dependencies';
-import type {
-	CellValue,
-	ColorRule,
-	Field,
-	FormulaResultType,
-	GridView,
-	LayerDoc,
-	LayerRecord,
-	SelectOption,
-	View,
+import {
+	LAYER_FORMAT_VERSION,
+	type CellValue,
+	type ColorRule,
+	type Field,
+	type FormulaResultType,
+	type GridView,
+	type LayerDoc,
+	type LayerRecord,
+	type SelectOption,
+	type View,
 } from '../types';
 import {generateId} from '../utils/id';
 import {ConfirmModal} from '../ui/confirm-modal';
@@ -122,6 +124,10 @@ import {ColorRulesPopover} from '../ui/color-rules-popover';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
+	/** The format version of a file this build refuses to read, if this is one. */
+	private unsupported: number | null = null;
+	/** That file's text, so a save writes back exactly what was read. */
+	private unsupportedText = '';
 	/** The text handed to the file on the last save, to recognise its echo. */
 	private lastSaved = '';
 	private activeViewId: string | null = null;
@@ -258,6 +264,15 @@ export class LayerView extends TextFileView {
 	}
 
 	getViewData(): string {
+		if (this.unsupported !== null) {
+			/*
+			 * A file this build cannot read is handed back exactly as it arrived.
+			 * Anything else — the empty string, or a document rebuilt from what this
+			 * build understands — would be a write that loses data the moment the
+			 * base class saves.
+			 */
+			return this.unsupportedText;
+		}
 		if (!this.doc) {
 			return '';
 		}
@@ -288,12 +303,26 @@ export class LayerView extends TextFileView {
 			this.lastSaved = '';
 			return;
 		}
-		if (data !== '' && this.doc && this.sameContent(data)) {
+
+		let parsed: ReturnType<typeof parseLayerDoc>;
+		try {
+			parsed = parseLayerDoc(data);
+		} catch (error) {
+			if (error instanceof FutureVersionError) {
+				this.refuseVersion(error.version, data);
+				return;
+			}
+			throw error;
+		}
+
+		if (data !== '' && this.doc && this.sameContent(parsed.doc)) {
 			return;
 		}
 
-		const {doc, warnings, dropped} = parseLayerDoc(data);
+		const {doc, warnings, dropped} = parsed;
 		this.doc = doc;
+		this.unsupported = null;
+		this.unsupportedText = '';
 		this.lastSaved = '';
 		/*
 		 * The document was replaced from outside — synced in, or edited elsewhere. The
@@ -328,6 +357,8 @@ export class LayerView extends TextFileView {
 
 	clear(): void {
 		this.doc = null;
+		this.unsupported = null;
+		this.unsupportedText = '';
 		this.lastSaved = '';
 		this.contentEl.empty();
 	}
@@ -485,22 +516,38 @@ export class LayerView extends TextFileView {
 	}
 
 	/**
-	 * Whether reading this text would give the rows and columns already held.
+	 * Whether the text just read gives the rows and columns already held.
 	 *
 	 * Only the parts a reader can change count: a row's creation stamp and a column's
 	 * default flags are filled in on the way in, so they differ between what was
 	 * written and what comes back even when nothing has actually changed.
 	 */
-	private sameContent(data: string): boolean {
+	private sameContent(incoming: LayerDoc): boolean {
 		const doc = this.doc;
 		if (!doc) {
 			return false;
 		}
-		const incoming = parseLayerDoc(data).doc;
 		return (
 			stableJson(incoming.fields) === stableJson(doc.fields) &&
 			stableJson(incoming.records) === stableJson(doc.records)
 		);
+	}
+
+	/**
+	 * Leaves a file written by a newer build closed, holding its text unchanged.
+	 *
+	 * The document is dropped rather than replaced with an empty one: an empty board
+	 * would be an editable table, and every edit would be a write over data this
+	 * build does not understand.
+	 */
+	private refuseVersion(version: number, text: string): void {
+		this.doc = null;
+		this.unsupported = version;
+		this.unsupportedText = text;
+		this.lastSaved = '';
+		this.history.clear();
+		this.selection = null;
+		this.render();
 	}
 
 	getDocument(): LayerDoc | null {
@@ -679,6 +726,11 @@ export class LayerView extends TextFileView {
 		this.numbers.clear();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
+
+		if (this.unsupported !== null) {
+			this.renderMessage(t().unsupportedVersion(this.unsupported, LAYER_FORMAT_VERSION));
+			return;
+		}
 
 		if (!this.doc) {
 			this.renderMessage(t().emptyFile);

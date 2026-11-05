@@ -20,37 +20,39 @@ export class LayerStore {
 		seed: SeedLabels,
 	): Promise<TFile> {
 		const base = baseName.trim() || seed.untitledBoard;
-		const taken = this.takenNamesIn(folder);
-		let name = base;
 
 		for (let attempt = 1; attempt <= MAX_NAME_ATTEMPTS; attempt++) {
-			if (attempt > 1) {
-				name = `${base} ${attempt}`;
-			}
-
+			const name = attempt === 1 ? base : `${base} ${attempt}`;
 			const path = folder
 				? normalizePath(`${folder.path}/${name}.${LAYER_EXTENSION}`)
 				: normalizePath(`${name}.${LAYER_EXTENSION}`);
 
+			/*
+			 * A name already in use is the only reason to try another. Everything
+			 * else `vault.create` can fail with — a character the vault refuses, a
+			 * read-only vault, a full disk — is the answer rather than a collision,
+			 * and trying it fifty times only buries it.
+			 */
+			if (this.app.vault.getAbstractFileByPath(path) !== null) {
+				continue;
+			}
+
 			try {
-				await this.app.vault.create(
+				return await this.app.vault.create(
 					path,
 					serializeLayerDoc(createEmptyDoc(name, seed)),
 				);
 			} catch (error) {
-				taken.add(name);
-				console.warn(
-					`[obsidian-layer-base] "${path}" is unavailable, trying the next name:`,
-					error,
-				);
-				continue;
+				/*
+				 * Somebody else took the name between the check and the write: a sync
+				 * pull, or a second board asked for at the same moment. That is still
+				 * a collision; anything else is the failure to report.
+				 */
+				if (this.app.vault.getAbstractFileByPath(path) !== null) {
+					continue;
+				}
+				throw error;
 			}
-
-			const file = this.app.vault.getAbstractFileByPath(path);
-			if (file instanceof TFile) {
-				return file;
-			}
-			throw new Error(`Created file could not be retrieved: ${path}`);
 		}
 
 		throw new Error(
@@ -98,17 +100,6 @@ export class LayerStore {
 		throw new Error(
 			`Could not find an unused name after ${MAX_NAME_ATTEMPTS} attempts`,
 		);
-	}
-
-	private takenNamesIn(folder: TFolder | null): Set<string> {
-		const target = folder ?? this.app.vault.getRoot();
-		const taken = new Set<string>();
-		for (const child of target.children) {
-			if (child instanceof TFile && child.extension === LAYER_EXTENSION) {
-				taken.add(child.basename);
-			}
-		}
-		return taken;
 	}
 }
 

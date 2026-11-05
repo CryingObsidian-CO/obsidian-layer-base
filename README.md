@@ -112,7 +112,7 @@ and works with Obsidian Sync and file history.
 }
 ```
 
-Four rules keep the data safe across edits:
+Six rules keep the data safe across edits:
 
 - `cells` is keyed by **field id**, so renaming a column never orphans values.
 - `select` cells store **option ids**, so renaming an option never orphans values.
@@ -122,6 +122,9 @@ Four rules keep the data safe across edits:
 - A computed column (formula, rollup, lookup, backlinks, note property) stores
   nothing.
 - A `note property` value lives in that note's frontmatter, not in the `.layer`.
+- A file written by a **newer** build is not opened: its `version` is above the one
+  this build knows, so reading it would drop whatever the newer format added and the
+  next save would write that loss back. Update the plugin to open it.
 
 ## AI access (MCP)
 

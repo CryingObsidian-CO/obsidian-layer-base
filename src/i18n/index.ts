@@ -50,6 +50,8 @@ const en = {
 	noteLabelPath: 'Full path',
 	placeholderBoard: 'Untitled board',
 	emptyFile: 'Empty file',
+	unsupportedVersion: (version: number, supported: number) =>
+		`This file was written by a newer build (format v${version}); this one supports up to v${supported}, so the file is left closed to keep its data intact. Update the plugin, then open it again.`,
 	seedTitleField: 'Title',
 	seedStatusField: 'Status',
 	seedTodo: 'To do',
@@ -457,6 +459,8 @@ const zh = {
 	noteLabelPath: '完整路径',
 	placeholderBoard: '多维看板',
 	emptyFile: '空文件',
+	unsupportedVersion: (version: number, supported: number) =>
+		`这个文件是更新版本的插件写的（格式 v${version}），本插件只支持到 v${supported}。为了不写坏里面的数据，这里不打开它；把插件升级回来再打开。`,
 	seedTitleField: '标题',
 	seedStatusField: '状态',
 	seedTodo: '待办',
@@ -861,6 +865,8 @@ const zhTW = {
 	noteLabelPath: '完整路徑',
 	placeholderBoard: '多維看板',
 	emptyFile: '空檔案',
+	unsupportedVersion: (version: number, supported: number) =>
+		`這個檔案是更新版本的插件寫的（格式 v${version}），本外掛只支援到 v${supported}。為了不寫壞裡面的資料，這裡不開啟它；把外掛升級回來再開啟。`,
 	seedTitleField: '標題',
 	seedStatusField: '狀態',
 	seedTodo: '待辦',

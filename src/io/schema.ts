@@ -20,7 +20,7 @@ import {normaliseDate, normaliseDateTime} from '../model/date';
 import {normaliseDecimals, parseNumber} from '../model/number';
 import {clampRowHeight} from '../model/layout';
 import {OPTION_PALETTE} from '../model/select-options';
-import {migrate} from './migrate';
+import {FutureVersionError, fileVersion, migrate} from './migrate';
 
 /**
  * Types this parser accepts, taken from the field registry rather than repeated
@@ -87,9 +87,10 @@ function normalizeId(
 		return candidate;
 	}
 
-	// A regenerated id means any cell keyed by the old one is unreachable.
+	// A regenerated id means anything keyed by the old one is unreachable: a cell
+	// under a field id, a row's height under a record id.
 	warnings?.push(
-		`Identifier "${candidate || '(empty)'}" is missing or duplicated and was regenerated; cells keyed by it may have been lost.`,
+		`Identifier "${candidate || '(empty)'}" is missing or duplicated and was regenerated; whatever pointed at it no longer reaches it.`,
 	);
 	let id = generateId(prefix);
 	while (seen.has(id)) {
@@ -351,6 +352,7 @@ function parseRecord(
 	fields: Field[],
 	warnings: string[],
 	dropped: DroppedCell[],
+	seenIds: Set<string>,
 ): LayerRecord | null {
 	if (!isRecordObject(raw)) {
 		return null;
@@ -359,8 +361,7 @@ function parseRecord(
 		return null;
 	}
 
-	const seen = new Set<string>();
-	const id = normalizeId(raw.id, 'r', seen, warnings);
+	const id = normalizeId(raw.id, 'r', seenIds, warnings);
 	const cellsSource = raw.cells;
 	const cells: Record<string, CellValue> = {};
 
@@ -506,13 +507,13 @@ function parseView(
 	index: number,
 	fields: Field[],
 	recordIds: ReadonlySet<string>,
-	warnings?: string[],
+	warnings: string[] | undefined,
+	seenIds: Set<string>,
 ): View | null {
 	if (!isRecordObject(raw)) {
 		return null;
 	}
-	const seen = new Set<string>();
-	const id = normalizeId(raw.id, 'v', seen, warnings);
+	const id = normalizeId(raw.id, 'v', seenIds, warnings);
 	const name = asString(raw.name, `View ${index + 1}`);
 	const fieldIds = new Set(fields.map((f) => f.id));
 	const base = {
@@ -670,7 +671,11 @@ export function createEmptyDoc(
 }
 
 /**
- * Turns raw file text into a valid `LayerDoc`, never throwing.
+ * Turns raw file text into a valid `LayerDoc`.
+ *
+ * Throws `FutureVersionError` for a file written by a newer build. Reading such a
+ * file would mean writing it back: unknown members are dropped on the way in, so
+ * the next save would rebuild it without whatever the newer format added.
  */
 export function parseLayerDoc(text: string): ParseResult {
 	const warnings: string[] = [];
@@ -688,6 +693,16 @@ export function parseLayerDoc(text: string): ParseResult {
 	if (!isRecordObject(parsed)) {
 		warnings.push('File content is not an object; an empty board was used.');
 		return {doc: createEmptyDoc(), warnings, dropped};
+	}
+
+	/*
+	 * Before anything is read, because everything after this point discards what
+	 * it does not recognise: a newer file would come out of the parser looking
+	 * complete and smaller, and the save that follows would make that permanent.
+	 */
+	const version = fileVersion(parsed);
+	if (version > LAYER_FORMAT_VERSION) {
+		throw new FutureVersionError(version);
 	}
 
 	const migrated = migrate(parsed, warnings);
@@ -719,8 +734,10 @@ export function parseLayerDoc(text: string): ParseResult {
 	}
 
 	const records: LayerRecord[] = [];
+	// Shared across the file: an id has to be unique to be reachable at all.
+	const seenRecordIds = new Set<string>();
 	for (const [index, raw] of asArray(migrated.records).entries()) {
-		const record = parseRecord(raw, fields, warnings, dropped);
+		const record = parseRecord(raw, fields, warnings, dropped, seenRecordIds);
 		if (record) {
 			records.push(record);
 		} else {
@@ -730,8 +747,9 @@ export function parseLayerDoc(text: string): ParseResult {
 
 	const views: View[] = [];
 	const recordIds = new Set(records.map((r) => r.id));
+	const seenViewIds = new Set<string>();
 	for (const [index, raw] of asArray(migrated.views).entries()) {
-		const view = parseView(raw, index, fields, recordIds, warnings);
+		const view = parseView(raw, index, fields, recordIds, warnings, seenViewIds);
 		if (view) {
 			views.push(view);
 		} else {

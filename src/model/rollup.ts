@@ -1,6 +1,7 @@
 import type { CellValue, FieldType, RollupAggregate } from '../types';
 import { capabilityOf } from './capabilities';
 import { dayNumber } from './date';
+import { parseShownNumber } from './number';
 
 /**
  * What a rollup computed, and what kind of value stands behind it.
@@ -45,8 +46,8 @@ function asNumber(value: Gathered): number | null {
 	if (trimmed === '') {
 		return null;
 	}
-	const parsed = Number(trimmed.replace(/%$/, ''));
-	return Number.isFinite(parsed) ? parsed : null;
+	// The same reading the cells use, so a collected "50%" is half, not fifty.
+	return parseShownNumber(trimmed);
 }
 
 /** The text a cell reads as, which is what a text aggregate gathers. */

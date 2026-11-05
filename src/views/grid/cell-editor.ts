@@ -1,7 +1,7 @@
 import { isReadOnly, relationIds, serializeCellValue } from '../../model/fields';
 import {
 	constrainNumber,
-	parseNumber,
+	parseNumberIn,
 	sanitizeNumericInput,
 } from '../../model/number';
 import type { RelationCandidate } from '../../model/relation';
@@ -177,7 +177,7 @@ function numberFromInput(
 	if (input.value.trim() === '') {
 		return '';
 	}
-	const parsed = parseNumber(input.value);
+	const parsed = parseNumberIn(field, input.value);
 	return parsed === null ? undefined : constrainNumber(parsed, field);
 }
 

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /*
  * The MCP server has no unit tests: it is a process, and what is worth checking is
@@ -18,12 +19,66 @@ function check(condition, message) {
 	}
 }
 
+/*
+ * The built server, found from this file rather than from the working directory:
+ * a relative path is resolved against wherever the run was started, so the same
+ * script worked under `npm run test:mcp` and failed with ENOENT from any other
+ * directory.
+ */
+const SERVER = fileURLToPath(new URL('../mcp-server.cjs', import.meta.url));
+
+/* Long enough that a working server never reaches it, short enough that a stuck
+ * one is reported rather than holding a CI job open. */
+const TIMEOUT_MS = 30_000;
+
+/** The exit of a server that did not finish the run, in one line. */
+function describeExit(code, signal, err) {
+	const how = signal === null ? `code ${code}` : `signal ${signal}`;
+	const trace = err.trim().replace(/\s*\n\s*/g, ' | ');
+	return `the server exited with ${how}${trace === '' ? '' : `: ${trace.slice(0, 400)}`}`;
+}
+
+/** The JSON-RPC messages on stdout, one per line. */
+function parseMessages(out) {
+	return out
+		.split('\n')
+		.filter((line) => line.trim() !== '')
+		.map((line) => {
+			try {
+				return JSON.parse(line);
+			} catch {
+				throw new Error(`the server wrote a line that is not JSON: ${line.slice(0, 200)}`);
+			}
+		});
+}
+
+/**
+ * Reports a run that could not be driven at all, and stops: every check below
+ * would only repeat that the answers are missing. Without this a rejected
+ * `drive` reaches the top level as an uncaught error, which prints a stack, skips
+ * the report and leaves the temp folder behind.
+ */
+function stop(message) {
+	console.error(`mcp smoke: ${message}`);
+	try {
+		rmSync(vault, { recursive: true, force: true });
+	} catch {
+		/* A server killed a moment ago may still hold a file; the report matters more. */
+	}
+	process.exit(1);
+}
+
 function drive(calls) {
 	return new Promise((resolve, reject) => {
-		const server = spawn(process.execPath, ['mcp-server.cjs'], {
+		const server = spawn(process.execPath, [SERVER], {
 			env: { ...process.env, LAYER_VAULT: vault },
 			stdio: ['pipe', 'pipe', 'pipe'],
 		});
+
+		const timer = setTimeout(() => {
+			server.kill('SIGKILL');
+			reject(new Error(`the server did not finish within ${TIMEOUT_MS / 1000}s`));
+		}, TIMEOUT_MS);
 
 		let out = '';
 		let err = '';
@@ -35,14 +90,31 @@ function drive(calls) {
 		server.stderr.on('data', (chunk) => {
 			err += chunk;
 		});
-		server.on('error', reject);
-		server.on('close', () => {
-			const messages = out
-				.trim()
-				.split('\n')
-				.filter((line) => line !== '')
-				.map((line) => JSON.parse(line));
-			resolve({ messages, err });
+		/*
+		 * A server that dies while stdin is still open answers the next write with
+		 * EPIPE, which would otherwise arrive as an uncaught error on the stream.
+		 * The exit handler below says what actually happened.
+		 */
+		server.stdin.on('error', () => {});
+		server.on('error', (error) => {
+			clearTimeout(timer);
+			reject(error);
+		});
+		server.on('close', (code, signal) => {
+			clearTimeout(timer);
+			/*
+			 * Answers alone are not a passing run: a server that wrote everything
+			 * and then died of something else did not do the job.
+			 */
+			if (code !== 0) {
+				reject(new Error(describeExit(code, signal, err)));
+				return;
+			}
+			try {
+				resolve({ messages: parseMessages(out), err });
+			} catch (error) {
+				reject(error);
+			}
 		});
 
 		for (const call of calls) {
@@ -69,63 +141,78 @@ const { messages, err } = await drive([
 	call(7, 'create_table', { path: 'nested/新表.layer' }),
 	call(8, 'read_table', { path: '../escape.layer' }),
 	call(9, 'update_view', { path: 'nested/新表.layer', view: 'Table', sorts: [{ field: '标题', order: 'desc' }] }),
-call(10, 'add_field', { path: 'nested/新表.layer', name: '编号', type: 'autoNumber', numberLength: 2 }),
-call(11, 'add_records', {
-	path: 'nested/新表.layer',
-	records: [{ 标题: '第二行' }, { 标题: '第三行' }],
-}),
-call(12, 'read_table', { path: 'nested/新表.layer' }),
-call(13, 'create_table', { path: 'probe/选项.layer', name: '选项' }),
-call(14, 'add_field', { path: 'probe/选项.layer', name: '名称', type: 'text' }),
-call(15, 'add_field', { path: 'probe/选项.layer', name: '状态', type: 'select', options: ['红', '绿', '蓝'] }),
-call(16, 'add_field', { path: 'probe/选项.layer', name: '数量', type: 'number' }),
-call(17, 'add_field', { path: 'probe/选项.layer', name: '合计', type: 'formula', formula: '{数量} * 2', formulaType: 'number' }),
-call(18, 'add_records', { path: 'probe/选项.layer', records: [{ 名称: '甲', 状态: '红', 数量: 5 }] }),
-call(19, 'update_field', {
-	path: 'probe/选项.layer',
-	field: '状态',
-	addOptions: ['黄'],
-	removeOptions: ['蓝'],
-	renameOptions: [{ from: '红', to: '赤' }],
-	setOptionColors: [{ name: '绿', color: '#123456' }],
-}),
-call(20, 'update_field', {
-	path: 'probe/选项.layer',
-	field: '数量',
-	numberFormat: 'percent',
-	decimals: 1,
-	min: 0,
-	max: 100,
-}),
-call(21, 'update_field', { path: 'probe/选项.layer', field: '合计', required: true }),
-call(22, 'update_field', { path: 'probe/选项.layer', field: '名称', required: true }),
-call(23, 'read_table', { path: 'probe/选项.layer' }),
-call(24, 'read_table', { path: 'probe/选项.layer' }),
-call(25, 'update_view', {
-	path: 'probe/选项.layer',
-	view: '选项',
-	rowHeight: 56,
-	wrap: true,
-	summaries: { 数量: 'sum' },
-	colorRules: [{ field: '状态', operator: 'contains', value: '赤', color: 'red' }],
-	columnWidths: { 名称: 200 },
-}),
-call(26, 'update_field', { path: 'probe/选项.layer', field: '名称', type: 'autoNumber' }),
-call(27, 'update_field', {
-	path: 'probe/选项.layer',
-	field: '状态',
-	orderOptions: ['黄', '赤', '绿'],
-}),
-/*
- * The order has to name every option exactly once; a partial list leaves the rest
- * in no defined place, so it is refused rather than guessed at.
- */
-call(28, 'update_field', {
-	path: 'probe/选项.layer',
-	field: '状态',
-	orderOptions: ['黄', '赤'],
-}),
-]);
+	call(10, 'add_field', { path: 'nested/新表.layer', name: '编号', type: 'autoNumber', numberLength: 2 }),
+	call(11, 'add_records', {
+		path: 'nested/新表.layer',
+		records: [{ 标题: '第二行' }, { 标题: '第三行' }],
+	}),
+	call(12, 'read_table', { path: 'nested/新表.layer' }),
+	call(13, 'create_table', { path: 'probe/选项.layer', name: '选项' }),
+	call(14, 'add_field', { path: 'probe/选项.layer', name: '名称', type: 'text' }),
+	call(15, 'add_field', { path: 'probe/选项.layer', name: '状态', type: 'select', options: ['红', '绿', '蓝'] }),
+	call(16, 'add_field', { path: 'probe/选项.layer', name: '数量', type: 'number' }),
+	call(17, 'add_field', { path: 'probe/选项.layer', name: '合计', type: 'formula', formula: '{数量} * 2', formulaType: 'number' }),
+	call(18, 'add_records', { path: 'probe/选项.layer', records: [{ 名称: '甲', 状态: '红', 数量: 5 }] }),
+	call(19, 'update_field', {
+		path: 'probe/选项.layer',
+		field: '状态',
+		addOptions: ['黄'],
+		removeOptions: ['蓝'],
+		renameOptions: [{ from: '红', to: '赤' }],
+		setOptionColors: [{ name: '绿', color: '#123456' }],
+	}),
+	call(20, 'update_field', {
+		path: 'probe/选项.layer',
+		field: '数量',
+		numberFormat: 'percent',
+		decimals: 1,
+		min: 0,
+		max: 100,
+	}),
+	call(21, 'update_field', { path: 'probe/选项.layer', field: '合计', required: true }),
+	call(22, 'update_field', { path: 'probe/选项.layer', field: '名称', required: true }),
+	call(23, 'read_table', { path: 'probe/选项.layer' }),
+	call(24, 'read_table', { path: 'probe/选项.layer' }),
+	call(25, 'update_view', {
+		path: 'probe/选项.layer',
+		view: '选项',
+		rowHeight: 56,
+		wrap: true,
+		summaries: { 数量: 'sum' },
+		colorRules: [{ field: '状态', operator: 'contains', value: '赤', color: 'red' }],
+		columnWidths: { 名称: 200 },
+	}),
+	call(26, 'update_field', { path: 'probe/选项.layer', field: '名称', type: 'autoNumber' }),
+	call(27, 'update_field', {
+		path: 'probe/选项.layer',
+		field: '状态',
+		orderOptions: ['黄', '赤', '绿'],
+	}),
+	/*
+	 * The order has to name every option exactly once; a partial list leaves the rest
+	 * in no defined place, so it is refused rather than guessed at.
+	 */
+	call(28, 'update_field', {
+		path: 'probe/选项.layer',
+		field: '状态',
+		orderOptions: ['黄', '赤'],
+	}),
+	/*
+	 * Two dots at the front of a name are a name, not a way out of the vault: only
+	 * the parent itself (`..`) and anything past it are refused.
+	 */
+	call(29, 'create_table', { path: '..draft.layer', name: '..draft' }),
+	/*
+	 * Changing a column's type drops the settings the old type owned, so the new
+	 * type's settings have to come with the change: without a source the column
+	 * could never compute anything.
+	 */
+	call(30, 'update_field', {
+		path: 'nested/新表.layer',
+		field: '编号',
+		type: 'lookup',
+	}),
+]).catch((error) => stop(error.message));
 
 const byId = new Map(messages.map((message) => [message.id, message]));
 const textOf = (id) => byId.get(id)?.result?.content?.[0]?.text ?? '';
@@ -182,6 +269,11 @@ check(
 	'update_field reorders a choice column',
 );
 check(isError(28), 'a partial option order is refused');
+check(!isError(29), 'a name beginning with two dots is a name, not an escape');
+check(
+	isError(30) && textOf(30).includes('lookupSource'),
+	'a type change to a computed column asks for the setting it cannot work without',
+);
 check(
 	textOf(24).includes('unreadable') && textOf(24).includes('tellUser'),
 	'read_table says which column it cannot read, and what to tell the reader',
@@ -225,17 +317,41 @@ if (doc !== null) {
 	);
 }
 
-/* Clearing a cell needs a row id, so it runs once the first pass has read one. */
-const firstRow = JSON.parse(textOf(24)).records[0]?.id ?? '';
-const cleared = await drive([
-	call(1, 'update_cells', {
-		path: 'probe/选项.layer',
-		updates: [{ recordId: firstRow, field: '数量', value: '' }],
-	}),
-]);
-const clearedText = cleared.messages[0]?.result?.content?.[0]?.text ?? '';
-check(cleared.messages[0]?.result?.isError !== true, 'update_cells accepts the row id');
-check(clearedText.includes('"updated": 1'), 'an empty string clears a cell');
+/*
+ * The row id the rest of the run needs. The answer to `read_table` may be an error
+ * message or a body of another shape, so anything unexpected is reported once here
+ * and leaves the id empty.
+ */
+function firstRowId() {
+	try {
+		const id = JSON.parse(textOf(24)).records[0]?.id ?? '';
+		if (id === '') {
+			failures.push('read_table returned no row, so the cell-clearing check was skipped');
+		}
+		return id;
+	} catch (error) {
+		failures.push(`read_table did not answer with JSON: ${String(error)}`);
+		return '';
+	}
+}
+
+/*
+ * Clearing a cell needs a row id, so this phase runs only on one that was read
+ * back: asking the server to update an empty id would report a second problem
+ * that the empty id itself invented.
+ */
+const firstRow = firstRowId();
+if (firstRow !== '') {
+	const cleared = await drive([
+		call(1, 'update_cells', {
+			path: 'probe/选项.layer',
+			updates: [{ recordId: firstRow, field: '数量', value: '' }],
+		}),
+	]).catch((error) => stop(error.message));
+	const clearedText = cleared.messages[0]?.result?.content?.[0]?.text ?? '';
+	check(cleared.messages[0]?.result?.isError !== true, 'update_cells accepts the row id');
+	check(clearedText.includes('"updated": 1'), 'an empty string clears a cell');
+}
 
 let probeDoc = null;
 try {

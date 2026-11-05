@@ -163,8 +163,17 @@ export class TableIndex {
 		plugin.registerEvent(
 			this.app.vault.on('modify', (file) => {
 				if (file instanceof TFile && isLayerFile(file)) {
+					/*
+					 * A file that was unreadable a moment ago may be exactly what has
+					 * just been written — a half-finished save, or a hand edit on its
+					 * way to being valid. Forgetting that it failed is what lets the
+					 * next paint try again; leaving it remembered kept a broken cell
+					 * broken until the file was renamed.
+					 */
 					this.invalidate(file.path);
-					if (this.cache.delete(file.path)) {
+					const wasCached = this.cache.delete(file.path);
+					const wasUnavailable = this.unavailable.delete(file.path);
+					if (wasCached || wasUnavailable) {
 						this.emit();
 					}
 				}

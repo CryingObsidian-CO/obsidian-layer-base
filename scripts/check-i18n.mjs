@@ -16,7 +16,7 @@ const text = readFileSync(SOURCE, 'utf8');
 
 /** Every `key: '...'` entry, in the order it appears. */
 const entries = [...text.matchAll(/^\t(\w+):\s*'((?:[^'\\]|\\.)*)',?$/gm)].map(
-	(match) => ({ key: match[1], value: match[2] }),
+	(match) => ({ key: match[1], value: match[2], index: match.index }),
 );
 
 const problems = [];
@@ -35,15 +35,63 @@ for (const { key, value } of entries) {
 	}
 }
 
-/** Every key must be defined once per locale, so a translation cannot be missed. */
-const counts = new Map();
-for (const { key } of entries) {
-	counts.set(key, (counts.get(key) ?? 0) + 1);
+/**
+ * The locale catalogues, as they sit in the file: each is its own object
+ * literal, so the block a key lands in is the locale that defines it. Counting
+ * occurrences across the whole file cannot answer the question the comment below
+ * asks, because one locale's duplicate would stand in for another's silence.
+ */
+const blocks = [...text.matchAll(/^const (\w+) = \{/gm)].map((match, i, all) => ({
+	name: match[1],
+	start: match.index,
+	end: i + 1 < all.length ? all[i + 1].index : text.length,
+}));
+if (blocks.length === 0) {
+	problems.push(`no locale catalogues found in ${SOURCE}`);
 }
-const LOCALES = 3;
-for (const [key, count] of counts) {
-	if (count !== LOCALES) {
-		problems.push(`${key} is defined ${count} time(s); expected ${LOCALES}`);
+
+/*
+ * The `Locale` union names the languages the plugin can select, and it is the
+ * other half of the same fact. Counting catalogues alone would let a whole one
+ * vanish quietly; comparing the two means either half going missing is reported.
+ */
+const declaredLocales = (
+	/^export type Locale = ([^;]+);/m.exec(text)?.[1].match(/'[^']*'/g) ?? []
+).length;
+if (declaredLocales !== blocks.length) {
+	problems.push(
+		`the Locale type lists ${declaredLocales} language(s), but ${SOURCE} has ${blocks.length} catalogue(s)`,
+	);
+}
+
+/** key → locale → how many times that locale defines it. */
+const definitions = new Map();
+for (const { key, index } of entries) {
+	const block = blocks.find((b) => index >= b.start && index < b.end);
+	if (!block) {
+		continue;
+	}
+	const per = definitions.get(key) ?? new Map();
+	per.set(block.name, (per.get(block.name) ?? 0) + 1);
+	definitions.set(key, per);
+}
+
+/** e.g. `en 1, zh 1, zhTW 0`. */
+const describe = (per) => blocks.map((b) => `${b.name} ${per?.get(b.name) ?? 0}`).join(', ');
+
+/** Reports a key that is not defined exactly once by every catalogue. */
+function missingWording(what, key) {
+	const per = definitions.get(key);
+	if (blocks.every((b) => (per?.get(b.name) ?? 0) === 1)) {
+		return;
+	}
+	problems.push(`${what}: ${key} is defined ${describe(per)}`);
+}
+
+/** Every key must be defined once per locale, so a translation cannot be missed. */
+for (const [key, per] of definitions) {
+	if (blocks.some((b) => (per.get(b.name) ?? 0) !== 1)) {
+		problems.push(`${key} is defined ${describe(per)}; every locale needs it once`);
 	}
 }
 
@@ -73,13 +121,7 @@ function tooltipKeyFor(name) {
 }
 
 for (const name of functions) {
-	const key = tooltipKeyFor(name);
-	const count = entries.filter((entry) => entry.key === key).length;
-	if (count !== LOCALES) {
-		problems.push(
-			`${name} has no tooltip: ${key} is defined ${count} time(s); expected ${LOCALES}`,
-		);
-	}
+	missingWording(`${name} has no tooltip`, tooltipKeyFor(name));
 }
 
 /**
@@ -93,12 +135,7 @@ if (groupKeys.length === 0) {
 	problems.push('no function groups found in the engine');
 }
 for (const key of groupKeys) {
-	const count = entries.filter((entry) => entry.key === key).length;
-	if (count !== LOCALES) {
-		problems.push(
-			`${key} is a group label and is defined ${count} time(s); expected ${LOCALES}`,
-		);
-	}
+	missingWording('a group label needs wording', key);
 }
 
 /**
@@ -126,12 +163,7 @@ if (symbolKeys.length === 0) {
 	problems.push('no formula symbols found in the engine');
 }
 for (const key of symbolKeys) {
-	const count = entries.filter((entry) => entry.key === key).length;
-	if (count !== LOCALES) {
-		problems.push(
-			`${key} explains a symbol and is defined ${count} time(s); expected ${LOCALES}`,
-		);
-	}
+	missingWording('a symbol needs wording', key);
 }
 
 if (problems.length > 0) {
@@ -143,5 +175,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-	`Locale checks passed: ${counts.size} keys, ${entries.length} entries, ${LOCALES} locales.`,
+	`Locale checks passed: ${definitions.size} keys, ${entries.length} entries, ${blocks.length} locales.`,
 );

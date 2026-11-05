@@ -40,8 +40,8 @@ describe('reducing the gathered values', () => {
 		expect(text(['', '', ''], 'count')).toBe('0');
 	});
 
-	it('reads a percent as the number it shows', () => {
-		expect(text(['50%', '25%'], 'sum')).toBe('75');
+	it('reads a percent as the fraction it stands for', () => {
+		expect(text(['50%', '25%'], 'sum')).toBe('0.75');
 	});
 
 	it('ignores a value that is not a number rather than failing the whole column', () => {

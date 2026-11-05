@@ -131,10 +131,11 @@ describe('adding up', () => {
 
 	it('writes the figure in the column format', () => {
 		// Written with the column's own per cent sign, since that is how its cells read.
+		// The cells hold proportions: 0.1 is ten percent.
 		const percentages = [
-			row('a', { f_pct: 10 }),
-			row('b', { f_pct: 20 }),
-			row('c', { f_pct: 30 }),
+			row('a', { f_pct: 0.1 }),
+			row('b', { f_pct: 0.2 }),
+			row('c', { f_pct: 0.3 }),
 		];
 		expect(summarize(percent, percentages, 'sum')).toBe('60%');
 	});

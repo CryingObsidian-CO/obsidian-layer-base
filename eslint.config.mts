@@ -50,4 +50,19 @@ export default defineConfig(
 			'obsidianmd/hardcoded-config-path': 'off',
 		},
 	},
+	{
+		/*
+		 * The tests run in Node too: reading a temporary folder is how a rule about
+		 * files can be tested at all. None of it reaches the bundle that ships.
+		 */
+		files: ['tests/**/*.ts'],
+		languageOptions: {
+			globals: {
+				...globals.node,
+			},
+		},
+		rules: {
+			'obsidianmd/no-nodejs-modules': 'off',
+		},
+	},
 );

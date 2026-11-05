@@ -327,3 +327,25 @@ describe('a date as a number to compare by', () => {
 		}
 	});
 });
+
+describe('a year before 1000', () => {
+	it('is written with four digits, so it reads back', () => {
+		expect(normaliseDate('0001-01-01')).toBe('0001-01-01');
+		// The stored form has to survive being read again: it is what the next load sees.
+		expect(normaliseDate(normaliseDate('0001-01-01') ?? '')).toBe('0001-01-01');
+	});
+
+	it('keeps its two halves apart when it carries a time', () => {
+		expect(dateParts('0001-01-01T05:06')).toEqual({ date: '0001-01-01', time: '05:06' });
+	});
+
+	it('is reached by a shift, and still written with four digits', () => {
+		expect(addDays('1000-01-01', -1)).toBe('0999-12-31');
+		expect(dayNumber('0999-12-31')).not.toBeNull();
+	});
+
+	it('is refused when a shift lands where no four-digit year can be written', () => {
+		expect(addDays('0000-01-01', -1)).toBeNull();
+		expect(addDays('9999-12-31', 1)).toBeNull();
+	});
+});

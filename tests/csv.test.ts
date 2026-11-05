@@ -60,4 +60,32 @@ describe('naming the file', () => {
 	it('falls back to something rather than ending up with only a suffix', () => {
 		expect(csvFileName('   ')).toBe('export.csv');
 	});
+
+	it('drops an ending that would land as two dots', () => {
+		expect(csvFileName('foo.')).toBe('foo.csv');
+		expect(csvFileName('foo . .')).toBe('foo.csv');
+	});
+
+	it('falls back when the name is nothing but dots', () => {
+		// Both would start the file name with the dot that hides it on macOS.
+		expect(csvFileName('..')).toBe('export.csv');
+		expect(csvFileName('.')).toBe('export.csv');
+	});
+
+	it('keeps a long name inside what a file system accepts', () => {
+		const name = csvFileName('x'.repeat(400));
+		expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(204);
+		expect(name.endsWith('.csv')).toBe(true);
+	});
+
+	it('counts bytes, so a name of wide characters is cut sooner', () => {
+		const name = csvFileName('表'.repeat(200));
+		expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(204);
+		expect(name.endsWith('.csv')).toBe(true);
+	});
+
+	it('never cuts a character in half', () => {
+		// Four bytes each, so the budget lands exactly on fifty of them.
+		expect(csvFileName('🎉'.repeat(100))).toBe(`${'🎉'.repeat(50)}.csv`);
+	});
 });

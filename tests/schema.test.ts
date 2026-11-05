@@ -5,6 +5,7 @@ import {
 	parseLayerDoc,
 	serializeLayerDoc,
 } from '../src/io/schema';
+import { FutureVersionError } from '../src/io/migrate';
 import { LAYER_FORMAT_VERSION } from '../src/types';
 
 const VALID = JSON.stringify({
@@ -150,6 +151,40 @@ describe('parseLayerDoc', () => {
 			expect(warnings.length).toBeGreaterThan(0);
 		});
 
+		it('regenerates duplicate record ids, keeping the row that had it first', () => {
+			const raw = JSON.parse(VALID) as Record<string, unknown>;
+			const record = JSON.parse(JSON.stringify((raw.records as unknown[])[0])) as Record<
+				string,
+				unknown
+			>;
+			record.cells = { f_a: '另一行' };
+			(raw.records as unknown[]).push(record);
+			const { doc, warnings } = parseLayerDoc(JSON.stringify(raw));
+
+			/*
+			 * Both rows are kept, with ids that differ: an id two rows share cannot be
+			 * used to reach either of them, and the row heights, filters and updates
+			 * that name a row all go through it.
+			 */
+			expect(doc.records.length).toBe(2);
+			const ids = doc.records.map((r) => r.id);
+			expect(new Set(ids).size).toBe(2);
+			expect(ids[0]).toBe('r_1');
+			expect(warnings.some((w) => w.includes('Identifier'))).toBe(true);
+		});
+
+		it('regenerates duplicate view ids, keeping the view that had it first', () => {
+			const raw = JSON.parse(VALID) as Record<string, unknown>;
+			(raw.views as Record<string, unknown>[])[1]!.id = 'v_1';
+			const { doc, warnings } = parseLayerDoc(JSON.stringify(raw));
+
+			const ids = doc.views.map((v) => v.id);
+			expect(ids.length).toBe(2);
+			expect(new Set(ids).size).toBe(2);
+			expect(ids[0]).toBe('v_1');
+			expect(warnings.some((w) => w.includes('Identifier'))).toBe(true);
+		});
+
 		it('assigns a primary field when the file has none', () => {
 			const raw = JSON.parse(VALID) as Record<string, unknown>;
 			for (const field of raw.fields as Record<string, unknown>[]) {
@@ -226,13 +261,16 @@ describe('parseLayerDoc', () => {
 		});
 	});
 
-	it('announces a version it was not written for', () => {
+	it('refuses a file written by a newer build, and says how far ahead it is', () => {
 		const raw = JSON.parse(VALID) as Record<string, unknown>;
 		raw.version = 99;
-		const { doc, warnings } = parseLayerDoc(JSON.stringify(raw));
 
-		expect(doc.version).toBe(LAYER_FORMAT_VERSION);
-		expect(warnings.some((w) => w.includes('File version'))).toBe(true);
+		/*
+		 * Refused, not downgraded. Reading it would strip whatever the newer format
+		 * added, and the next save would write the stripped version back.
+		 */
+		expect(() => parseLayerDoc(JSON.stringify(raw))).toThrow(FutureVersionError);
+		expect(() => parseLayerDoc(JSON.stringify(raw))).toThrow(/v99/);
 	});
 
 	it('reports a missing version rather than assuming one', () => {

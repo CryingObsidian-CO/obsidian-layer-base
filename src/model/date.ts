@@ -30,6 +30,17 @@ function pad2(value: number): string {
 }
 
 /**
+ * A civil date in the stored form, `YYYY-MM-DD`.
+ *
+ * The year is padded to four digits: `DATE_PATTERN` reads exactly four, so a
+ * year written as `1` would produce text this module cannot read back — and a
+ * cell that cannot be read back is cleared on the next load.
+ */
+function formatDate(year: number, month: number, day: number): string {
+	return `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
+}
+
+/**
  * A calendar date as `YYYY-MM-DD`, or `null` when the text is not one.
  *
  * A month-first form like `10/17/2026` is refused rather than guessed at: it
@@ -50,7 +61,7 @@ export function normaliseDate(text: string): string | null {
 	if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
 		return null;
 	}
-	return `${year}-${pad2(month)}-${pad2(day)}`;
+	return formatDate(year, month, day);
 }
 
 /**
@@ -109,7 +120,13 @@ export function dateParts(text: string): DateParts | null {
 	if (moment === null) {
 		return null;
 	}
-	return { date: moment.slice(0, 10), time: moment.slice(11) };
+	// The halves are joined by exactly one `T`, which is what the two are split on:
+	// counting characters would go wrong the moment the date half is not ten long.
+	const [day, time] = moment.split('T');
+	if (day === undefined || time === undefined) {
+		return null;
+	}
+	return { date: day, time };
 }
 
 /*
@@ -200,7 +217,16 @@ export function addDays(text: string, days: number): string | null {
 		return null;
 	}
 	const civil = civilFromDays(from + days);
-	const date = `${civil.year}-${pad2(civil.month)}-${pad2(civil.day)}`;
+	/*
+	 * Outside the four-digit range the written form would no longer be a date this
+	 * module reads: a negative year cannot be padded into shape, and a fifth digit
+	 * breaks the pattern. Answering "not a date" keeps the value honest instead of
+	 * writing text nothing can parse.
+	 */
+	if (civil.year < 0 || civil.year > 9999) {
+		return null;
+	}
+	const date = formatDate(civil.year, civil.month, civil.day);
 	return parts.time === null ? date : `${date}T${parts.time}`;
 }
 

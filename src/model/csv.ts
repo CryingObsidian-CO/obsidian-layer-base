@@ -47,14 +47,47 @@ export function toCsv(header: readonly string[], rows: readonly CsvRow[]): strin
 	return text;
 }
 
-/** A file name that is safe on every platform, derived from the board's name. */
+/**
+ * A file name derived from the board's name.
+ *
+ * A name a file system refuses is not a name: the characters Windows and macOS
+ * refuse are replaced, an ending of dots or spaces is dropped (the OS trims it
+ * anyway, so `foo.` would land as `foo..csv`), and the rest is trimmed to fit.
+ * The limit is counted in bytes rather than characters because that is the side
+ * that runs out first — three-byte characters reach 255 bytes at 85 characters,
+ * while the character limit is 255 on its own.
+ */
+const MAX_NAME_BYTES = 200;
+
+/** Cuts text to a byte budget without splitting a character in half. */
+function clampToBytes(text: string, limit: number): string {
+	const encoder = new TextEncoder();
+	let used = 0;
+	let out = '';
+	for (const character of text) {
+		const size = encoder.encode(character).length;
+		if (used + size > limit) {
+			break;
+		}
+		out += character;
+		used += size;
+	}
+	return out;
+}
+
 export function csvFileName(boardName: string): string {
 	// Characters Windows and macOS refuse, plus the control range, which a stray
 	// paste can put into a name and which no file system accepts.
 	const safe = boardName
 		.replace(/[\\/:*?"<>|]/g, '-')
 		.replace(/\p{Cc}/gu, '')
-		.trim();
-	const base = safe === '' ? 'export' : safe;
-	return `${base}.csv`;
+		.trim()
+		.replace(/[. ]+$/, '');
+	const base = clampToBytes(safe, MAX_NAME_BYTES).trim();
+	/*
+	 * Nothing left, or nothing but dots: the first has no name at all, and the
+	 * second starts the file name with a dot, which hides the export on macOS and
+	 * Linux.
+	 */
+	return `${/^\.*$/.test(base) ? 'export' : base}.csv`;
 }

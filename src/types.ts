@@ -24,9 +24,10 @@ export type FieldType =
 export type NoteLabelStyle = 'name' | 'path';
 
 /**
- * How a `number` field shows its value. The stored number is always what was
- * typed, so `%` is a suffix on the display and never a conversion: 50 in a
- * percent field is fifty percent, and its bounds are 0 and 100, not 0 and 1.
+ * How a `number` field shows its value. A percent field stores a proportion —
+ * `0.15` is fifteen percent, and its bounds are 0 and 1 — and the sign is added
+ * when the value is shown and taken off when it is typed, so `{price} * {rate}`
+ * is the arithmetic the type exists for.
  */
 export type NumberFormat = 'plain' | 'percent';
 

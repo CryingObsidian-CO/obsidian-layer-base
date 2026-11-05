@@ -6,6 +6,7 @@ import {
 	shiftDays,
 	todayIso,
 } from './dates';
+import { parseShownNumber } from '../number';
 import type { FormulaNode } from './parser';
 
 /** What a formula needs from the row it sits in. */
@@ -53,8 +54,12 @@ function toNumber(value: FormulaValue): number | null {
 	if (trimmed === '') {
 		return 0;
 	}
-	const parsed = Number(trimmed.replace(/%$/, ''));
-	return Number.isFinite(parsed) ? parsed : null;
+	/*
+	 * The same reading the cells use, so a text cell holding "50%" is the same
+	 * quantity as a percent cell showing it: half, not fifty. A formula that
+	 * multiplies by a percentage is the whole point of the type.
+	 */
+	return parseShownNumber(trimmed);
 }
 
 /** What a value means as a yes or no, shared so a forced checkbox follows it too. */
@@ -79,12 +84,27 @@ function evalArgs(args: readonly FormulaNode[], context: FormulaContext): EvalRe
  *
  * Kept small and total: each one either answers or reports why it could not, and
  * none of them can reach outside the row it was given.
+ *
+ * Two shapes. Most take their arguments' values, which are all evaluated first.
+ * The four that can answer without reading everything — IF, COALESCE, AND, OR —
+ * take the arguments as written instead, so a branch they never take cannot fail
+ * the formula: `IF({done}, 1/0, 0)` is a value when the box is unticked, not an
+ * error about a division that was never asked for.
  */
-type Builtin = (
-	values: FormulaValue[],
-	at: number,
-	now: Date,
-) => EvalResult;
+type Builtin =
+	| {
+			min: number;
+			max: number;
+			run: (values: FormulaValue[], at: number, now: Date) => EvalResult;
+	  }
+	| {
+			min: number;
+			max: number;
+			lazy: (
+				args: readonly FormulaNode[],
+				evalArg: (arg: FormulaNode) => EvalResult,
+			) => EvalResult;
+	  };
 
 /** One part of a date, refusing a value that is not a date. */
 function datePart(
@@ -109,7 +129,7 @@ function notADate(...values: readonly string[]): string {
 	return values.find((value) => partOf(value, 'year') === null) ?? values[0] ?? '';
 }
 
-const BUILTINS: Record<string, { min: number; max: number; run: Builtin }> = {
+const BUILTINS: Record<string, Builtin> = {
 	SUM: {
 		min: 1,
 		max: Infinity,
@@ -201,21 +221,26 @@ const BUILTINS: Record<string, { min: number; max: number; run: Builtin }> = {
 	IF: {
 		min: 2,
 		max: 3,
-		run: (values) => {
-			const condition = toBoolean(values[0] as FormulaValue);
-			if (condition) {
-				return { ok: true, value: values[1] as FormulaValue };
+		lazy: (args, evalArg) => {
+			const condition = evalArg(args[0] as FormulaNode);
+			if (!condition.ok) {
+				return condition;
 			}
-			return { ok: true, value: values.length > 2 ? (values[2] as FormulaValue) : '' };
+			const chosen = toBoolean(condition.value) ? args[1] : args[2];
+			return chosen === undefined ? { ok: true, value: '' } : evalArg(chosen);
 		},
 	},
 	COALESCE: {
 		min: 1,
 		max: Infinity,
-		run: (values) => {
-			for (const value of values) {
-				if (value !== '') {
-					return { ok: true, value };
+		lazy: (args, evalArg) => {
+			for (const arg of args) {
+				const result = evalArg(arg);
+				if (!result.ok) {
+					return result;
+				}
+				if (result.value !== '') {
+					return result;
 				}
 			}
 			return { ok: true, value: '' };
@@ -229,12 +254,34 @@ const BUILTINS: Record<string, { min: number; max: number; run: Builtin }> = {
 	AND: {
 		min: 1,
 		max: Infinity,
-		run: (values) => ({ ok: true, value: values.every(toBoolean) }),
+		lazy: (args, evalArg) => {
+			for (const arg of args) {
+				const result = evalArg(arg);
+				if (!result.ok) {
+					return result;
+				}
+				if (!toBoolean(result.value)) {
+					return { ok: true, value: false };
+				}
+			}
+			return { ok: true, value: true };
+		},
 	},
 	OR: {
 		min: 1,
 		max: Infinity,
-		run: (values) => ({ ok: true, value: values.some(toBoolean) }),
+		lazy: (args, evalArg) => {
+			for (const arg of args) {
+				const result = evalArg(arg);
+				if (!result.ok) {
+					return result;
+				}
+				if (toBoolean(result.value)) {
+					return { ok: true, value: true };
+				}
+			}
+			return { ok: true, value: false };
+		},
 	},
 	NOT: {
 		min: 1,
@@ -452,6 +499,13 @@ export function evaluate(node: FormulaNode, context: FormulaContext): EvalResult
 				// number of arguments, and a sentence here would be wrapped in that
 				// sentence and read as a mangled half-English remark.
 				return fail('bad-arity', node.name, node.at);
+			}
+			/*
+			 * An answer that does not need every argument: the branch not taken is
+			 * never evaluated, so it cannot fail the formula either.
+			 */
+			if ('lazy' in builtin) {
+				return builtin.lazy(node.args, (arg) => evaluate(arg, context));
 			}
 			const results = evalArgs(node.args, context);
 			const failed = results.find((result) => !result.ok);

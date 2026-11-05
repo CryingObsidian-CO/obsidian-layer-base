@@ -1,7 +1,7 @@
 import type {CellValue, Field, FieldType, SelectOption} from '../types';
 import {displayDateTime, normaliseDate, normaliseDateTime} from './date';
 import {capabilityOf, readsFromView} from './capabilities';
-import {constrainNumber, formatNumber, parseNumber} from './number';
+import {constrainNumber, formatNumber, parseNumber, parseNumberIn} from './number';
 
 export interface FieldTypeSpec {
 	readonly type: FieldType;
@@ -125,7 +125,7 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		toText: (field, value) =>
 			typeof value === 'number' ? formatNumber(value, field) : '',
 		fromText: (field, text) => {
-			const parsed = parseNumber(text);
+			const parsed = parseNumberIn(field, text);
 			return parsed === null ? REFUSED : accept(constrainNumber(parsed, field));
 		},
 		// A cell with no number holds `''`, like text. Zero is a value.

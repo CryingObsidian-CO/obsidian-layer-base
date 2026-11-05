@@ -18,8 +18,12 @@ import {
 	normaliseDecimals,
 	normaliseFormat,
 	parseNumber,
+	parseNumberIn,
 	parseOptionalNumber,
+	parseShownNumber,
 	sanitizeNumericInput,
+	shownNumber,
+	storedNumber,
 } from '../src/model/number';
 import { addRecord, setCellValue } from '../src/model/records';
 import type { Field, LayerDoc } from '../src/types';
@@ -67,6 +71,21 @@ describe('parseNumber', () => {
 	it('reads the display form of a percent cell', () => {
 		expect(parseNumber('50%')).toBe(50);
 		expect(parseNumber(' 50 % ')).toBe(50);
+	});
+
+	it('reads a percent sign as a hundredth when the text is a value', () => {
+		expect(parseShownNumber('50%')).toBe(0.5);
+		expect(parseShownNumber('50')).toBe(50);
+	});
+
+	it('counts a percent field in hundredths, whatever the sign says', () => {
+		const percent: Field = { id: 'f_p', name: 'Rate', type: 'number', numberFormat: 'percent' };
+		expect(parseNumberIn(percent, '100')).toBe(1);
+		expect(parseNumberIn(percent, '100%')).toBe(1);
+		expect(parseNumberIn(percent, '0.5')).toBe(0.005);
+		// A plain field takes the sign as a conversion, since that is what it means.
+		expect(parseNumberIn(plain, '50%')).toBe(0.5);
+		expect(parseNumberIn(plain, '50')).toBe(50);
 	});
 
 	it('treats blank as no number', () => {
@@ -119,13 +138,20 @@ describe('formatNumber', () => {
 		expect(formatNumber(12.567, withSettings({ decimals: 1 }))).toBe('12.6');
 	});
 
-	it('appends % without converting the value', () => {
-		expect(formatNumber(50, withSettings({ numberFormat: 'percent' }))).toBe(
-			'50%',
-		);
+	it('shows a proportion as a percentage', () => {
+		expect(formatNumber(0.5, withSettings({ numberFormat: 'percent' }))).toBe('50%');
 		expect(
-			formatNumber(12.5, withSettings({ numberFormat: 'percent', decimals: 1 })),
+			formatNumber(0.125, withSettings({ numberFormat: 'percent', decimals: 1 })),
 		).toBe('12.5%');
+		// Multiplied back exactly: fifty percent cannot come out as 15.000000000000002.
+		expect(formatNumber(0.15, withSettings({ numberFormat: 'percent' }))).toBe('15%');
+	});
+
+	it('converts between the units it shows and the number it stores', () => {
+		expect(shownNumber(0.15, 'percent')).toBe(15);
+		expect(storedNumber(15, 'percent')).toBe(0.15);
+		expect(shownNumber(42, 'plain')).toBe(42);
+		expect(storedNumber(42, undefined)).toBe(42);
 	});
 });
 
@@ -206,9 +232,23 @@ describe('through the cell model', () => {
 
 	it('copies out as the display text and reads back to the same number', () => {
 		const field = withSettings({ numberFormat: 'percent', decimals: 1 });
-		const text = cellToText(field, 12.5);
+		const text = cellToText(field, 0.125);
 		expect(text).toBe('12.5%');
-		expect(cellFromText(field, text)).toEqual({ ok: true, value: 12.5 });
+		expect(cellFromText(field, text)).toEqual({ ok: true, value: 0.125 });
+	});
+
+	it('stores what a percent cell is showing, so a bound is a proportion', () => {
+		const field = withSettings({ numberFormat: 'percent', min: 0, max: 1 });
+		expect(cellFromText(field, '100')).toEqual({ ok: true, value: 1 });
+		expect(cellFromText(field, '200')).toEqual({ ok: true, value: 1 });
+		expect(cellToText(field, 1)).toBe('100%');
+	});
+
+	it('rounds by the digits the reader sees, not the digits in the file', () => {
+		const field = withSettings({ numberFormat: 'percent', decimals: 1 });
+		// One decimal of a percentage is three of a proportion: 12.5% is 0.125.
+		expect(cellFromText(field, '12.5%')).toEqual({ ok: true, value: 0.125 });
+		expect(cellToText(field, 0.125)).toBe('12.5%');
 	});
 
 	it('treats zero as a value and nothing as empty', () => {
@@ -245,7 +285,7 @@ describe('through the file', () => {
 			numberFormat: 'percent',
 			decimals: 2,
 			min: 0,
-			max: 100,
+			max: 1,
 		});
 		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
 		const field = parsed.fields[0];
@@ -253,7 +293,7 @@ describe('through the file', () => {
 		expect(field?.numberFormat).toBe('percent');
 		expect(field?.decimals).toBe(2);
 		expect(field?.min).toBe(0);
-		expect(field?.max).toBe(100);
+		expect(field?.max).toBe(1);
 	});
 
 	it('leaves the defaults out of the file entirely', () => {

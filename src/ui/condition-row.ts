@@ -1,5 +1,6 @@
 import { t } from '../i18n';
 import { needsValue, operatorsFor } from '../model/filter';
+import { shownNumber, storedNumber } from '../model/number';
 import type { Field, FilterCondition, FilterOperator } from '../types';
 
 /** What one operator is called in the reader's language. */
@@ -135,12 +136,21 @@ function renderValue(
 		// it would have to guess at.
 		input.placeholder = t().filterRelationPlaceholder;
 	}
-	input.value = condition.value === undefined ? '' : String(condition.value);
+	/*
+	 * A number condition counts in the units the cells show: a percent column's
+	 * cells read "15%", so the box beside them takes 15 rather than 0.15, and the
+	 * comparison is made on the number the cell stores.
+	 */
+	const counts = field.type === 'number' || field.type === 'autoNumber';
+	const shown =
+		counts && typeof condition.value === 'number'
+			? shownNumber(condition.value, field.numberFormat)
+			: condition.value;
+	input.value = condition.value === undefined ? '' : String(shown);
 	input.addEventListener('input', () => {
-		condition.value =
-			field.type === 'number' || field.type === 'autoNumber'
-				? Number(input.value)
-				: input.value;
+		condition.value = counts
+			? storedNumber(Number(input.value), field.numberFormat)
+			: input.value;
 		onChange(false);
 	});
 }

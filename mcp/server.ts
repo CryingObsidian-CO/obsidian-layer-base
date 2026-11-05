@@ -10,8 +10,10 @@
  * are touched.
  */
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
+import { FutureVersionError } from '../src/io/migrate';
+import { vaultGuard } from './vault-path';
 import {
 	FIELD_TYPES,
 	canBeRequired,
@@ -118,18 +120,14 @@ interface Request {
 	params?: Record<string, unknown>;
 }
 
-/** A file path inside the vault, refused when it would point outside it. */
-function vaultFile(path: unknown): string {
-	if (typeof path !== 'string' || path.trim() === '') {
-		throw new Error('A table path is required');
-	}
-	const full = resolve(VAULT, path);
-	const rel = relative(VAULT, full);
-	if (rel.startsWith('..') || isAbsolute(rel)) {
-		throw new Error(`Outside the vault: ${path}`);
-	}
-	return full;
-}
+/**
+ * A file path inside the vault, refused when it would point outside it.
+ *
+ * The rule itself lives in `vault-path.ts`, which answers the two questions a
+ * name alone cannot: whether the path stays under the root, and whether the file
+ * it really names does.
+ */
+const vaultFile = vaultGuard(VAULT);
 
 function loadTable(path: unknown): { doc: LayerDoc; file: string } {
 	const file = vaultFile(path);
@@ -143,7 +141,20 @@ function loadTable(path: unknown): { doc: LayerDoc; file: string } {
 			`No table at "${String(path)}". Paths are relative to the vault root (${VAULT}); call list_tables to see the ones that exist.`,
 		);
 	}
-	const { doc, warnings } = parseLayerDoc(text);
+	let parsed: ReturnType<typeof parseLayerDoc>;
+	try {
+		parsed = parseLayerDoc(text);
+	} catch (error) {
+		if (error instanceof FutureVersionError) {
+			// Refused here rather than read: every write below would rebuild the file
+			// without whatever the newer format added.
+			throw new Error(
+				`"${String(path)}" was written by a newer build (format v${error.version}); this server supports up to v${LAYER_FORMAT_VERSION}. It is refused rather than rewritten — update the plugin and this server, then call again.`,
+			);
+		}
+		throw error;
+	}
+	const { doc, warnings } = parsed;
 	if (warnings.length > 0) {
 		console.error(`[layer-mcp] Repaired ${warnings.length} issue(s) in ${file}`);
 	}
@@ -652,17 +663,21 @@ function linkedTable(doc: LayerDoc, sourceFieldId: string | undefined): LayerDoc
 /**
  * The settings one column type carries, applied from whatever the caller passed.
  *
- * One function, two callers: creating a column demands the settings it cannot work
- * without, and changing an existing one applies only what it was given. A rule
- * copied into two tools is a rule with a mistake in it somewhere, so both come here.
- * A type change has already dropped the settings of the type the column no longer is.
+ * One function, two callers: a type that starts here — a column being made, or a
+ * column being turned into another type — demands the settings it cannot work
+ * without, and an existing type applies only what it was given. A rule copied into
+ * two tools is a rule with a mistake in it somewhere, so both come here.
+ *
+ * A type change has already dropped the settings of the type the column no longer
+ * is, so switching to a computed type without its settings would leave a column
+ * that can never compute anything — the state `add_field` refuses to create.
  */
 function applyFieldSettings(
 	doc: LayerDoc,
 	field: Field,
 	args: Record<string, unknown>,
 	file: string,
-	creating: boolean,
+	requireSettings: boolean,
 ): string[] {
 	const changed: string[] = [];
 	const type = field.type;
@@ -671,7 +686,7 @@ function applyFieldSettings(
 		const targetPath = asText(args.targetTable).trim();
 		const shown = asText(args.linkField).trim();
 		if (shown === '') {
-			if (creating) {
+			if (requireSettings) {
 				throw new Error(
 					'A relation column needs `linkField`: the column of the target table whose values it shows. Ask which column names a row — usually the title or name column.',
 				);
@@ -714,7 +729,7 @@ function applyFieldSettings(
 	if (type === 'formula') {
 		const expression = asText(args.formula).trim();
 		if (expression === '') {
-			if (creating) {
+			if (requireSettings) {
 				throw new Error(
 					'A formula column needs `formula`, for example {Score} * 2. Ask what it should compute rather than guessing.',
 				);
@@ -749,14 +764,14 @@ function applyFieldSettings(
 			}
 			field.rollupSourceFieldId = source.id;
 			changed.push('rollupSource');
-		} else if (creating) {
+		} else if (requireSettings) {
 			throw new Error(
 				'A rollup gathers rows through a relation column, so it needs `rollupSource`: the name of that column.',
 			);
 		}
 		const aggregate = asText(args.rollupAggregate).trim();
 		if (aggregate === '') {
-			if (creating) {
+			if (requireSettings) {
 				throw new Error(
 					`A rollup needs rollupAggregate, one of: ${ROLLUP_AGGREGATES.join(', ')}.`,
 				);
@@ -772,7 +787,7 @@ function applyFieldSettings(
 		}
 		const readName = asText(args.rollupField).trim();
 		if (readName === '') {
-			if (creating) {
+			if (requireSettings) {
 				throw new Error(
 					'A rollup needs `rollupField`: the column of the other table to read, such as its amount column.',
 				);
@@ -797,14 +812,14 @@ function applyFieldSettings(
 			}
 			field.lookupSourceFieldId = source.id;
 			changed.push('lookupSource');
-		} else if (creating) {
+		} else if (requireSettings) {
 			throw new Error(
 				'A lookup reads rows through a relation column, so it needs `lookupSource`: the name of that column.',
 			);
 		}
 		const readName = asText(args.lookupField).trim();
 		if (readName === '') {
-			if (creating) {
+			if (requireSettings) {
 				throw new Error(
 					'A lookup needs `lookupField`: the column of the other table to show, such as its owner column.',
 				);
@@ -829,7 +844,7 @@ function applyFieldSettings(
 			}
 			field.noteFieldId = noteField.id;
 			changed.push('noteField');
-		} else if (creating) {
+		} else if (requireSettings) {
 			throw new Error(
 				'A note property reads one frontmatter key of the note a `note` column points at, so it needs `noteField`: the name of that note column.',
 			);
@@ -1570,20 +1585,35 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'list_tables': {
-			// The vault is named in the answer so every path below reads as what it is.
-			return {
-				vault: VAULT,
-				tables: tableFiles().map((path) => {
+			/*
+			 * A table this build cannot read must not hide the ones it can: it is
+			 * listed with the reason instead of failing the whole answer.
+			 */
+			const unreadable: { path: string; why: string }[] = [];
+			const tables = tableFiles().flatMap((path) => {
+				try {
 					const { doc } = loadTable(path);
-					return {
+					return [
+						{
+							path,
+							name: doc.name,
+							fields: doc.fields.length,
+							records: doc.records.length,
+							views: doc.views.length,
+						},
+					];
+				} catch (error) {
+					unreadable.push({
 						path,
-						name: doc.name,
-						fields: doc.fields.length,
-						records: doc.records.length,
-						views: doc.views.length,
-					};
-				}),
-			};
+						why: error instanceof Error ? error.message : String(error),
+					});
+					return [];
+				}
+			});
+			// The vault is named in the answer so every path below reads as what it is.
+			return unreadable.length > 0
+				? { vault: VAULT, tables, unreadable }
+				: { vault: VAULT, tables };
 		}
 
 		case 'read_table': {
@@ -1847,6 +1877,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 
 			const nextType = asText(args.type).trim();
+			let typeChanged = false;
 			if (nextType !== '' && nextType !== field.type) {
 				if (!FIELD_TYPES.includes(nextType as FieldType)) {
 					throw new Error(`Unknown column type: ${nextType}`);
@@ -1857,6 +1888,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				 * back so the caller can own that loss rather than discover it.
 				 */
 				droppedCells = changeFieldType(doc, field.id, nextType as FieldType);
+				typeChanged = true;
 				changed.push('type');
 			}
 
@@ -1871,6 +1903,16 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				} else {
 					delete field.required;
 				}
+				changed.push('required');
+			}
+
+			/*
+			 * A computed column is never the reader's to leave empty, so the flag goes
+			 * with the type that took it — the app's own editor does the same, and the
+			 * loader would drop it on the next read anyway.
+			 */
+			if (field.required === true && !canBeRequired(field.type)) {
+				delete field.required;
 				changed.push('required');
 			}
 
@@ -1949,7 +1991,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 			}
 
-			changed.push(...applyFieldSettings(doc, field, args, file, false));
+			changed.push(...applyFieldSettings(doc, field, args, file, typeChanged));
 
 			if (changed.length === 0) {
 				return {

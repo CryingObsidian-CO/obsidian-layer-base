@@ -7,6 +7,8 @@ import {
 	normaliseDecimals,
 	normaliseFormat,
 	parseOptionalNumber,
+	shownNumber,
+	storedNumber,
 } from '../model/number';
 import {
 	nextOptionColor,
@@ -1244,6 +1246,13 @@ export class FieldEditorModal extends AnchoredPopover {
 		format.value = this.numberFormat;
 		format.addEventListener('change', () => {
 			this.numberFormat = format.value === 'percent' ? 'percent' : 'plain';
+			/*
+			 * The bounds are stored as proportions, and the boxes showing them count in
+			 * whatever units the chosen format reads, so switching formats has to redraw
+			 * them — otherwise "100" would keep meaning a hundred or one depending on
+			 * when it was typed.
+			 */
+			this.renderNumberSettings();
 		});
 
 		grid.createDiv({
@@ -1286,13 +1295,16 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 		input.placeholder = t().fieldNumberUnbounded;
 		const current = bound === 'min' ? this.min : this.max;
-		input.value = current === null ? '' : String(current);
+		// Stored as a proportion, shown in the units the cells use: a percent field's
+		// maximum of 100 is one — the whole of it.
+		input.value = current === null ? '' : String(shownNumber(current, this.numberFormat));
 		input.addEventListener('input', () => {
 			const parsed = parseOptionalNumber(input.value);
+			const stored = parsed === null ? null : storedNumber(parsed, this.numberFormat);
 			if (bound === 'min') {
-				this.min = parsed;
+				this.min = stored;
 			} else {
-				this.max = parsed;
+				this.max = stored;
 			}
 		});
 	}

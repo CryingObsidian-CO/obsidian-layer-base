@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeFormula, forgetParsedFormulas } from '../src/model/formula';
 import { createEmptyDoc } from '../src/io/schema';
-import { addRecord } from '../src/model/records';
+import { addRecord, setCellValue } from '../src/model/records';
 import type { Field, LayerDoc } from '../src/types';
 
 /** A one-row board with the given columns, so a formula has something to read. */
@@ -329,5 +329,74 @@ describe('parse caching', () => {
 		expect(value(doc, 'f')).toBe('4');
 		forgetParsedFormulas();
 		expect(value(doc, 'f')).toBe('4');
+	});
+});
+
+describe('a branch that is not taken', () => {
+	it('cannot fail the formula', () => {
+		const { doc } = board([
+			formulaField('a', 'IF(FALSE, 1/0, "safe")'),
+			formulaField('b', 'IF(TRUE, "safe", 1/0)'),
+			formulaField('c', 'IF(FALSE, {missing}, "safe")'),
+		]);
+
+		expect(value(doc, 'a')).toBe('safe');
+		expect(value(doc, 'b')).toBe('safe');
+		expect(value(doc, 'c')).toBe('safe');
+	});
+
+	it('is the one IF reads when the condition says so', () => {
+		const { doc } = board([formulaField('a', 'IF(TRUE, 1/0, "safe")')]);
+
+		// The error is the answer here: the branch is the one being taken.
+		expect(value(doc, 'a')).toBe('#divide-by-zero');
+	});
+
+	it('stops AND at the first false and OR at the first true', () => {
+		const { doc } = board([
+			formulaField('a', 'AND(FALSE, 1/0)'),
+			formulaField('b', 'OR(TRUE, 1/0)'),
+			formulaField('c', 'AND(TRUE, 1/0)'),
+		]);
+
+		expect(value(doc, 'a')).toBe('FALSE');
+		expect(value(doc, 'b')).toBe('TRUE');
+		expect(value(doc, 'c')).toBe('#divide-by-zero');
+	});
+
+	it('is not read past the first value COALESCE finds', () => {
+		const { doc } = board([
+			formulaField('a', 'COALESCE("a", {missing})'),
+			formulaField('b', 'COALESCE("", {missing})'),
+		]);
+
+		expect(value(doc, 'a')).toBe('a');
+		// Nothing was found before the bad one, so its error is the answer.
+		expect(value(doc, 'b')).toBe('#unknown-field');
+	});
+
+	it('is still read by the functions that need every value', () => {
+		const { doc } = board([formulaField('a', 'TEXT(1/0)')]);
+
+		expect(value(doc, 'a')).toBe('#divide-by-zero');
+	});
+});
+
+describe('a percentage', () => {
+	it('is a proportion, so multiplying by it is the arithmetic the type is for', () => {
+		const rate: Field = { id: 'f_rate', name: 'rate', type: 'number', numberFormat: 'percent' };
+		const { doc, recordId } = board([rate, formulaField('a', '{rate} * 200')]);
+		// Fifteen percent is stored as 0.15 and shown as "15%".
+		setCellValue(doc, recordId, rate, 0.15);
+
+		expect(value(doc, 'a')).toBe('30');
+	});
+
+	it('reads the sign in a text cell as the same proportion', () => {
+		const label: Field = { id: 'f_label', name: 'label', type: 'text' };
+		const { doc, recordId } = board([label, formulaField('b', 'SUM({label})')]);
+		setCellValue(doc, recordId, label, '50%');
+
+		expect(value(doc, 'b')).toBe('0.5');
 	});
 });

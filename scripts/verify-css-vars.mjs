@@ -46,7 +46,15 @@ function readFromAsar(asarPath, wanted) {
 		} catch (cause) {
 			throw new Error('asar header is not JSON', { cause });
 		}
-		const base = 16 + headerSize;
+		/*
+		 * The JSON header is padded so the data section starts on a 4-byte
+		 * boundary, and the offsets in it count from there. Skipping the padding
+		 * does not fail loudly: it shifts every file by a few bytes, so the text
+		 * still almost reads (this archive's app.css came out with three NUL bytes
+		 * in front and its last three missing).
+		 */
+		const headerEnd = 16 + headerSize;
+		const base = headerEnd + ((4 - (headerEnd % 4)) % 4);
 
 		const walk = (node, trail = '') => {
 			for (const [name, entry] of Object.entries(node.files ?? {})) {
@@ -94,15 +102,28 @@ try {
 	console.error(`Cannot read ${STYLESHEET}; run this from the plugin root.`);
 	process.exit(1);
 }
+/*
+ * Both scans below read the stylesheet with its comments removed: a `var()` in a
+ * comment is prose, and a declaration in a comment declares nothing. Reading
+ * either as code made the check talk about text the browser never sees.
+ */
+const code = sheet.replace(/\/\*[\s\S]*?\*\//g, '');
+
+/*
+ * `[\w-]` and not `[a-z0-9-]`: a custom property is case-sensitive and may hold
+ * uppercase letters and underscores. A narrower class did not just miss such a
+ * name, it cut it short — `var(--obsidian_local)` was read as `--obsidian` and
+ * then reported as missing.
+ */
 const referenced = [
-	...new Set([...sheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1])),
+	...new Set([...code.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1])),
 ].sort();
 
 /**
  * Variables the plugin declares itself.
  */
 const declaredLocally = new Set(
-	[...sheet.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]),
+	[...code.matchAll(/^\s*(--[\w-]+)\s*:/gm)].map((m) => m[1]),
 );
 const used = referenced.filter((v) => !declaredLocally.has(v));
 const local = referenced.filter((v) => declaredLocally.has(v));
@@ -135,13 +156,15 @@ console.log(`Checked against ${asarPath} (${basename(asarPath)}, app.css ${css.l
 let bad = 0;
 for (const v of used) {
 	/*
-	 * A declaration starts a line, follows a `{`, or follows a `;`. The app ships
-	 * this stylesheet pretty-printed in some builds and folded onto a single line
-	 * in others, and anchoring on the line start alone reported every variable as
-	 * missing the first time that changed.
+	 * A declaration is always inside a block, so the character before it is `{` or
+	 * `;` — that is what finds it, whether the app ships this stylesheet folded
+	 * onto one line or laid out one declaration per line. `^` with the `m` flag
+	 * covers a declaration that begins a line, the one case the other two miss.
+	 * `v` comes from `var(--[a-z0-9-]+)`, so it holds no character the pattern
+	 * would read as syntax.
 	 */
-	const pattern = '(?:^|[;{])\\s*' + v.replace(/-/g, '\\-') + '\\s*:';
-	const hits = [...css.matchAll(new RegExp(pattern, 'g'))].length;
+	const pattern = '(?:^|[;{])\\s*' + v + '\\s*:';
+	const hits = [...css.matchAll(new RegExp(pattern, 'gm'))].length;
 	if (hits === 0) {
 		bad++;
 		console.log(`MISSING  ${v}`);

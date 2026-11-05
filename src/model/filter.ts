@@ -9,6 +9,7 @@ import type {
 import { capabilityOf } from './capabilities';
 import { dateMinutes, dayNumber } from './date';
 import { formatCell } from './fields';
+import { parseShownNumber } from './number';
 
 /**
  * Deciding which rows a view keeps.
@@ -74,12 +75,13 @@ function numberOf(
 	if (typeof raw === 'number') {
 		return Number.isFinite(raw) ? raw : null;
 	}
-	const text = textOf(field, record, cellText).trim().replace(/%$/, '');
+	// The display text a percent cell shows is read the way the cell means it, so a
+	// condition compares against the number that cell stores.
+	const text = textOf(field, record, cellText).trim();
 	if (text === '') {
 		return null;
 	}
-	const parsed = Number(text);
-	return Number.isFinite(parsed) ? parsed : null;
+	return parseShownNumber(text);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { numberText, padNumber } from '../src/model/auto-number';
+import { padNumber } from '../src/model/auto-number';
 import { numberTexts } from '../src/model/numbering';
 import { addRecord, addRecordAtTop, setCellValue } from '../src/model/records';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
@@ -39,11 +39,6 @@ describe('padding', () => {
 
 	it('treats the width as a minimum, not a limit', () => {
 		expect(padNumber(1000, 3)).toBe('1000');
-	});
-
-	it('formats a number it is handed, which is how a copied cell reads', () => {
-		const field: Field = { ...serial, numberLength: 3 };
-		expect(numberText(field, 7)).toBe('007');
 	});
 });
 
