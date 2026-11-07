@@ -34,14 +34,19 @@ jobs:
                   cache: 'npm'
 
             # The tag has to name a commit that is already on master, so a release can
-            # never be cut from work that was never merged.
+            # never be cut from work that was never merged. The commit checked is the
+            # one this job checked out: started by hand, `GITHUB_SHA` is the head of
+            # the branch the run was started from, not the commit the tag names.
             - name: The tag is on master
+              env:
+                  TAG: ${{ inputs.tag || github.ref_name }}
               run: |
                   git fetch --quiet origin master
-                  if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-                    echo "The tagged commit is on master."
+                  HEAD_SHA=$(git rev-parse HEAD)
+                  if git merge-base --is-ancestor "$HEAD_SHA" origin/master; then
+                    echo "Tag $TAG is at $HEAD_SHA, which is on master."
                   else
-                    echo "::error::This tag is not on master. Merge it into master and tag there."
+                    echo "::error::Tag $TAG is at $HEAD_SHA, which is not on master. Merge it into master and tag there."
                     exit 1
                   fi
 

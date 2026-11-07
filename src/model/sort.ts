@@ -1,4 +1,4 @@
-import type { CellValue, Field, LayerRecord, Sort, SortOrder } from '../types';
+import type { CellValue, Field, LayerRecord, Sort } from '../types';
 import { dateMinutes } from './date';
 import { formatCell, optionIds } from './fields';
 import { optionRanks } from './select-options';
@@ -20,6 +20,30 @@ function textOf(
 	return cellText?.(field, record) ?? formatCell(field, record.cells[field.id] ?? '');
 }
 
+/** Reads one record's text in the column being sorted. */
+type TextOf = (record: LayerRecord) => string;
+
+/**
+ * The text of every record in one column, worked out once.
+ *
+ * A sort asks a record for its text once for each comparison it takes part in, and
+ * for a computed column that text is the whole cost — a formula, a rollup, a lookup
+ * in another table. Within one sort the answer cannot change, so it is kept: one
+ * call per record instead of one per pair.
+ */
+function textGetter(field: Field, cellText?: CellTextResolver): TextOf {
+	const seen = new Map<LayerRecord, string>();
+	return (record) => {
+		const cached = seen.get(record);
+		if (cached !== undefined) {
+			return cached;
+		}
+		const text = textOf(field, record, cellText);
+		seen.set(record, text);
+		return text;
+	};
+}
+
 /**
  * How the caller resolves a cell's text for a type this layer cannot read itself.
  *
@@ -32,17 +56,17 @@ export type CellTextResolver = (field: Field, record: LayerRecord) => string | n
 function numberOrNull(
 	field: Field,
 	record: LayerRecord,
-	cellText?: CellTextResolver,
+	text: TextOf,
 ): number | null {
 	const value: CellValue = record.cells[field.id] ?? '';
 	if (typeof value === 'number') {
 		return Number.isFinite(value) ? value : null;
 	}
-	const text = textOf(field, record, cellText).trim().replace(/%$/, '');
-	if (text === '') {
+	const shown = text(record).trim().replace(/%$/, '');
+	if (shown === '') {
 		return null;
 	}
-	const parsed = Number(text);
+	const parsed = Number(shown);
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -54,12 +78,8 @@ function numberOrNull(
  * do, or the same cell is one thing to the column and another to the sort. A
  * time of day is kept so two values on the same day still order sensibly.
  */
-function momentOrNull(
-	field: Field,
-	record: LayerRecord,
-	cellText?: CellTextResolver,
-): number | null {
-	return dateMinutes(textOf(field, record, cellText).trim());
+function momentOrNull(shown: string): number | null {
+	return dateMinutes(shown.trim());
 }
 
 /**
@@ -143,11 +163,11 @@ function compareOne(
 	field: Field,
 	a: LayerRecord,
 	b: LayerRecord,
-	cellText?: CellTextResolver,
+	text: TextOf,
 ): number {
 	if (field.type === 'number' || field.type === 'autoNumber') {
-		const left = numberOrNull(field, a, cellText);
-		const right = numberOrNull(field, b, cellText);
+		const left = numberOrNull(field, a, text);
+		const right = numberOrNull(field, b, text);
 		// "Nothing" is not a small value, it is an absence: it sorts as the smallest
 		// thing there is, which puts it first ascending and last descending, because
 		// the whole comparison is reversed for a descending column.
@@ -164,8 +184,8 @@ function compareOne(
 	}
 
 	if (field.type === 'date' || field.type === 'datetime') {
-		const left = momentOrNull(field, a, cellText);
-		const right = momentOrNull(field, b, cellText);
+		const left = momentOrNull(text(a));
+		const right = momentOrNull(text(b));
 		if (left === null && right === null) {
 			return 0;
 		}
@@ -185,21 +205,6 @@ function compareOne(
 	}
 
 	/*
-	 * Choice columns order by the options themselves, not by the words in the
-	 * cells: the option list is the one order such a field has — the board draws
-	 * its columns in it and the dropdown lists it in it — so a table sorted this
-	 * way agrees with the board rather than arguing with it. Sorting these by
-	 * name is what made the two disagree.
-	 */
-	if (field.type === 'select' || field.type === 'multiSelect') {
-		const ranks = optionRanks(field.options);
-		return compareRankLists(
-			rankListOf(field, a, ranks),
-			rankListOf(field, b, ranks),
-		);
-	}
-
-	/*
 	 * Everything else compares as the text it shows, with one exception: when both
 	 * cells read as plain numbers, they compare as numbers.
 	 *
@@ -215,8 +220,8 @@ function compareOne(
 	 * as `1.25 < 1.5`, `1.5 < 1.5a` and `1.5a < 1.25`. A comparator like that has no
 	 * order to find, so `sort` returns whatever its algorithm happens to produce.
 	 */
-	const leftText = textOf(field, a, cellText);
-	const rightText = textOf(field, b, cellText);
+	const leftText = text(a);
+	const rightText = text(b);
 	const left = plainNumber(leftText);
 	const right = plainNumber(rightText);
 	if (left !== null && right !== null) {
@@ -236,6 +241,37 @@ function compareOne(
 	});
 }
 
+/** How two records compare under one column's rule. */
+type Compare = (a: LayerRecord, b: LayerRecord) => number;
+
+/**
+ * One column's comparison, with everything that cannot change during a sort built
+ * once.
+ *
+ * A comparison runs O(n log n) times for one column, so anything it can be given in
+ * advance is worth doing before the first call rather than inside each one.
+ */
+function prepareCompare(field: Field, cellText?: CellTextResolver): Compare {
+	/*
+	 * Choice columns order by the options themselves, not by the words in the cells:
+	 * the option list is the one order such a field has — the board draws its columns
+	 * in it and the dropdown lists it in it — so a table sorted this way agrees with
+	 * the board rather than arguing with it. Sorting these by name is what made the
+	 * two disagree. The list does not change during one sort, so the ranks are built
+	 * for the rule instead of for each pair.
+	 */
+	if (field.type === 'select' || field.type === 'multiSelect') {
+		const ranks = optionRanks(field.options);
+		return (a, b) =>
+			compareRankLists(
+				rankListOf(field, a, ranks),
+				rankListOf(field, b, ranks),
+			);
+	}
+	const text = textGetter(field, cellText);
+	return (a, b) => compareOne(field, a, b, text);
+}
+
 /**
  * The records in the order the view asks for.
  *
@@ -250,9 +286,13 @@ export function sortRecords(
 	sorts: readonly Sort[],
 	cellText?: CellTextResolver,
 ): readonly LayerRecord[] {
-	const rules = sorts
-		.map((sort) => ({ sort, field: fields.find((f) => f.id === sort.fieldId) }))
-		.filter((rule): rule is { sort: Sort; field: Field } => rule.field !== undefined);
+	const rules: { sort: Sort; compare: Compare }[] = [];
+	for (const sort of sorts) {
+		const field = fields.find((candidate) => candidate.id === sort.fieldId);
+		if (field !== undefined) {
+			rules.push({ sort, compare: prepareCompare(field, cellText) });
+		}
+	}
 
 	if (rules.length === 0) {
 		return records;
@@ -260,11 +300,10 @@ export function sortRecords(
 
 	const ordered = records.slice();
 	ordered.sort((a, b) => {
-		for (const { sort, field } of rules) {
-			const order: SortOrder = sort.order;
-			const result = compareOne(field, a, b, cellText);
+		for (const { sort, compare } of rules) {
+			const result = compare(a, b);
 			if (result !== 0) {
-				return order === 'desc' ? -result : result;
+				return sort.order === 'desc' ? -result : result;
 			}
 		}
 		return 0;

@@ -9,3 +9,22 @@ indent_style = tab
 indent_size = 4
 quote_type = single
 tab_width = 4
+
+# A tab is not indentation in YAML, it is a parse error, and the workflows here are
+# written with four spaces.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 4
+
+# Markdown is written with spaces: a tab after a list marker starts a code block
+# rather than indenting the item.
+[*.{md,mdx}]
+indent_style = space
+indent_size = 2
+
+# npm writes these two with two spaces and rewrites them that way on every install,
+# so the tab default would only make churn. The other JSON files here — the
+# manifest and the version map — are tab-indented by hand and keep the default.
+[{package.json,package-lock.json}]
+indent_style = space
+indent_size = 2

@@ -4,10 +4,21 @@ import { describe, expect, it, vi } from 'vitest';
  * The panel editors are not exercised here: they need a live document and offer
  * nothing this test is about. What matters is that every way an edit can end
  * reports completion exactly once, and each of those ways below is one of the
- * plain inputs (Enter, Escape, blur).
+ * plain inputs (Enter, Escape, blur). The option panel is captured so the one
+ * test about it can drive its callbacks.
  */
+const panels = vi.hoisted(() => ({
+	option: null as null | {
+		onPickMany?: (optionIds: string[]) => void;
+		onCancel: () => void;
+	},
+}));
+
 vi.mock('../src/ui/option-dropdown', () => ({
-	openOptionDropdown: () => ({ close: () => undefined }),
+	openOptionDropdown: (config: unknown) => {
+		panels.option = config as typeof panels.option;
+		return { close: () => undefined };
+	},
 }));
 vi.mock('../src/ui/relation-dropdown', () => ({
 	openRelationDropdown: () => ({ close: () => undefined }),
@@ -262,5 +273,43 @@ describe('a date edit the control cannot show', () => {
 
 		t.cell.created[0]?.fire('blur', {});
 		expect(t.commits).toEqual(['2026-10-17']);
+	});
+});
+
+describe('a panel that commits while it stays open', () => {
+	const multiField: Field = {
+		id: 'f_m',
+		name: 'M',
+		type: 'multiSelect',
+		options: [{ id: 'o_1', name: 'One', color: 'blue' }],
+	};
+
+	it('reports completion when it closes, not on every toggle', () => {
+		const cell = new FakeCell();
+		const commits: CellValue[] = [];
+		let finished = 0;
+		beginCellEdit(cell as unknown as HTMLElement, {
+			field: multiField,
+			value: [],
+			commit: (next) => commits.push(next),
+			restore: () => undefined,
+			createOption: (): SelectOption | null => null,
+			onFinished: () => {
+				finished += 1;
+			},
+		});
+
+		const panel = panels.option;
+		expect(panel).not.toBeNull();
+
+		// A toggle commits the cell behind the panel, which stays open: the edit is
+		// not over yet, so completion must not fire here.
+		panel?.onPickMany?.(['o_1']);
+		expect(commits).toEqual([['o_1']]);
+		expect(finished).toBe(0);
+
+		// Closing it is what ends the edit.
+		panel?.onCancel();
+		expect(finished).toBe(1);
 	});
 });

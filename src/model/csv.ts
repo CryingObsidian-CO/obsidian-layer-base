@@ -9,6 +9,36 @@
 /** One row of already-resolved cell text. */
 export type CsvRow = readonly string[];
 
+export interface CsvOptions {
+	/**
+	 * Write a value a spreadsheet would take for a formula as text instead, so
+	 * opening the file cannot run it.
+	 *
+	 * Off unless asked: the prefix changes the value, and a consumer that is not a
+	 * spreadsheet — a script, another importer — must not receive it uninvited. The
+	 * export asks for it, because a spreadsheet is what a `.csv` is written for.
+	 */
+	guardFormulas?: boolean;
+}
+
+/**
+ * Whether a spreadsheet would read this field as a formula.
+ *
+ * A leading `=`, `+`, `-` or `@` begins one in Excel, LibreOffice and Google
+ * Sheets, and a leading tab or line break is the same trick written another way.
+ * Quoting the field does not help: the quotes only delimit it, and the sheet still
+ * evaluates what it finds inside.
+ *
+ * A plain number is exempt. `-5` and `+3.5` start the same way but can only be a
+ * number, and prefixing them would turn a numeric column into text in the sheet.
+ */
+const FORMULA_START = /^[=+\-@\t\r\n]/;
+const PLAIN_NUMBER = /^[+-]?(\d+(\.\d+)?|\.\d+)([eE][+-]?\d+)?$/;
+
+function readsAsFormula(value: string): boolean {
+	return FORMULA_START.test(value) && !PLAIN_NUMBER.test(value);
+}
+
 /**
  * A value as one CSV field.
  *
@@ -16,18 +46,28 @@ export type CsvRow = readonly string[];
  * quote, or a line break — and an inner quote is doubled, which is how the format
  * escapes it. Values that need none of that are left bare so the file stays
  * readable.
+ *
+ * With `guardFormulas`, a value a spreadsheet would evaluate gets a leading
+ * apostrophe first, which is how a sheet is told to keep it as text.
  */
-export function csvField(value: string): string {
-	const needsQuotes = /[",\r\n]/.test(value);
+export function csvField(value: string, options: CsvOptions = {}): string {
+	const text =
+		options.guardFormulas === true && readsAsFormula(value)
+			? `'${value}`
+			: value;
+	const needsQuotes = /[",\r\n]/.test(text);
 	if (!needsQuotes) {
-		return value;
+		return text;
 	}
-	return `"${value.replace(/"/g, '""')}"`;
+	return `"${text.replace(/"/g, '""')}"`;
 }
 
 /** One line of CSV, ending with the format's carriage return and newline. */
-export function csvLine(cells: readonly string[]): string {
-	return cells.map(csvField).join(',') + '\r\n';
+export function csvLine(
+	cells: readonly string[],
+	options: CsvOptions = {},
+): string {
+	return cells.map((cell) => csvField(cell, options)).join(',') + '\r\n';
 }
 
 /**
@@ -38,11 +78,15 @@ export function csvLine(cells: readonly string[]): string {
  * Excel opens UTF-8 text without mangling non-Latin characters, which matters here
  * because these tables are routinely written in Chinese.
  */
-export function toCsv(header: readonly string[], rows: readonly CsvRow[]): string {
+export function toCsv(
+	header: readonly string[],
+	rows: readonly CsvRow[],
+	options: CsvOptions = {},
+): string {
 	let text = '\uFEFF';
-	text += csvLine(header);
+	text += csvLine(header, options);
 	for (const row of rows) {
-		text += csvLine(row);
+		text += csvLine(row, options);
 	}
 	return text;
 }

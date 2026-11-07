@@ -376,3 +376,60 @@ describe('a value that changes where its row belongs', () => {
 		expect(orderOf(rows, [text], sorts)).not.toEqual(before);
 	});
 });
+
+describe('what one sort pass builds', () => {
+	/** A choice column whose option list counts its own reads. */
+	function countedSelect(): { field: Field; reads: () => number } {
+		let reads = 0;
+		const options = Array.from({ length: 4 }, (_unused, index) => ({
+			id: `o_${index}`,
+			name: `Option ${index}`,
+			color: 'blue',
+		}));
+		const proxied = new Proxy(options, {
+			get(target, property, receiver) {
+				if (typeof property === 'string' && /^\d+$/.test(property)) {
+					reads += 1;
+				}
+				const value: unknown = Reflect.get(target, property, receiver);
+				return value;
+			},
+		});
+		return {
+			field: { id: 'f_sel', name: 'Choice', type: 'select', options: proxied },
+			reads: () => reads,
+		};
+	}
+
+	it('builds the option ranks once for the column, not once per comparison', () => {
+		const { field, reads } = countedSelect();
+		const rows = Array.from({ length: 40 }, (_unused, index) =>
+			row(`r${index}`, { f_sel: `o_${index % 4}` }),
+		);
+
+		sortRecords(rows, [field], [{ fieldId: 'f_sel', order: 'asc' }]);
+
+		// One pass over the four options. Rebuilding the map for every comparison
+		// would read them hundreds of times for a sort this size.
+		expect(reads()).toBe(4);
+	});
+
+	it('reads a cell once per record, not once per comparison', () => {
+		const rows = Array.from({ length: 40 }, (_unused, index) =>
+			row(`r${index}`, { f_text: `value ${index}` }),
+		);
+		let calls = 0;
+
+		sortRecords(
+			rows,
+			[text],
+			[{ fieldId: 'f_text', order: 'asc' }],
+			(_field, record) => {
+				calls += 1;
+				return `value ${String(record.cells.f_text ?? '')}`;
+			},
+		);
+
+		expect(calls).toBe(rows.length);
+	});
+});

@@ -10,6 +10,7 @@ import {
 import {LAYER_EXTENSION, VIEW_TYPE_LAYER} from '../constants';
 import {t} from '../i18n';
 import {parseLayerDoc, serializeLayerDoc} from '../io/schema';
+import {sameDocument} from '../io/same-document';
 import {FutureVersionError} from '../io/migrate';
 import type LayerBasePlugin from '../main';
 import {
@@ -122,6 +123,7 @@ import {ColumnVisibilityPopover} from '../ui/column-visibility-popover';
 import {RowHeightPopover} from '../ui/row-height-popover';
 import {ColorRulesPopover} from '../ui/color-rules-popover';
 import {redrawOnce} from './redraw-guard';
+import {scopeLedger} from './scope-ledger';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -454,12 +456,15 @@ export class LayerView extends TextFileView {
 
 		// Focus is what decides ownership: the view that was last clicked owns the key,
 		// and a view that merely exists in a background tab owns nothing.
-		this.registerDomEvent(this.contentEl, 'focusin', () => {
-			this.app.keymap.pushScope(scope);
-		});
-		this.registerDomEvent(this.contentEl, 'pointerdown', () => {
-			this.app.keymap.pushScope(scope);
-		});
+		const ledger = scopeLedger(
+			scope,
+			(inner) => this.app.keymap.pushScope(inner),
+			(inner) => this.app.keymap.popScope(inner),
+		);
+		// A click fires `pointerdown`, and the first one also fires `focusin`: the
+		// ledger turns that pair into one scope on the stack.
+		this.registerDomEvent(this.contentEl, 'focusin', () => ledger.acquire());
+		this.registerDomEvent(this.contentEl, 'pointerdown', () => ledger.acquire());
 		this.registerDomEvent(this.contentEl, 'focusout', (event) => {
 			// Only when focus leaves the view entirely, not when it moves between two
 			// cells inside it.
@@ -467,10 +472,10 @@ export class LayerView extends TextFileView {
 			if (next && this.contentEl.contains(next)) {
 				return;
 			}
-			this.app.keymap.popScope(scope);
+			ledger.release();
 		});
 		// A view closed while focused must not leave its scope on the stack.
-		this.register(() => this.app.keymap.popScope(scope));
+		this.register(() => ledger.release());
 	}
 
 	/** Takes one edit back. */
@@ -519,21 +524,15 @@ export class LayerView extends TextFileView {
 	}
 
 	/**
-	 * Whether the text just read gives the rows and columns already held.
+	 * Whether the text just read gives the document already held.
 	 *
-	 * Only the parts a reader can change count: a row's creation stamp and a column's
-	 * default flags are filled in on the way in, so they differ between what was
-	 * written and what comes back even when nothing has actually changed.
+	 * Compared as a whole: a rename of the document or of a view, a changed filter or
+	 * a board setting is the reader's too. Reading one of those as an echo of our own
+	 * save is what threw the incoming copy away and then wrote ours back over it.
 	 */
 	private sameContent(incoming: LayerDoc): boolean {
 		const doc = this.doc;
-		if (!doc) {
-			return false;
-		}
-		return (
-			stableJson(incoming.fields) === stableJson(doc.fields) &&
-			stableJson(incoming.records) === stableJson(doc.records)
-		);
+		return doc !== null && sameDocument(incoming, doc);
 	}
 
 	/**
@@ -706,7 +705,9 @@ export class LayerView extends TextFileView {
 			fields.map((field) => this.displayText(field, record)),
 		);
 		return {
-			text: toCsv(header, rows),
+			// The file is for a spreadsheet, so a value one would evaluate is written as
+			// text rather than left to run when the file is opened.
+			text: toCsv(header, rows, {guardFormulas: true}),
 			/*
 			 * The base name only: the dialog shows it as a name and the writer adds
 			 * `.csv`, so a reader never ends up with a file called `x.csv.csv`.
@@ -3080,18 +3081,4 @@ function isTextEntry(target: EventTarget | null): boolean {
 	}
 	const type = (target as HTMLInputElement).type;
 	return !['button', 'checkbox', 'color', 'file', 'radio', 'range', 'submit'].includes(type);
-}
-
-function stableJson(value: unknown): string {
-	return JSON.stringify(value, (_key, inner: unknown) => {
-		if (inner === null || typeof inner !== 'object' || Array.isArray(inner)) {
-			return inner;
-		}
-		const record = inner as Record<string, unknown>;
-		const sorted: Record<string, unknown> = {};
-		for (const key of Object.keys(record).sort()) {
-			sorted[key] = record[key];
-		}
-		return sorted;
-	});
 }

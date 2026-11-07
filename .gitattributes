@@ -1,0 +1,5 @@
+# The licence is a verbatim copy of the FSF text, so it has to stay byte-for-byte
+# what https://www.gnu.org/licenses/gpl-3.0.txt is: no line-ending conversion on
+# the way in or out. Without this, a checkout on a machine with `core.autocrlf`
+# turns every LF into CRLF and the copy is no longer exact.
+LICENSE text eol=lf

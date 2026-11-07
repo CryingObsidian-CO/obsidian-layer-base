@@ -48,6 +48,7 @@ import {
 	type ContextTarget,
 } from './grid-context-menu';
 import {attachColumnResize, attachRowResize} from './resize';
+import {fillableFields} from './fill';
 import {
 	SelectionTracker,
 	rangeBounds,
@@ -1066,7 +1067,7 @@ export class GridRenderer {
 			return;
 		}
 
-		for (const field of fields) {
+		for (const field of fillableFields(fields)) {
 			const sourceCell = this.cells.get(cellKey(top, field.id));
 			const raw = sourceCell?.dataset.value;
 			if (raw === undefined) {

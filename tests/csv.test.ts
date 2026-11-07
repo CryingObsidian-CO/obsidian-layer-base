@@ -25,6 +25,46 @@ describe('writing one field', () => {
 	});
 });
 
+describe('guarding against spreadsheet formulas', () => {
+	it('leaves the value alone unless the caller asks for the guard', () => {
+		expect(csvField('=1+1')).toBe('=1+1');
+		expect(toCsv(['A'], [['=1+1']])).toBe('\uFEFFA\r\n=1+1\r\n');
+	});
+
+	it('marks a value a spreadsheet would evaluate as text', () => {
+		for (const value of ['=SUM(A1)', '+1+1', '-1+1', '@SUM(A1)']) {
+			expect(csvField(value, { guardFormulas: true })).toBe(`'${value}`);
+		}
+	});
+
+	it('guards a leading control character, the same trick written another way', () => {
+		expect(csvField('\t=1+1', { guardFormulas: true })).toBe("'\t=1+1");
+		expect(csvField('\r=1+1', { guardFormulas: true })).toBe("\"'\r=1+1\"");
+		expect(csvField('\n=1+1', { guardFormulas: true })).toBe("\"'\n=1+1\"");
+	});
+
+	it('leaves a plain number a number, so a numeric column stays numeric', () => {
+		for (const value of ['-5', '+3.5', '-1e3', '0', '.5']) {
+			expect(csvField(value, { guardFormulas: true })).toBe(value);
+		}
+	});
+
+	it('still quotes and doubles when the guarded value needs it', () => {
+		expect(csvField('=a,b', { guardFormulas: true })).toBe('"\'=a,b"');
+		expect(csvField('="x"', { guardFormulas: true })).toBe('"\'=""x"""');
+	});
+
+	it('passes the policy through a line', () => {
+		expect(csvLine(['=1+1'], { guardFormulas: true })).toBe("'=1+1\r\n");
+	});
+
+	it('applies the guard to a whole file, header included', () => {
+		expect(toCsv(['=Name'], [['=1+1', '-5']], { guardFormulas: true })).toBe(
+			"\uFEFF'=Name\r\n'=1+1,-5\r\n",
+		);
+	});
+});
+
 describe('writing lines and files', () => {
 	it('joins fields with commas and ends the line the format way', () => {
 		// CRLF because that is what the format specifies.

@@ -132,7 +132,10 @@ jobs:
             -   name: Pull requests into master come from develop
                 if: github.event_name == 'pull_request' && github.base_ref == 'master'
                 run: |
-                    head="${{ github.head_ref }}"
+                    # Taken from the environment rather than pasted in as an expression:
+                    # a fork's branch name is the contributor's to choose, and putting it
+                    # into this script would run whatever it contains.
+                    head="$GITHUB_HEAD_REF"
                     case "$head" in
                       develop | hotfix/*)
                         echo "Coming from $head, as the flow expects."
