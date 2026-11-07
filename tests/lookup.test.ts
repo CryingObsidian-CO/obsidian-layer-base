@@ -119,8 +119,9 @@ describe('the chips a lookup draws', () => {
 		const link: Field = { id: 'f_link', name: 'Link', type: 'relation' };
 		const names = (): readonly string[] => ['Ann', 'Bob'];
 
-		// Without a reader it can only answer what it stores: the row ids.
-		expect(lookupChips(link, ['[]'])).toEqual(['[]']);
+		// Without a reader it can only answer what it stores: the row ids, joined the
+		// way the column stores them.
+		expect(lookupChips(link, [['r_1', 'r_2']])).toEqual(['r_1, r_2']);
 		expect(
 			lookupChips(link, [['r_1', 'r_2']], () => ['Ann', 'Bob']),
 		).toEqual(['Ann', 'Bob']);

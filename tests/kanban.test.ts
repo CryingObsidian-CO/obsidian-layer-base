@@ -442,22 +442,36 @@ describe('dropping a card back onto the ungrouped column', () => {
 	 */
 	const rows = [row('a', { f_status: 's_todo' }), row('b', {})];
 
+	/*
+	 * The ungrouped column is drawn last: its cards have no other column to be in, so
+	 * it keeps a slot behind the named ones rather than ahead of them.
+	 */
+	function ungroupedOf(columns: readonly KanbanColumn[]): KanbanColumn {
+		const column = columns[columns.length - 1];
+		if (!column) {
+			throw new Error('the board drew no columns');
+		}
+		return column;
+	}
+
 	it('offers the ungrouped column as a drop target', () => {
-		const columns = groupRecords(rows, status, 50);
-		expect(columns[0]?.value).toBeNull();
-		expect(columns[0]?.droppable).toBe(true);
+		const ungrouped = ungroupedOf(groupRecords(rows, status, 50));
+		expect(ungrouped.value).toBeNull();
+		expect(ungrouped.droppable).toBe(true);
 	});
 
 	it('writes the empty value for that column', () => {
-		const columns = groupRecords(rows, status, 50);
-		expect(valueForColumn(status, columns[0] as KanbanColumn)).toBe('');
+		const ungrouped = ungroupedOf(groupRecords(rows, status, 50));
+		expect(valueForColumn(status, ungrouped)).toBe('');
 	});
 
 	it('also works for a checkbox board', () => {
-		const ticked = [row('a', { f_box: true })];
-		const columns = groupRecords(ticked, box, 50);
-		expect(columns[0]?.droppable).toBe(true);
-		expect(valueForColumn(box, columns[0] as KanbanColumn)).toBe(false);
+		// One unticked row, so the "no value" column exists for the ticked card to be
+		// dragged into: a column nothing would land in is not drawn at all.
+		const rows = [row('a', { f_box: true }), row('b', { f_box: false })];
+		const ungrouped = ungroupedOf(groupRecords(rows, box, 50));
+		expect(ungrouped.droppable).toBe(true);
+		expect(valueForColumn(box, ungrouped)).toBe(false);
 	});
 
 	it('refuses only when the grouping column cannot be written at all', () => {

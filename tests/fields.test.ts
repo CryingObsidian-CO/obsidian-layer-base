@@ -37,6 +37,7 @@ describe('field types', () => {
 			'date',
 			'datetime',
 			'relation',
+			'lookup',
 			'relationBack',
 			'autoNumber',
 			'rollup',
@@ -44,6 +45,8 @@ describe('field types', () => {
 			'select',
 			'multiSelect',
 			'checkbox',
+			'note',
+			'noteProp',
 		]);
 	});
 
@@ -164,8 +167,11 @@ describe('what every type reads as', () => {
 		expect(formatCell(field('select', { options: [] }), 'gone')).toBe('gone');
 	});
 
-	it('pads an auto number', () => {
-		expect(formatCell(field('autoNumber', { numberLength: 3 }), 7)).toBe('007');
+	it('leaves a numbering cell to the view, which counts the rows', () => {
+		// A numbering column stores nothing: the number is worked out from the row's
+		// position when the grid draws it, and the padding is covered by
+		// `auto-number.test.ts`.
+		expect(formatCell(field('autoNumber', { numberLength: 3 }), 7)).toBe('');
 	});
 
 	it('answers nothing for a type whose value lives elsewhere', () => {

@@ -46,6 +46,7 @@ describe('field types', () => {
 			'date',
 			'datetime',
 			'relation',
+			'lookup',
 			'relationBack',
 			'autoNumber',
 			'rollup',
@@ -53,6 +54,8 @@ describe('field types', () => {
 			'select',
 			'multiSelect',
 			'checkbox',
+			'note',
+			'noteProp',
 		]);
 	});
 
