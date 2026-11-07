@@ -10,7 +10,13 @@ export type ContextTarget =
 			fields: Field[];
 			allEmpty: boolean;
 	  }
-	| { kind: 'row'; recordId: string; index: number; fields: Field[] }
+	| {
+			kind: 'row';
+			recordId: string;
+			/** The 1-based number the row header shows, not a list position. */
+			index: number;
+			fields: Field[];
+	  }
 	| { kind: 'column'; field: Field; isOnlyField: boolean };
 
 export interface ContextMenuActions {
@@ -167,7 +173,7 @@ function buildRowMenu(
 	const { recordId, index } = target;
 
 	menu.addItem((item) =>
-		item.setTitle(t().menuRowLabel(index + 1)).setIsLabel(true),
+		item.setTitle(t().menuRowLabel(index)).setIsLabel(true),
 	);
 	menu.addSeparator();
 

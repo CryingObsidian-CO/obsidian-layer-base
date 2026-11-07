@@ -304,6 +304,41 @@ describe('changeFieldType', () => {
 		expect(field.noteFieldId).toBe('f_title');
 	});
 
+	it('re-bases a saved comparison the new type cannot answer', () => {
+		const doc = newDoc();
+		const view = doc.views[0] as GridView;
+		view.filter.conditions = [
+			{ fieldId: 'f_status', operator: 'checked', value: true },
+			{ fieldId: 'f_status', operator: 'is', value: 'o_1' },
+			{ fieldId: 'f_title', operator: 'checked', value: true },
+		];
+		view.colorRules = [
+			{ fieldId: 'f_status', operator: 'checked', value: true, color: 'red' },
+		];
+
+		changeFieldType(doc, 'f_status', 'text');
+
+		/*
+		 * "Is ticked" is not a comparison a text column offers, so the rule starts
+		 * over on one it does — a stale operator answered "no" to every row and hid
+		 * the whole table while the panel showed a different comparison.
+		 */
+		expect(view.filter.conditions[0]).toEqual({ fieldId: 'f_status', operator: 'is' });
+		// A comparison the new type still offers keeps its value.
+		expect(view.filter.conditions[1]).toEqual({
+			fieldId: 'f_status',
+			operator: 'is',
+			value: 'o_1',
+		});
+		// A rule about another column is not this change's business.
+		expect(view.filter.conditions[2]).toEqual({
+			fieldId: 'f_title',
+			operator: 'checked',
+			value: true,
+		});
+		expect(view.colorRules?.[0]).toEqual({ fieldId: 'f_status', operator: 'is', color: 'red' });
+	});
+
 	it('does nothing when the type is unchanged', () => {
 		const doc = newDoc();
 		expect(changeFieldType(doc, 'f_title', 'text')).toBe(0);

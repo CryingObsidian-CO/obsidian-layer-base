@@ -748,7 +748,25 @@ export class FieldEditorModal extends AnchoredPopover {
 		if (doc) {
 			return doc.fields;
 		}
-		this.config.tables.ensure(path, () => this.renderRelationSettings());
+		/*
+		 * Every section that reads a linked table is repainted when it lands, not just
+		 * the relation one: a rollup and a lookup read their columns through this same
+		 * call, so a repaint of one section left the others' column lists empty until
+		 * something else happened to redraw them.
+		 *
+		 * A read can also land long after the panel closed, or after the type changed
+		 * away and back, so nothing is painted into a panel that is no longer on
+		 * screen. Each section already refuses to draw for a type it does not belong
+		 * to, so the three calls cannot paint the wrong one.
+		 */
+		this.config.tables.ensure(path, () => {
+			if (!this.contentEl.isConnected) {
+				return;
+			}
+			this.renderRelationSettings();
+			this.renderRollupSettings();
+			this.renderLookupSettings();
+		});
 		return null;
 	}
 

@@ -18,6 +18,14 @@ export function attachColumnDrag(
 		if (event.button !== 0) {
 			return;
 		}
+		/*
+		 * A gesture whose mouseup never arrived — released outside the window, focus
+		 * taken by another pane — is still listening. Left alone it would answer the
+		 * moves of this new gesture as well, so it is ended here first, the way a drag
+		 * that is called off ends.
+		 */
+		stopActiveDrag?.();
+
 		const startX = event.clientX;
 		const startY = event.clientY;
 		let dragging = false;
@@ -28,6 +36,19 @@ export function attachColumnDrag(
 			document.removeEventListener('keydown', onKey, true);
 			document.body.removeClass('layer-grid-dragging-column');
 			stopActiveDrag = null;
+		};
+
+		/**
+		 * Ends the gesture where it stands rather than where the pointer is: a drag
+		 * that started before being abandoned also started its preview, which the view
+		 * has to be told to put away.
+		 */
+		const abandon = () => {
+			const wasDragging = dragging;
+			stopListening();
+			if (wasDragging) {
+				callbacks.onCancel();
+			}
 		};
 
 		const onMove = (move: MouseEvent) => {
@@ -66,7 +87,7 @@ export function attachColumnDrag(
 		document.addEventListener('mousemove', onMove);
 		document.addEventListener('mouseup', onUp);
 		document.addEventListener('keydown', onKey, true);
-		stopActiveDrag = stopListening;
+		stopActiveDrag = abandon;
 	};
 
 	handle.addEventListener('mousedown', onMouseDown);

@@ -9,7 +9,7 @@ export interface RelationDropdownConfig {
 	selectedIds: readonly string[];
 	/** The chosen set, after each toggle. */
 	onChange: (recordIds: string[]) => void;
-	/** The panel closed without ever changing anything. */
+	/** The panel closed. Every change was already reported as it was made. */
 	onCancel: () => void;
 }
 
@@ -27,7 +27,6 @@ export function openRelationDropdown(config: RelationDropdownConfig): {
 	close: () => void;
 } {
 	let chosen = [...config.selectedIds];
-	let changed = false;
 	let settled = false;
 
 	const cancel = (): void => {
@@ -35,9 +34,14 @@ export function openRelationDropdown(config: RelationDropdownConfig): {
 			return;
 		}
 		settled = true;
-		if (!changed) {
-			config.onCancel();
-		}
+		/*
+		 * Reported whether or not anything was chosen. The toggles were committed as
+		 * they happened, so this is not an undo but the end of the panel — and it is
+		 * the only word the editor hears: staying quiet after a change left the cell
+		 * recorded as "being edited" for the rest of the session, and a repaint that
+		 * arrives while that is true is dropped.
+		 */
+		config.onCancel();
 	};
 
 	const rowsFor = (query: string): DropdownItem[] => {
@@ -74,7 +78,6 @@ export function openRelationDropdown(config: RelationDropdownConfig): {
 		items: rowsFor,
 		selectedKeys: (): readonly string[] => chosen,
 		onPick: (item): void | 'keep-open' => {
-			changed = true;
 			chosen =
 				item.key === CLEAR_KEY
 					? []

@@ -256,8 +256,11 @@ export class BoardShell {
 				.onClick(() => this.handlers.onExportCsv()),
 		);
 		const box = anchor.getBoundingClientRect();
-		// Below the button, aligned to its right edge so the menu stays on screen.
-		menu.showAtPosition({ x: box.right, y: box.bottom });
+		// Below the button, opened from its left edge: a position names the menu's
+		// own top-left corner, so the right edge of the button is not an anchor the
+		// menu can be aligned by — that would open it past the button entirely.
+		// Every other menu in the plugin opens from the left edge too.
+		menu.showAtPosition({ x: box.left, y: box.bottom });
 	}
 
 	private showAddRecordMenu(anchor: HTMLElement): void {
@@ -274,8 +277,9 @@ export class BoardShell {
 				.setIcon('arrow-up')
 				.onClick(() => this.handlers.onAddRecordAtTop()),
 		);
-		// Below the arrow, aligned with its left edge.
-		menu.showAtPosition({ x: anchor.getBoundingClientRect().left, y: anchor.getBoundingClientRect().bottom });
+		const box = anchor.getBoundingClientRect();
+		// Below the arrow, opened from its left edge.
+		menu.showAtPosition({ x: box.left, y: box.bottom });
 	}
 
 	renderTabs(state: TabsState): HTMLElement {

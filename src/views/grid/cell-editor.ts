@@ -18,6 +18,15 @@ export interface CellEditOptions {
 	createOption: (name: string) => SelectOption | null;
 	/** The rows a relation cell may point at, resolved by the caller. */
 	relationCandidates?: () => readonly RelationCandidate[];
+	/**
+	 * Called once when the edit ends, however it ends — Enter, Escape, blur, or a
+	 * panel picking or closing.
+	 *
+	 * An editor ends itself, so without this the caller keeps a handle for an edit
+	 * that is already over; a grid that does so answers "still editing" forever and
+	 * then drops the repaints it was deferring.
+	 */
+	onFinished?: () => void;
 }
 
 /**
@@ -63,6 +72,7 @@ export function beginCellEdit(
 		if (value !== undefined) {
 			options.commit(value);
 		}
+		options.onFinished?.();
 	};
 
 	if (field.type === 'select') {
@@ -147,6 +157,15 @@ export function beginCellEdit(
 
 	if (field.type === 'date' || field.type === 'datetime') {
 		const input = attachDateInput(cell, field, options.value, finish);
+		if (input === null) {
+			/*
+			 * The control could not show the stored value, so there is no edit to
+			 * keep. Ending it here restores the cell as it was, rather than letting
+			 * a change or blur commit the empty string the control fell back to.
+			 */
+			finish(undefined);
+			return null;
+		}
 		return {
 			cancel: () => finish(undefined),
 			// The control's own value is already the stored form, and `''` clears.
@@ -250,10 +269,21 @@ function attachDateInput(
 	field: Field,
 	value: CellValue,
 	finish: Finish,
-): HTMLInputElement {
+): HTMLInputElement | null {
 	const input = cell.createEl('input', { cls: 'layer-grid-input' });
 	input.type = field.type === 'datetime' ? 'datetime-local' : 'date';
-	input.value = typeof value === 'string' ? value : '';
+	const stored = typeof value === 'string' ? value : '';
+	input.value = stored;
+	/*
+	 * A native date control silently empties itself when it is handed text it
+	 * cannot represent, and the model accepts a wider range than the control does
+	 * (a year of 0000, for one). Answering null says the edit never began: the
+	 * change and blur handlers below would otherwise commit '' over a value the
+	 * reader never touched, erasing it without a word.
+	 */
+	if (stored !== '' && input.value === '') {
+		return null;
+	}
 
 	input.focus();
 	openPicker(input);

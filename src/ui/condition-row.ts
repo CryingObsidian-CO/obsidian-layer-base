@@ -84,9 +84,16 @@ export function renderConditionRow(
 		});
 		option.value = operator;
 	}
-	operatorSelect.value = allowed.includes(condition.operator)
-		? condition.operator
-		: allowed[0] ?? 'is';
+	/*
+	 * A saved comparison the column cannot answer is replaced, not just hidden. The
+	 * select can only show what it has an option for, so a stale operator would leave
+	 * the panel saying "is" while the rule kept "is ticked" — a comparison the value
+	 * box is then hidden for, and one the filter answers "no" to on every row.
+	 */
+	if (!allowed.includes(condition.operator)) {
+		condition.operator = allowed[0] ?? 'is';
+	}
+	operatorSelect.value = condition.operator;
 	operatorSelect.addEventListener('change', () => {
 		condition.operator = operatorSelect.value as FilterOperator;
 		onChange(true);
@@ -148,13 +155,21 @@ function renderValue(
 			: condition.value;
 	input.value = condition.value === undefined ? '' : String(shown);
 	input.addEventListener('input', () => {
-		condition.value = counts
-			? // A cleared box names no number: storing the zero an empty input reads as
-				// would turn "no value yet" into a filter on 0.
-				input.value.trim() === ''
-				? ''
-				: storedNumber(Number(input.value), field.numberFormat)
-			: input.value;
+		if (!counts) {
+			condition.value = input.value;
+			onChange(false);
+			return;
+		}
+		const raw = input.value.trim();
+		// A cleared box names no number — storing the zero an empty input reads as
+		// would turn "no value yet" into a filter on 0 — and neither does an entry
+		// no one can read as one. Both are "no value", which is a missing key here.
+		const parsed = raw === '' ? Number.NaN : Number(raw);
+		if (Number.isFinite(parsed)) {
+			condition.value = storedNumber(parsed, field.numberFormat);
+		} else {
+			delete condition.value;
+		}
 		onChange(false);
 	});
 }

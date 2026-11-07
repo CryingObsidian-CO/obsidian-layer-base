@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { resizeSizeAt } from '../src/views/grid/resize';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { attachRowResize, resizeSizeAt } from '../src/views/grid/resize';
 import {
 	MAX_COLUMN_WIDTH,
 	MAX_ROW_HEIGHT,
@@ -65,5 +65,152 @@ describe('resizeSizeAt', () => {
 		expect(resizeSizeAt(180, X, X + 5, clampColumnWidth)).toBe(185);
 		expect(resizeSizeAt(180, X, X + 50, clampColumnWidth)).toBe(230);
 		expect(resizeSizeAt(180, X, X + 500, clampColumnWidth)).toBe(680);
+	});
+});
+
+describe('the classes and listeners a resize leaves behind', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	type Listener = (event: unknown) => void;
+
+	/** Something that keeps the listeners added to it, the way document does. */
+	function fakeTarget() {
+		const listeners = new Map<string, Set<Listener>>();
+		return {
+			addEventListener(type: string, listener: Listener): void {
+				const set = listeners.get(type) ?? new Set<Listener>();
+				set.add(listener);
+				listeners.set(type, set);
+			},
+			removeEventListener(type: string, listener: Listener): void {
+				listeners.get(type)?.delete(listener);
+			},
+			count(type: string): number {
+				return listeners.get(type)?.size ?? 0;
+			},
+			fire(type: string, event: unknown): void {
+				for (const listener of [...(listeners.get(type) ?? [])]) {
+					listener(event);
+				}
+			},
+		};
+	}
+
+	function environment() {
+		const body = new Set<string>();
+		const document = {
+			...fakeTarget(),
+			body: {
+				addClass(...names: string[]): void {
+					for (const name of names) {
+						body.add(name);
+					}
+				},
+				removeClass(...names: string[]): void {
+					for (const name of names) {
+						body.delete(name);
+					}
+				},
+			},
+		};
+		const window = fakeTarget();
+		vi.stubGlobal('document', document);
+		vi.stubGlobal('window', window);
+		return { document, window, body };
+	}
+
+	function fakeHandle() {
+		const handlers = new Map<string, Listener>();
+		return {
+			addClass(): void {
+				return;
+			},
+			addEventListener(type: string, listener: Listener): void {
+				handlers.set(type, listener);
+			},
+			press(): void {
+				handlers.get('mousedown')?.({
+					button: 0,
+					clientX: 0,
+					clientY: 0,
+					preventDefault: () => undefined,
+					stopPropagation: () => undefined,
+				});
+			},
+		};
+	}
+
+	const rowHandlers = (commits: number[]) => ({
+		onStart: () => 24,
+		onPreview: () => undefined,
+		onCommit: (pixels: number) => commits.push(pixels),
+	});
+
+	it('takes the axis class off with the resizing class', () => {
+		const env = environment();
+		const handle = fakeHandle();
+		attachRowResize(handle as unknown as HTMLElement, rowHandlers([]));
+
+		handle.press();
+		expect(env.body.has('layer-grid-resizing')).toBe(true);
+		expect(env.body.has('is-row-resize')).toBe(true);
+
+		env.document.fire('mousemove', { clientY: 40 });
+		env.document.fire('mouseup', {});
+
+		/*
+		 * The axis class asked for the cursor for the length of the gesture. Left
+		 * behind, it outlived the drag — a later column drag then carried both classes,
+		 * and the rule further down the sheet kept the row cursor.
+		 */
+		expect(env.body.has('is-row-resize')).toBe(false);
+		expect(env.body.has('layer-grid-resizing')).toBe(false);
+	});
+
+	it('ends a resize whose release never arrived', () => {
+		const env = environment();
+		const handle = fakeHandle();
+		const commits: number[] = [];
+		attachRowResize(handle as unknown as HTMLElement, rowHandlers(commits));
+
+		handle.press();
+		env.document.fire('mousemove', { clientY: 40 });
+		// The pointer leaves the window: no mouseup is ever sent.
+		env.document.fire('mouseleave', {});
+
+		expect(commits).toEqual([64]);
+		expect(env.document.count('mousemove')).toBe(0);
+		expect(env.document.count('mouseup')).toBe(0);
+		expect(env.body.has('layer-grid-resizing')).toBe(false);
+	});
+
+	it('ends the resize when another pane takes the focus', () => {
+		const env = environment();
+		const handle = fakeHandle();
+		const commits: number[] = [];
+		attachRowResize(handle as unknown as HTMLElement, rowHandlers(commits));
+
+		handle.press();
+		env.document.fire('mousemove', { clientY: 40 });
+		env.window.fire('blur', {});
+
+		expect(commits).toEqual([64]);
+		expect(env.document.count('mousemove')).toBe(0);
+	});
+
+	it('does not stack handlers when a press arrives mid-gesture', () => {
+		const env = environment();
+		const handle = fakeHandle();
+		attachRowResize(handle as unknown as HTMLElement, rowHandlers([]));
+
+		handle.press();
+		// A second press with no mouseup between: the first gesture must be gone.
+		handle.press();
+
+		expect(env.document.count('mousemove')).toBe(1);
+		expect(env.document.count('mouseup')).toBe(1);
+		expect(env.window.count('blur')).toBe(1);
 	});
 });

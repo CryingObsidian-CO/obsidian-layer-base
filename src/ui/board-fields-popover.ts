@@ -58,7 +58,7 @@ export class BoardFieldsPopover extends AnchoredPopover {
 			text: t().boardFieldsTitle,
 		});
 
-		this.renderChoice(
+		this.groupByFieldId = this.renderChoice(
 			contentEl,
 			t().boardFieldsGroupBy,
 			this.groupByFieldId,
@@ -71,7 +71,7 @@ export class BoardFieldsPopover extends AnchoredPopover {
 
 		// The title may be left to the table's primary column, which is what a board
 		// that was never configured already does.
-		this.renderChoice(
+		this.titleFieldId = this.renderChoice(
 			contentEl,
 			t().boardFieldsTitleField,
 			this.titleFieldId,
@@ -95,14 +95,22 @@ export class BoardFieldsPopover extends AnchoredPopover {
 		this.position();
 	}
 
-	/** One labelled dropdown over the table's columns. */
+	/**
+	 * One labelled dropdown over the table's columns.
+	 *
+	 * Answers the value the dropdown actually settled on, which is not always the
+	 * one asked for: a column that is gone has no option to select, and leaving the
+	 * select on its first entry while the draft kept the old id would save a column
+	 * the reader never chose. The caller puts the answer back into its draft, so
+	 * what is shown and what is saved cannot part company.
+	 */
 	private renderChoice(
 		host: HTMLElement,
 		label: string,
 		value: string,
 		onChange: (fieldId: string) => void,
 		fallback?: string,
-	): void {
+	): string {
 		const grid = host.createDiv({ cls: 'layer-field-grid' });
 		grid.createDiv({ cls: 'layer-field-label', text: label });
 		const select = grid.createEl('select', {
@@ -116,8 +124,11 @@ export class BoardFieldsPopover extends AnchoredPopover {
 			const option = select.createEl('option', { text: field.name });
 			option.value = field.id;
 		}
-		select.value = value;
+		const known = this.config.fields.some((field) => field.id === value);
+		const settled = known ? value : (select.options[0]?.value ?? '');
+		select.value = settled;
 		select.addEventListener('change', () => onChange(select.value));
+		return settled;
 	}
 
 	/**

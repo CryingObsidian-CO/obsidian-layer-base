@@ -49,12 +49,23 @@ function attachResize(
 	handle.addEventListener('click', (event) => event.stopPropagation());
 	handle.addEventListener('dblclick', (event) => event.stopPropagation());
 
+	/**
+	 * Ends a gesture that is still running, without keeping its size.
+	 *
+	 * A press that arrives while one is in flight means the first never saw its
+	 * release. Its listeners are dropped here, so the two cannot move and commit the
+	 * same column — and the width it previewed stays on screen, which is where the
+	 * next gesture starts from anyway.
+	 */
+	let stopActiveResize: (() => void) | null = null;
+
 	handle.addEventListener('mousedown', (event) => {
 		if (event.button !== 0) {
 			return;
 		}
 		event.preventDefault();
 		event.stopPropagation();
+		stopActiveResize?.();
 
 		// Read per gesture, not at attach time: a committed resize leaves the
 		// column at the new width, so a captured value is stale by the next drag.
@@ -76,10 +87,31 @@ function attachResize(
 			handlers.onPreview(latest);
 		};
 
-		const onUp = () => {
+		const stopListening = () => {
 			document.removeEventListener('mousemove', onMove);
 			document.removeEventListener('mouseup', onUp);
-			document.body.removeClass('layer-grid-resizing');
+			document.removeEventListener('mouseleave', onUp);
+			window.removeEventListener('blur', onUp);
+			/*
+			 * Both classes go: the axis one asked for the cursor, and left behind it
+			 * outlived the gesture — after a row drag, every later column drag carried
+			 * `is-col-resize` and `is-row-resize` at once, and the rule further down the
+			 * sheet kept the cursor pointing the wrong way.
+			 */
+			document.body.removeClass('layer-grid-resizing', `is-${axis}`);
+			stopActiveResize = null;
+		};
+
+		/**
+		 * Ends the gesture where it stands and keeps the size it reached.
+		 *
+		 * A release outside the window, a context menu, another pane taking the focus
+		 * — none of them sends the `mouseup` this used to wait for alone, and the page
+		 * was left in resize mode with its listeners still on the document, ready to
+		 * answer the next gesture's moves.
+		 */
+		const onUp = () => {
+			stopListening();
 			if (moved) {
 				handlers.onCommit(latest);
 			}
@@ -88,5 +120,8 @@ function attachResize(
 		document.body.addClass('layer-grid-resizing', `is-${axis}`);
 		document.addEventListener('mousemove', onMove);
 		document.addEventListener('mouseup', onUp);
+		document.addEventListener('mouseleave', onUp);
+		window.addEventListener('blur', onUp);
+		stopActiveResize = stopListening;
 	});
 }

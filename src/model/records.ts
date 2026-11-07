@@ -1,8 +1,16 @@
-import type { CellValue, Field, GridView, LayerDoc, LayerRecord } from '../types';
+import type {
+	CellValue,
+	Field,
+	FilterCondition,
+	GridView,
+	LayerDoc,
+	LayerRecord,
+} from '../types';
 import { generateId } from '../utils/id';
 import type { FormattedCell } from './clipboard';
 import { forgetFieldSize, forgetRecordSize } from './layout';
 import { acceptsValue } from './capabilities';
+import { operatorsFor } from './filter';
 import {
 	cellFromText,
 	emptyValueFor,
@@ -558,6 +566,32 @@ export function changeFieldType(
 	if (nextType !== 'noteProp') {
 		delete field.noteFieldId;
 		delete field.frontmatterKey;
+	}
+
+	/*
+	 * The comparisons a column offers change with its type: "is ticked" means
+	 * nothing on a text column. A saved rule that named this column with one of the
+	 * old comparisons starts over on the first the new type offers, rather than
+	 * filtering by something the column cannot answer — which answered "no" for
+	 * every row and hid the whole table with no visible cause.
+	 */
+	const offered = operatorsFor(field);
+	const rebase = (condition: FilterCondition): void => {
+		if (condition.fieldId !== field.id || offered.includes(condition.operator)) {
+			return;
+		}
+		condition.operator = offered[0] ?? 'is';
+		delete condition.value;
+	};
+	for (const view of doc.views) {
+		for (const condition of view.filter.conditions) {
+			rebase(condition);
+		}
+		if (view.type === 'grid') {
+			for (const rule of view.colorRules ?? []) {
+				rebase(rule);
+			}
+		}
 	}
 
 	return dropped;

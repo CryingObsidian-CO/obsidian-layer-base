@@ -135,12 +135,24 @@ export function attachRangeDrag(
 			}
 		};
 
+		/**
+		 * Escape only has a range to cancel once one has begun.
+		 *
+		 * The listener sits on the document from the first press, so before the
+		 * threshold there is no gesture of ours to end: calling `onEnd` then would
+		 * pair it with no `onStart`, and swallowing the key's default action would
+		 * take an Escape press that belonged to something else. The release after a
+		 * real cancel still sends a click, but it is the cancelled press' own, not a
+		 * new choice of cell, so it is marked stale and left for `consumeStaleClick`.
+		 */
 		const onKey = (key: KeyboardEvent) => {
-			if (key.key === 'Escape') {
-				key.preventDefault();
-				stopListening();
-				callbacks.onEnd();
+			if (key.key !== 'Escape' || !dragging) {
+				return;
 			}
+			key.preventDefault();
+			stopListening();
+			staleClick = true;
+			callbacks.onEnd();
 		};
 
 		document.addEventListener('mousemove', onMove);

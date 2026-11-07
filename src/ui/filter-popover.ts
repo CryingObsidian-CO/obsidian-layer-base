@@ -141,16 +141,28 @@ export class FilterPopover extends AnchoredPopover {
 		});
 	}
 
-	/** Keeps a condition pointing at a column that is still here. */
+	/**
+	 * Keeps a condition pointing at a column that is still here.
+	 *
+	 * Nothing is pruned against an empty column list: that list is taken when the
+	 * panel opens, and an empty one means the columns are not known yet — opening and
+	 * closing the panel would then erase every saved condition and dirty the file with
+	 * no edit behind it.
+	 *
+	 * The kept set is put back into this panel's own copy rather than only reported,
+	 * so a later change cannot re-emit the rows the prune just dropped.
+	 */
 	override onClose(): void {
 		super.onClose();
+		if (this.config.fields.length === 0) {
+			return;
+		}
 		const known = new Set(this.filterableFields().map((field) => field.id));
 		const kept = this.conditions.filter((condition) => known.has(condition.fieldId));
-		if (kept.length !== this.conditions.length) {
-			this.config.onChange({
-				conjunction: this.conjunction,
-				conditions: kept.map((condition) => ({ ...condition })),
-			});
+		if (kept.length === this.conditions.length) {
+			return;
 		}
+		this.conditions = kept;
+		this.emit();
 	}
 }

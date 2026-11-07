@@ -1105,7 +1105,8 @@ export class GridRenderer {
 			field.type === 'noteProp'
 				? this.handlers.notePropText(field, recordId).text
 				: value;
-		this.openEdit = beginCellEdit(cell, {
+		let handle: CellEditHandle | null = null;
+		handle = beginCellEdit(cell, {
 			field,
 			value: startValue,
 			commit: (next) => {
@@ -1124,7 +1125,27 @@ export class GridRenderer {
 				),
 			createOption: (name) => this.handlers.onCreateOption(field, name),
 			relationCandidates: () => this.handlers.relationCandidates(field),
+			/*
+			 * An editor ends itself on Enter, Escape, blur, or a panel closing, and
+			 * the handle has to be let go then too. Kept, it leaves `isEditing()` true
+			 * long after the edit, and a repaint deferred for a linked table is then
+			 * dropped instead of drawn. Only this edit's own end clears it: another
+			 * edit may have taken the field over in the meantime.
+			 */
+			onFinished: () => {
+				if (handle !== null && this.openEdit === handle) {
+					this.openEdit = null;
+				}
+			},
 		});
+		/*
+		 * A null handle means no editor was opened — a read-only or checkbox cell, or
+		 * a date control that could not show the stored value. Either way this cell is
+		 * left as it was and no handle is kept.
+		 */
+		if (handle !== null) {
+			this.openEdit = handle;
+		}
 	}
 
 	/**

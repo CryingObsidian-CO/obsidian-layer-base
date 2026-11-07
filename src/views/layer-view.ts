@@ -121,6 +121,7 @@ import {setHidden} from '../model/visibility';
 import {ColumnVisibilityPopover} from '../ui/column-visibility-popover';
 import {RowHeightPopover} from '../ui/row-height-popover';
 import {ColorRulesPopover} from '../ui/color-rules-popover';
+import {redrawOnce} from './redraw-guard';
 
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
@@ -159,6 +160,8 @@ export class LayerView extends TextFileView {
 	private readonly numbers = new Map<string, Map<string, string>>();
 	/** A repaint is already scheduled, so a burst of changes paints once. */
 	private repaintQueued = false;
+	/** Guards a redraw so a commit that triggers one cannot re-enter it. */
+	private readonly redraw = {busy: false};
 	private statusEl: HTMLElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, private readonly plugin: LayerBasePlugin) {
@@ -713,6 +716,26 @@ export class LayerView extends TextFileView {
 	}
 
 	private render(): void {
+		/*
+		 * A redraw replaces the tree an open editor lives in, and the editor's text is
+		 * still in the DOM rather than the document. So the edit is committed first or
+		 * it is lost — and a commit can itself ask for a redraw, which `redrawOnce`
+		 * folds into this one pass.
+		 */
+		redrawOnce(
+			this.redraw,
+			() => this.commitOpenEdit(),
+			() => this.draw(),
+		);
+	}
+
+	/**
+	 * Draws the view from the current document.
+	 *
+	 * Go through `render()` instead of calling this: it ends any open edit first, so
+	 * the text the reader typed is not thrown away with the tree this rebuilds.
+	 */
+	private draw(): void {
 		/*
 		 * Where the table was scrolled to, read before the tree is torn down. The
 		 * renderer is built fresh on every redraw, so it cannot carry this itself: the
