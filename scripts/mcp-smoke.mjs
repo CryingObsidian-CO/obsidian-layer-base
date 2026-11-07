@@ -140,7 +140,12 @@ const { messages, err } = await drive([
 	call(6, 'read_table', { path: 'nested/新表.layer' }),
 	call(7, 'create_table', { path: 'nested/新表.layer' }),
 	call(8, 'read_table', { path: '../escape.layer' }),
-	call(9, 'update_view', { path: 'nested/新表.layer', view: 'Table', sorts: [{ field: '标题', order: 'desc' }] }),
+	/*
+	 * A new table's view is named after the table, not "Table": this process has no
+	 * interface language, so a fixed word would be wrong in one of them. The view is
+	 * addressed the way a caller finds it — by the name `read_table` reports.
+	 */
+	call(9, 'update_view', { path: 'nested/新表.layer', view: '新表', sorts: [{ field: '标题', order: 'desc' }] }),
 	call(10, 'add_field', { path: 'nested/新表.layer', name: '编号', type: 'autoNumber', numberLength: 2 }),
 	call(11, 'add_records', {
 		path: 'nested/新表.layer',

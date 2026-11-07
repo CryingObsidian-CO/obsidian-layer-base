@@ -36,6 +36,7 @@ import { capabilityOf } from '../src/model/capabilities';
 import {
 	OPTION_PALETTE,
 	appendOption,
+	nextOptionColor,
 	normaliseOptionColor,
 	removeOption,
 	renameOption,
@@ -1817,13 +1818,19 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					? args.options.filter((one): one is string => typeof one === 'string')
 					: [];
 				// Collected as they are made: reading `field.options` here would still be
-				// empty, and two options could be handed the same id.
+				// empty, and two options could be handed the same id. Each takes the colour
+				// the app gives a new option — the palette stepped by how many there are —
+				// rather than `default`, which draws an unstyled pill.
 				const taken: string[] = [];
-				field.options = names.map((optionName) => {
-					const id = newId('o', taken);
-					taken.push(id);
-					return { id, name: optionName, color: 'default' };
-				});
+				const options: SelectOption[] = [];
+				for (const optionName of names) {
+					options.push({
+						id: newId('o', taken),
+						name: optionName,
+						color: nextOptionColor(options),
+					});
+				}
+				field.options = options;
 			}
 
 			if (type === 'relationBack') {

@@ -2,6 +2,10 @@
 // in the installed Obsidian build, by reading app.css out of obsidian.asar.
 //
 // Usage: node scripts/verify-css-vars.mjs [path-to-obsidian.asar]
+//
+// With no Obsidian install and no path, that comparison cannot be made: the check
+// says so and exits 0, because a CI runner has no Obsidian. The stylesheet is still
+// read and parsed, so a styles.css that cannot be read is still a failure.
 
 import { existsSync, openSync, readSync, closeSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -130,9 +134,20 @@ const local = referenced.filter((v) => declaredLocally.has(v));
 
 const asarPath = findObsidianAsar();
 if (!asarPath) {
-	console.error('Could not locate obsidian.asar.');
-	console.error('Pass its path explicitly: node scripts/verify-css-vars.mjs <path-to-obsidian.asar>');
-	process.exit(1);
+	/*
+	 * The second half of this check compares those variables against a real Obsidian
+	 * build, and a CI runner has none: Obsidian is installed on the machine of
+	 * whoever runs the plugin, not on a Linux box. Reporting nothing would read as a
+	 * pass, so the skip says so. A path that was named and is missing is still a
+	 * failure below — that is a typo, not an absence.
+	 */
+	console.log(
+		'SKIPPED: no Obsidian install found, so the used variables were not',
+	);
+	console.log(
+		'checked against a build. Pass one: node scripts/verify-css-vars.mjs <path-to-obsidian.asar>',
+	);
+	process.exit(0);
 }
 if (!existsSync(asarPath)) {
 	console.error(`No such file: ${asarPath}`);
