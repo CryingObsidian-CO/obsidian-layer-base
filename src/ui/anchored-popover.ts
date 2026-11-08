@@ -1,7 +1,7 @@
-import { Modal, type App } from 'obsidian';
-import { anchorRectOf, placeAtAnchor, type Anchor } from './anchor-placement';
+import {Modal, type App} from 'obsidian';
+import {anchorRectOf, placeAtAnchor, type Anchor} from './anchor-placement';
 
-export type { Anchor };
+export type {Anchor};
 
 /** A panel that opens next to what asked for it: a `Modal` with the centring taken over. */
 export abstract class AnchoredPopover extends Modal {
@@ -20,6 +20,7 @@ export abstract class AnchoredPopover extends Modal {
 	onOpen(): void {
 		this.titleEl.hide();
 		this.modalEl.addClass('layer-popover');
+		this.containerEl.addClass('layer-popover-host');
 		this.setWidth();
 		this.scope.register([], 'Escape', (event) => {
 			if (this.handlesEscape()) {
@@ -45,6 +46,7 @@ export abstract class AnchoredPopover extends Modal {
 
 	override onClose(): void {
 		this.modalEl.removeClass('layer-popover');
+		this.containerEl.removeClass('layer-popover-host');
 	}
 
 	/** Places the panel; call once the contents are rendered. */

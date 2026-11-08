@@ -1011,8 +1011,8 @@ body.layer-grid-dragging-range * {
 	vertical-align: middle;
 }
 
-/* The panel is fixed, so `position()` writes viewport coordinates; the container stops centring. */
-.modal-container:has(> .modal.layer-popover) {
+/*The panel is fixed, so `position()` writes viewport coordinates; the container stops centring. */
+.modal-container.layer-popover-host {
 	display: block;
 }
 
@@ -1027,7 +1027,7 @@ body.layer-grid-dragging-range * {
 }
 
 /* The container underneath catches the outside click; the dimming reads as a dialog. */
-.modal-container:has(> .modal.layer-popover) > .modal-bg {
+.modal-container.layer-popover-host > .modal-bg {
 	background: transparent;
 	backdrop-filter: none;
 }
@@ -1793,6 +1793,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	gap: var(--size-4-2);
 	margin-top: var(--size-4-4);
 }
+
 /* ---------- Sort panel ---------- */
 
 .layer-sort-panel {
@@ -1869,6 +1870,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 }
+
 /* A sorted column's header carries its direction, and its rank when there are
  * several rules, so the order can be read without opening the panel. The column's
  * own tint is a header state, so it lives with the other ones at the top. */
@@ -1884,6 +1886,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+
 /* What the current order is, told beside the sort button rather than in it. */
 .layer-shell-sort-summary {
 	flex: 0 1 auto;
@@ -1894,6 +1897,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 }
+
 /* ---------- Filter panel ---------- */
 
 .layer-filter-panel {
@@ -1991,6 +1995,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-filter-add-icon {
 	display: inline-flex;
 }
+
 /* ---------- Board ---------- */
 
 /* The columns scroll sideways as a group, so a board wider than the pane can be
@@ -2114,6 +2119,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	padding: var(--size-4-8);
 	color: var(--text-muted);
 }
+
 /* The strip above the columns: what it groups by, and how many columns it draws. */
 .layer-kanban-toolbar {
 	display: flex;
@@ -2154,6 +2160,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-kanban-limit input {
 	width: 4em;
 }
+
 /* A toggle in the board's strip, beside the column limit. */
 .layer-kanban-toggle {
 	display: inline-flex;
@@ -2162,6 +2169,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	cursor: pointer;
 }
+
 /* ---------- Board fields panel ---------- */
 
 .layer-board-fields {
@@ -2286,6 +2294,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-kanban-card-link:hover {
 	text-decoration: underline;
 }
+
 /* The add-view button at the end of the tab row: quiet, so it does not compete
  * with the views it sits after. */
 .layer-base-container .layer-shell-tab-add {
@@ -2305,6 +2314,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
+
 /* A tab being renamed: the field takes the label's place, sized to the row so the
  * other tabs do not jump while it is open. */
 .layer-shell-tab-input {
@@ -2313,6 +2323,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	padding: 0 var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 }
+
 /* ---------- Column totals ---------- */
 
 /*
@@ -2353,6 +2364,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+
 /* ---------- Column visibility panel ---------- */
 
 .layer-visibility {

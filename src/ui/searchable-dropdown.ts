@@ -64,9 +64,13 @@ export interface SearchableDropdownConfig {
  * A key that only ends an IME composition is not a command: the user is still
  * typing Chinese, and the Enter that commits a candidate must neither pick a
  * row nor close the list.
+ *
+ * Two signals, both current: the flag the browser raises while a composition
+ * runs, and `Process` — the key value Chromium reports for a key the IME has
+ * taken over, which is what the old numeric 229 meant.
  */
 function isComposing(event: KeyboardEvent): boolean {
-	return event.isComposing || event.key === 'Process' || event.keyCode === 229;
+	return event.isComposing || event.key === 'Process';
 }
 
 /**
