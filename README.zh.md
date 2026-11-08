@@ -17,9 +17,6 @@ Obsidian 的多维看板插件。一个 `.layer` 文件就是一份自包含的�
 
 ## 看一眼
 
-下面这份读书清单就是仓库里的 `examples/读书清单.layer`：下载后放进仓库任意文件夹，
-双击打开就能编辑。
-
 **表格视图** — 彩色单选、多选标签、指向同一文件内其它行的关联，列脚默认什么也不统计。
 
 ![表格视图](docs/screenshots/grid.png)
@@ -58,7 +55,7 @@ Obsidian 的多维看板插件。一个 `.layer` 文件就是一份自包含的�
 
 1. 在最新版本里下载 `main.js`、`manifest.json`、`styles.css`；也可以直接下
    `.zip`，里面就是这三个文件。
-2. 放进 `<仓库>/.obsidian/plugins/obsidian-layer-base/`（目录不存在就新建）。
+2. 放进 `<仓库>/.obsidian/plugins/layer-base/`（目录不存在就新建）。
 3. 重启 Obsidian，然后在 **设置 → 第三方插件** 里启用 **Layer Base**。
 
 升级也是同样几步，换成新版本的文件即可。
@@ -138,7 +135,7 @@ plugin** 里填 `CryingObsidian-CO/obsidian-layer-base`。
 在同一次发布里下载 `mcp-server.cjs`，放在一个稳定的位置，比如插件旁边：
 
 ```
-<仓库>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs
+<仓库>/.obsidian/plugins/layer-base/mcp-server.cjs
 ```
 
 ### 2. 让客户端指向它
@@ -151,7 +148,7 @@ plugin** 里填 `CryingObsidian-CO/obsidian-layer-base`。
     "layer-base": {
       "command": "node",
       "args": [
-        "C:/Vault/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"
+        "C:/Vault/.obsidian/plugins/layer-base/mcp-server.cjs"
       ],
       "env": {
         "LAYER_VAULT": "C:/Vault"
@@ -179,7 +176,7 @@ JSON 里每个反斜杠都要写成双份（`C:\\Vault`）。
 - 名称：`Layer Base`
 - 传输方式：`stdio`
 - 命令：`node`
-- 参数：`["<仓库>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"]`
+- 参数：`["<仓库>/.obsidian/plugins/layer-base/mcp-server.cjs"]`
 - 环境变量：`{"LAYER_VAULT":"<仓库>"}`
 
 ### 3. 使用

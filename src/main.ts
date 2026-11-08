@@ -171,7 +171,7 @@ export default class LayerBasePlugin extends Plugin {
 			if (folderPath && !folder) {
 				new Notice(t().noticeFolderMissing(folderPath));
 				console.warn(
-					`[obsidian-layer-base] Configured folder does not exist: ${folderPath}`,
+					`[layer-base] Configured folder does not exist: ${folderPath}`,
 				);
 				return;
 			}
@@ -188,7 +188,7 @@ export default class LayerBasePlugin extends Plugin {
 			new Notice(t().noticeCreated(file.basename));
 		} catch (error) {
 			new Notice(t().noticeCreateFailed);
-			console.error('[obsidian-layer-base] Failed to create board:', error);
+			console.error('[layer-base] Failed to create board:', error);
 		}
 	}
 

@@ -75,7 +75,7 @@ jobs:
             - name: Zip the installable files
               env:
                   TAG: ${{ inputs.tag || github.ref_name }}
-              run: zip -j "obsidian-layer-base-${TAG}.zip" main.js manifest.json styles.css
+              run: zip -j "layer-base-${TAG}.zip" main.js manifest.json styles.css
 
             - name: Attest build provenance
               uses: actions/attest@v4
@@ -95,4 +95,4 @@ jobs:
                     --draft \
                     --generate-notes \
                     main.js manifest.json styles.css mcp-server.cjs \
-                    "obsidian-layer-base-${TAG}.zip"
+                    "layer-base-${TAG}.zip"

@@ -19,9 +19,6 @@ table or a board, independent of your vault's folder structure.
 
 ## A look at it
 
-The list below is `examples/读书清单.layer` from this repository: download it, put
-it anywhere in your vault, and open it.
-
 **Table view** — colour-coded selects, tags, links to other rows, and column
 footers that total nothing until you ask.
 
@@ -70,7 +67,7 @@ Get the files from the **Releases** page — there is nothing to compile.
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the latest release,
    or the `.zip`, which holds exactly those three.
-2. Put them in `<Vault>/.obsidian/plugins/obsidian-layer-base/` (create the
+2. Put them in `<Vault>/.obsidian/plugins/layer-base/` (create the
    folder if it is not there).
 3. Restart Obsidian, then enable **Layer Base** under
    **Settings → Community plugins**.
@@ -166,7 +163,7 @@ Download `mcp-server.cjs` from the same release and put it anywhere stable, for
 example next to the plugin:
 
 ```
-<Vault>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs
+<Vault>/.obsidian/plugins/layer-base/mcp-server.cjs
 ```
 
 ### 2. Point your client at it
@@ -179,7 +176,7 @@ Any MCP client reads a server list shaped like this:
     "layer-base": {
       "command": "node",
       "args": [
-        "C:/Vault/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"
+        "C:/Vault/.obsidian/plugins/layer-base/mcp-server.cjs"
       ],
       "env": {
         "LAYER_VAULT": "C:/Vault"
@@ -207,7 +204,7 @@ path with backslashes, double each one in JSON (`C:\\Vault`).
 - Name: `Layer Base`
 - Transport: `stdio`
 - Command: `node`
-- Args: `["<vault>/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"]`
+- Args: `["<vault>/.obsidian/plugins/layer-base/mcp-server.cjs"]`
 - Env: `{"LAYER_VAULT":"<vault>"}`
 
 ### 3. Use it

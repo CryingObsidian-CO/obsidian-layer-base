@@ -25,7 +25,7 @@ async function writeSystem(text: string): Promise<void> {
 		await navigator.clipboard.writeText(text);
 	} catch (error) {
 		console.warn(
-			'[obsidian-layer-base] Could not write to the system clipboard; the value is still available for pasting inside the plugin:',
+			'[layer-base] Could not write to the system clipboard; the value is still available for pasting inside the plugin:',
 			error,
 		);
 	}

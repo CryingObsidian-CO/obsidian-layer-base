@@ -131,7 +131,7 @@ export class TableIndex {
 			 */
 			this.unavailable.add(path);
 			console.warn(
-				`[obsidian-layer-base] Could not read the linked table "${path}":`,
+				`[layer-base] Could not read the linked table "${path}":`,
 				error,
 			);
 		} finally {

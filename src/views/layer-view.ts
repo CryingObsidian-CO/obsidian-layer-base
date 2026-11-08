@@ -339,7 +339,7 @@ export class LayerView extends TextFileView {
 		if (warnings.length > 0) {
 			new Notice(t().noticeParseWarnings(warnings.length));
 			console.warn(
-				`[obsidian-layer-base] Repaired ${warnings.length} issue(s) while reading "${this.file?.path ?? 'unknown'}":`,
+				`[layer-base] Repaired ${warnings.length} issue(s) while reading "${this.file?.path ?? 'unknown'}":`,
 				warnings,
 			);
 		}
@@ -352,7 +352,7 @@ export class LayerView extends TextFileView {
 			 */
 			new Notice(t().noticeCellsCleared(dropped), 12000);
 			console.warn(
-				`[obsidian-layer-base] Cleared ${dropped.length} cell(s) that held a value their column cannot take, in "${this.file?.path ?? 'unknown'}":`,
+				`[layer-base] Cleared ${dropped.length} cell(s) that held a value their column cannot take, in "${this.file?.path ?? 'unknown'}":`,
 				dropped,
 			);
 		}
@@ -705,7 +705,7 @@ export class LayerView extends TextFileView {
 			new Notice(t().noticeExportDone(written.path));
 		} catch (error) {
 			new Notice(t().noticeExportFailed);
-			console.error('[obsidian-layer-base] Failed to export CSV:', error);
+			console.error('[layer-base] Failed to export CSV:', error);
 		}
 	}
 
@@ -2966,7 +2966,7 @@ export class LayerView extends TextFileView {
 		if (!setCellValue(this.doc, recordId, field, value)) {
 			this.pendingEdit = null;
 			console.warn(
-				`[obsidian-layer-base] Edit ignored for a record that no longer exists: ${recordId}`,
+				`[layer-base] Edit ignored for a record that no longer exists: ${recordId}`,
 			);
 			this.render();
 			return;
