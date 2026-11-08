@@ -24,10 +24,18 @@ develop  ──●───●──●──●──●──▶             �
 改动进 `develop`。只有值得单独审阅的改动才开分支：新增文件格式字段、改动 MCP 工具签名、
 重写模型层。其余的直接提交到 `develop` 即可。
 
+**怎么合并。** 合入 `develop` 的 PR 可以用 squash，也可以用 merge commit；合入 `master`
+的 PR **只能 squash**，这样它的历史就是一个版本一个提交。squash 会让那个发布提交成为
+`master` 上独有的新提交，下面那条规则说的就是这件事。
+
 ## 唯一那条规则
 
 **`master` 上的提交必须都已经在 `develop` 里。** 每次发版之后，把 `master` 合回 `develop`。忘了的话，
 下一次推送到 `develop` 时 CI 会直接说出来，而不是让两条分支一直漂移到冲突。
+
+用 squash 发版时，这次合回是一次纯粹补祖先关系的 merge：两边的树已经一样了，所以发布本身
+不可能冲突。会冲突的只有两种情况——之后在 `develop` 上的新工作，或者在 `master` 上直接改的
+热修——而这正是这条检查要暴露的东西。
 
 ## CI 检查什么
 
@@ -47,6 +55,10 @@ develop  ──●───●──●──●──●──▶             �
 
 `npm run verify` 跑到单元测试为止，就是推送前该跑的那一套。
 
+另有一个工作流 `merge-back.yml`，每次 `master` 有推送就把 `master` 合进 `develop`——那条规则
+靠它自动成立，不需要谁去记。它不需要任何 bypass，因为 `develop` 既不要求 PR，也不要求状态检查。
+它因冲突失败时，那一次手动合。
+
 推 develop 时，除了这些检查还会多跑一项：分支流向检查，负责发现「发版了但没合回来」。
 
 MCP server 的 smoke test 用 stdin 驱动 `mcp-server.cjs`，对着一个临时仓库跑，检查它最后留下了哪些文件。
@@ -60,9 +72,11 @@ MCP server 的 smoke test 用 stdin 驱动 `mcp-server.cjs`，对着一个临时
 1. 在 `develop` 上：改 `package.json` 里的版本号，然后
    `npm_package_version=<version> node version-bump.mjs`，它会把版本号写进承载版本的四个
    地方：`manifest.json`、`versions.json`，以及 `mcp/server.ts` 里的版本声明。提交。
-2. 把 `develop` 合入 `master`。
-3. 在那个提交上打 tag，**不要带 `v` 前缀**：`git tag 0.1.0`。
-4. `git push origin master --tags`。
+2. 从 `develop` 向 `master` 开一个 PR，**squash 合并**。
+3. squash 合并落到 `master` 之后，`merge-back.yml` 会自己把 `master` 合回 `develop`。它因冲突
+   失败时，要在下一个提交进入 `develop` 之前手动合完——CI 是在那一次推送上报出来，不是这次。
+4. 在那个提交上打 tag，**不要带 `v` 前缀**：`git tag 0.1.0`。
+5. `git push origin master --tags`。
 
 发版工作流会再跑一遍测试、构建、核对 tag 与 `manifest.json` 是否一致，然后创建一个
 **草稿** release，附上五个资产：
@@ -80,7 +94,8 @@ server 不在里面，它是从客户端自己的路径启动的，不会被复�
 
 ## 修已发布的版本
 
-在 `master` 上修，在那里升补丁版本号，打 tag，然后把 `master` 合回 `develop`，理由同上。
+在 `master` 上修，在那里升补丁版本号，squash 合并，打 tag。之后同样由 `merge-back.yml`
+把 `master` 合回 `develop`。
 
 ## 文案
 

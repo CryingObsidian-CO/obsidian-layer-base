@@ -63,7 +63,13 @@ columns.
 
 **Needs Obsidian 1.13.0 or newer.** Works on desktop and mobile.
 
-Get the files from the **Releases** page — there is nothing to compile.
+**From the community store** — open **Settings → Community plugins → Browse**, search
+for **Layer Base**, then **Install** and **Enable**. Updates come through the same
+listing.
+
+**By hand** — get the files from the
+[Releases](https://github.com/CryingObsidian-CO/obsidian-layer-base/releases) page;
+there is nothing to compile.
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the latest release,
    or the `.zip`, which holds exactly those three.
@@ -72,7 +78,7 @@ Get the files from the **Releases** page — there is nothing to compile.
 3. Restart Obsidian, then enable **Layer Base** under
    **Settings → Community plugins**.
 
-Updating is the same steps with the newer files.
+Updating by hand is those same steps with the newer files.
 
 **With BRAT** — install [BRAT](https://github.com/TfTHacker/obsidian42-brat),
 then run **BRAT → Add beta plugin** and enter
@@ -232,21 +238,27 @@ back in `refused`.
 | `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit; a table's row height, wrapping, footers, colour rules and column widths                                                                               |
 | `delete_view`    | Remove a board view (the table view cannot be removed)                                                                                                                                                                                                 |
 
-### Two things to know
+### Things to know
 
 - **Paths are relative to `LAYER_VAULT`.** `list_tables` names the root and
   returns paths you can pass back unchanged. A path outside the vault is
   refused.
-- **A view is named, never "the one on screen".** The file does not record which
-  view is open and the server cannot see Obsidian, so pass the view's name or
-  id. Read the views with `read_table` first.
-- **A cell is emptied by writing `""`.** Every column type, including number and
-  date, whose own parser has no empty value — the clear is what the app does when
-  a cell is emptied.
+- **A column is changed with `update_field`, not deleted and rebuilt.** Name, type,
+  required, number format and bounds, options, a relation's target, a formula, a
+  rollup, a lookup, a numbering column's digits and grouping, a note property's key:
+  only what you pass is touched, so changing a column never loses its values.
+  Changing a column's type does clear it, and the answer says how many cells that
+  dropped.
+- **A cell is emptied by writing `""`.** Every column type accepts it, including
+  number and date, whose own parser has no empty value; a clear is what the app
+  does when a cell is emptied.
 - **A computed column's value cannot be read from here.** Numbering is the
   exception, because a row's position can be counted on either side. Every other
   computed column carries an `unreadable` note with a `tellUser` sentence: it is
   the assistant's job to pass that on rather than report the column as empty.
+- **A view is named, never "the one on screen".** The file does not record which
+  view is open and the server cannot see Obsidian, so pass the view's name or
+  id. Read the views with `read_table` first.
 
 Values are text as a person would type them — a number is `"42"`, a checkbox is
 `"true"`, a date is `"2026-01-31"`, a select is the option **name**, a
@@ -276,6 +288,16 @@ reports it, and a write to it is refused — it is not a stored value.
 - A note property is read when the view opens. Changes made to that note
   elsewhere show up after the table is reopened.
 
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| The plugin is not in the community list | Obsidian older than 1.13.0 |
+| Opening a file says it was written by a newer build | Update the plugin: the file's `version` is above what this build reads, and reading it anyway would drop what the newer format added |
+| A row is missing from a board | Its grouping column is empty, and an empty value is not a column of its own. Give it a value |
+| Numbers in an auto number column shifted | Numbering is a position, not a stored id; adding, removing or regrouping rows moves the numbers after them |
+| `Ctrl/Cmd+Z` does nothing | Undo is bound inside a table or a board, not globally, so the editor is unaffected |
+
 ## Languages
 
 The interface follows the Obsidian app language, shipping English, Simplified
@@ -286,6 +308,40 @@ Chinese and Traditional Chinese.
 No network requests and no telemetry. The plugin reads and writes only the
 `.layer` files you open, plus the frontmatter of notes you link to with a
 `note property` column. The MCP server touches nothing outside `LAYER_VAULT`.
+
+## Questions, bugs and requests
+
+Both are welcome, in English or in Chinese. Everything goes through
+[Issues](https://github.com/CryingObsidian-CO/obsidian-layer-base/issues), which has a
+bug template and a feature template.
+
+**Reporting a bug.** What helps most:
+
+- What you clicked, and what happened instead. "The board is broken" cannot be
+  investigated; "I dragged a card into the empty column and it bounced back" can.
+- Your Obsidian version, and the plugin version from **Settings → Community plugins**.
+- Desktop, mobile, or both.
+- Anything from the developer console (`Ctrl/Cmd+Shift+I`). It usually names the cause
+  faster than a description does.
+- If it involves one table, a stripped copy of the `.layer`. Replace the values you
+  would rather not share; the structure is what matters.
+
+**Asking for a feature.** Describe the situation rather than the button you want: what
+you are trying to do, and where the current version gets in the way. An example from
+your own table says more than a specification.
+
+This is one maintainer's project, written with heavy AI assistance. Every report is
+read. Not every one gets a reply, and none comes with a date; a request without an
+answer is not a refusal.
+
+If you would rather not write anything: a star on the repository is the only support
+this project asks for.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) has the branch model, the gates and the release
+steps. In short: work goes to `develop`, a change worth reviewing gets a branch of its
+own, and `npm run verify` has to pass before a pull request is merged.
 
 ## License
 

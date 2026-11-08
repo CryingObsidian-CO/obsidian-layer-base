@@ -1,0 +1,47 @@
+name: Merge back
+
+# A squash release leaves one commit on `master` that `develop` does not have, and the
+# branch-flow check reads exactly that: every commit on `master` has to be in `develop`.
+# Merging it back here keeps the rule true without anyone having to remember it.
+#
+# The trees agree at the moment of the release, so this merge carries no content and cannot
+# conflict with the release itself. What can conflict is work done on `develop` since, or a
+# hotfix made on `master` — and that is left to fail for a human rather than resolved
+# blindly.
+on:
+    push:
+        branches: [ master ]
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+# Two releases arriving in quick succession would otherwise race over the same branch.
+concurrency:
+    group: merge-back
+    cancel-in-progress: false
+
+jobs:
+    merge-back:
+        name: Master back into develop
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            -   uses: actions/checkout@v7
+                with:
+                    ref: develop
+                    fetch-depth: 0
+
+            -   name: Merge master into develop
+                run: |
+                    git fetch --quiet origin master develop
+                    # Pushed twice, or started by hand after the merge already happened:
+                    # there is nothing to do, and that is not a failure.
+                    if git merge-base --is-ancestor origin/master HEAD; then
+                      echo "develop already contains master; nothing to merge back."
+                      exit 0
+                    fi
+                    git config user.name 'github-actions[bot]'
+                    git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                    git merge --no-edit -m "Merge master back into develop" origin/master
+                    git push origin HEAD:develop
