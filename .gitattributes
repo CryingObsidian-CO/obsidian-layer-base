@@ -3,3 +3,9 @@
 # the way in or out. Without this, a checkout on a machine with `core.autocrlf`
 # turns every LF into CRLF and the copy is no longer exact.
 LICENSE text eol=lf
+
+# GitHub reads workflows exactly as stored, and these files are edited on Windows:
+# without this, one edit from a CRLF editor rewrites every line of the file in the
+# diff. The working copy keeps its own line endings; the repository stays LF.
+*.yml text eol=lf
+*.yaml text eol=lf

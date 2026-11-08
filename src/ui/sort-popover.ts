@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Setting, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, Sort } from '../types';
 import { AnchoredPopover, type Anchor } from './anchored-popover';
@@ -40,7 +40,10 @@ export class SortPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-sort-panel');
 
-		contentEl.createEl('h2', { cls: 'layer-sort-title', text: t().sortTitle });
+		new Setting(contentEl)
+			.setName(t().sortTitle)
+			.setHeading()
+			.settingEl.addClass('layer-sort-title');
 
 		if (this.rules.length === 0) {
 			contentEl.createDiv({

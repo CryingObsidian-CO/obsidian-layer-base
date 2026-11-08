@@ -472,8 +472,33 @@ export class LayerView extends TextFileView {
 			if (next && this.contentEl.contains(next)) {
 				return;
 			}
+			/*
+			 * An editor that ends takes its input out of the page, and the browser
+			 * drops the focus to nowhere instead of handing it on. Releasing there
+			 * took undo with it: the table still looked active but stopped answering
+			 * the key until it had been clicked again.
+			 */
+			if (!next) {
+				return;
+			}
 			ledger.release();
 		});
+		/*
+		 * Keeping the scope through "the focus went nowhere" means a press anywhere
+		 * else has to give it up, or the key would stay swallowed while another pane
+		 * is in use. Inside the view the press is what the ledger acquires on.
+		 */
+		this.registerDomEvent(
+			document,
+			'pointerdown',
+			(event) => {
+				const target = event.target as Node | null;
+				if (!target || !this.contentEl.contains(target)) {
+					ledger.release();
+				}
+			},
+			true,
+		);
 		// A view closed while focused must not leave its scope on the stack.
 		this.register(() => ledger.release());
 	}
@@ -985,7 +1010,7 @@ export class LayerView extends TextFileView {
 		}
 
 		if (selection.kind === 'row') {
-			const index = rowIndexOf(doc, selection.recordId);
+			const index = this.displayRowIndexOf(selection.recordId);
 			return index === -1 ? '' : t().selectionRow(index + 1);
 		}
 
@@ -996,7 +1021,7 @@ export class LayerView extends TextFileView {
 
 		const {anchor, focus} = selection;
 		if (anchor.recordId === focus.recordId && anchor.fieldId === focus.fieldId) {
-			const index = rowIndexOf(doc, anchor.recordId);
+			const index = this.displayRowIndexOf(anchor.recordId);
 			const field = doc.fields.find((f) => f.id === anchor.fieldId);
 			if (index === -1 || !field) {
 				return '';
@@ -1009,6 +1034,23 @@ export class LayerView extends TextFileView {
 			return '';
 		}
 		return t().selectionRange(size.rows, size.columns);
+	}
+
+	/**
+	 * The row's position in the view, not in the file.
+	 *
+	 * The numbers beside the table count what is on screen, so the label has to
+	 * count the same way: once the view is sorted or filtered, the file's own order
+	 * points at a row the reader cannot see.
+	 */
+	private displayRowIndexOf(recordId: string): number {
+		const doc = this.doc;
+		if (!doc) {
+			return -1;
+		}
+		return this.orderedRecords(doc, this.activeView()).findIndex(
+			(record) => record.id === recordId,
+		);
 	}
 
 	private visibleColumnCount(view: View): number {
@@ -3010,11 +3052,6 @@ export class LayerView extends TextFileView {
 		const box = this.contentEl.createDiv({cls: 'layer-base-message'});
 		box.setText(text);
 	}
-}
-
-/** 1-based position of a record, or -1 when it is gone. */
-function rowIndexOf(doc: LayerDoc, recordId: string): number {
-	return doc.records.findIndex((r) => r.id === recordId);
 }
 
 export function createLayerView(

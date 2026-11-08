@@ -1761,6 +1761,12 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	max-width: min(34rem, 90vw);
 }
 
+/* A panel's title is a heading setting, not a row: no row padding, no divider. */
+.modal-content > .setting-item.setting-item-heading {
+	padding: 0;
+	border: none;
+}
+
 .layer-export-title {
 	margin: 0 0 var(--size-4-3);
 }

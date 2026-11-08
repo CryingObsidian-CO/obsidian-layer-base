@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Setting, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import { colorRulesOf } from '../model/colors';
 import { operatorsFor } from '../model/filter';
@@ -43,10 +43,10 @@ export class ColorRulesPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-color-panel');
 
-		contentEl.createEl('h2', {
-			cls: 'layer-color-title',
-			text: t().colorRulesTitle,
-		});
+		new Setting(contentEl)
+			.setName(t().colorRulesTitle)
+			.setHeading()
+			.settingEl.addClass('layer-color-title');
 
 		if (this.rules.length === 0) {
 			contentEl.createDiv({

@@ -6,7 +6,7 @@ export type Locale = 'zh' | 'zh-TW' | 'en';
 
 const en = {
 	ribbonNewBoard: 'New board',
-	commandCreateFile: 'Create a new board file',
+	commandCreateFile: 'New board',
 	menuCreateBoard: 'New board',
 	boardMenu: 'More',
 	undoEdit: 'Undo',
@@ -415,8 +415,8 @@ const en = {
 
 const zh = {
 	ribbonNewBoard: '新建多维看板',
-	commandCreateFile: '新建多维看板文件',
-	menuCreateBoard: '新建看板',
+	commandCreateFile: '新建多维看板',
+	menuCreateBoard: '新建多维看板',
 	boardMenu: '更多',
 	undoEdit: '撤销',
 	redoEdit: '重做',
@@ -457,7 +457,7 @@ const zh = {
 	settingNoteLabelDesc: '只显示文件名，或者连同所在文件夹一起显示。',
 	noteLabelName: '文件名',
 	noteLabelPath: '完整路径',
-	placeholderBoard: '多维看板',
+	placeholderBoard: '未命名看板',
 	emptyFile: '空文件',
 	unsupportedVersion: (version: number, supported: number) =>
 		`这个文件是更新版本的插件写的（格式 v${version}），本插件只支持到 v${supported}。为了不写坏里面的数据，这里不打开它；把插件升级回来再打开。`,
@@ -821,8 +821,8 @@ const zh = {
 
 const zhTW = {
 	ribbonNewBoard: '新建多維看板',
-	commandCreateFile: '新建多維看板檔案',
-	menuCreateBoard: '新建看板',
+	commandCreateFile: '新建多維看板',
+	menuCreateBoard: '新建多維看板',
 	boardMenu: '更多',
 	undoEdit: '復原',
 	redoEdit: '重做',
@@ -863,7 +863,7 @@ const zhTW = {
 	settingNoteLabelDesc: '只顯示檔案名稱，或者連同所在資料夾一起顯示。',
 	noteLabelName: '檔案名稱',
 	noteLabelPath: '完整路徑',
-	placeholderBoard: '多維看板',
+	placeholderBoard: '未命名看板',
 	emptyFile: '空檔案',
 	unsupportedVersion: (version: number, supported: number) =>
 		`這個檔案是更新版本的插件寫的（格式 v${version}），本外掛只支援到 v${supported}。為了不寫壞裡面的資料，這裡不開啟它；把外掛升級回來再開啟。`,

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-layer-base",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-dimensional board and table views stored in self-contained .layer files.",
   "main": "main.js",
   "type": "module",

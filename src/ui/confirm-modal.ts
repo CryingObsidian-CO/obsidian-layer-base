@@ -1,4 +1,4 @@
-import { Modal, type App } from 'obsidian';
+import { Modal, Setting, type App } from 'obsidian';
 import { t } from '../i18n';
 
 export interface ConfirmOptions {
@@ -21,7 +21,7 @@ export class ConfirmModal extends Modal {
 		contentEl.empty();
 		contentEl.addClass('layer-confirm');
 
-		contentEl.createEl('h2', { text: this.config.title });
+		new Setting(contentEl).setName(this.config.title).setHeading();
 		contentEl.createEl('p', { text: this.config.message });
 
 		const actions = contentEl.createDiv({ cls: 'layer-confirm-actions' });

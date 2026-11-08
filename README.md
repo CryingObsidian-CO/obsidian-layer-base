@@ -13,9 +13,24 @@
 
 # Layer Base
 
-Multi-dimensional tables for Obsidian. A `.layer` file is a self-contained
+Multi-dimensional boards for Obsidian. A `.layer` file is a self-contained
 database — field definitions, records and several views — that renders as a
 table or a board, independent of your vault's folder structure.
+
+## A look at it
+
+The list below is `examples/读书清单.layer` from this repository: download it, put
+it anywhere in your vault, and open it.
+
+**Table view** — colour-coded selects, tags, links to other rows, and column
+footers that total nothing until you ask.
+
+![Table view](docs/screenshots/grid.png)
+
+**Board view** — the same rows grouped by any column, cards dragged between
+columns.
+
+![Board view](docs/screenshots/kanban.png)
 
 ## What it does
 
@@ -49,15 +64,22 @@ table or a board, independent of your vault's folder structure.
 
 ## Install
 
+**Needs Obsidian 1.13.0 or newer.** Works on desktop and mobile.
+
 Get the files from the **Releases** page — there is nothing to compile.
 
-1. Download `main.js`, `manifest.json` and `styles.css` from the latest release.
+1. Download `main.js`, `manifest.json` and `styles.css` from the latest release,
+   or the `.zip`, which holds exactly those three.
 2. Put them in `<Vault>/.obsidian/plugins/obsidian-layer-base/` (create the
    folder if it is not there).
 3. Restart Obsidian, then enable **Layer Base** under
    **Settings → Community plugins**.
 
-Updating is the same three steps with the newer files.
+Updating is the same steps with the newer files.
+
+**With BRAT** — install [BRAT](https://github.com/TfTHacker/obsidian42-brat),
+then run **BRAT → Add beta plugin** and enter
+`CryingObsidian-CO/obsidian-layer-base`. BRAT also picks up each later release.
 
 **Back up your vault before the first use.** A `.layer` file is plain JSON, so a
 backup is just a copy of it.
@@ -67,7 +89,7 @@ release — see [AI access](#ai-access-mcp).
 
 ## Using it
 
-Create a table from the ribbon icon, the command palette, or by right-clicking
+Create a board from the ribbon icon, the command palette, or by right-clicking
 a folder in the file explorer (**New board**).
 
 - **Fields** — the **Fields** button in the toolbar decides what a view shows.
@@ -153,17 +175,17 @@ Any MCP client reads a server list shaped like this:
 
 ```json
 {
-	"mcpServers": {
-		"layer-base": {
-			"command": "node",
-			"args": [
-				"C:/Vault/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"
-			],
-			"env": {
-				"LAYER_VAULT": "C:/Vault"
-			}
-		}
-	}
+  "mcpServers": {
+    "layer-base": {
+      "command": "node",
+      "args": [
+        "C:/Vault/.obsidian/plugins/obsidian-layer-base/mcp-server.cjs"
+      ],
+      "env": {
+        "LAYER_VAULT": "C:/Vault"
+      }
+    }
+  }
 }
 ```
 
@@ -207,10 +229,10 @@ back in `refused`.
 | `update_cells`   | Set single cells by row id                                                                                                                                                                                                                             |
 | `delete_records` | Remove rows by id                                                                                                                                                                                                                                      |
 | `add_field`      | Add a column. Options for select types; a relation needs the column it shows, a formula its expression, a rollup what to gather, a lookup the link it reads through and the column over there, a numbering column its digits and what it counts within |
-| `update_field`   | Change a column: name, type, required, number format and bounds, choice options (add, remove, rename, recolour, reorder), a relation's target, a formula, a rollup, a lookup, a numbering column's digits and grouping, a note property's key |
+| `update_field`   | Change a column: name, type, required, number format and bounds, choice options (add, remove, rename, recolour, reorder), a relation's target, a formula, a rollup, a lookup, a numbering column's digits and grouping, a note property's key          |
 | `delete_field`   | Remove a column and its values                                                                                                                                                                                                                         |
 | `add_view`       | Add a board view                                                                                                                                                                                                                                       |
-| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit; a table's row height, wrapping, footers, colour rules and column widths                                                                                 |
+| `update_view`    | Change a view's name, filter, sorts, hidden columns; a board's grouping, card columns and limit; a table's row height, wrapping, footers, colour rules and column widths                                                                               |
 | `delete_view`    | Remove a board view (the table view cannot be removed)                                                                                                                                                                                                 |
 
 ### Two things to know

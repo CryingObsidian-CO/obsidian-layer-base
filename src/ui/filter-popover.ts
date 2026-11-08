@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Setting, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import { operatorsFor } from '../model/filter';
 import type { Field, Filter, FilterCondition } from '../types';
@@ -46,7 +46,10 @@ export class FilterPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-filter-panel');
 
-		contentEl.createEl('h2', { cls: 'layer-filter-title', text: t().filterTitle });
+		new Setting(contentEl)
+			.setName(t().filterTitle)
+			.setHeading()
+			.settingEl.addClass('layer-filter-title');
 
 		if (this.conditions.length === 0) {
 			contentEl.createDiv({

@@ -2,6 +2,7 @@ import {
 	AbstractInputSuggest,
 	Modal,
 	normalizePath,
+	Setting,
 	TFolder,
 	type App,
 } from 'obsidian';
@@ -77,7 +78,10 @@ export class ExportModal extends Modal {
 		contentEl.empty();
 		contentEl.addClass('layer-export-modal');
 
-		contentEl.createEl('h2', { cls: 'layer-export-title', text: t().exportTitle });
+		new Setting(contentEl)
+			.setName(t().exportTitle)
+			.setHeading()
+			.settingEl.addClass('layer-export-title');
 
 		const folderRow = contentEl.createDiv({ cls: 'layer-field-grid' });
 		folderRow.createDiv({ cls: 'layer-field-label', text: t().exportFolder });

@@ -106,33 +106,39 @@ export class TableIndex {
 			return;
 		}
 		this.loading.add(path);
-		const version = this.versions.get(path) ?? 0;
-		void this.app.vault
-			.cachedRead(file)
-			.then((text) => parseLayerDoc(text).doc)
-			.then((doc) => {
-				if ((this.versions.get(path) ?? 0) !== version) {
-					return;
-				}
-				this.cache.set(path, doc);
-			})
-			.catch((error: unknown) => {
-				/*
-				 * Remembered, not retried. A read that keeps failing would otherwise
-				 * be asked for again on every paint, and every failure asks for a
-				 * repaint — a loop that never settles and leaves the board unusable.
-				 */
-				this.unavailable.add(path);
-				console.warn(
-					`[obsidian-layer-base] Could not read the linked table "${path}":`,
-					error,
-				);
-			})
-			.finally(() => {
-				this.loading.delete(path);
-				onLoaded?.();
-				this.emit();
-			});
+		void this.readInto(file, path, this.versions.get(path) ?? 0, onLoaded);
+	}
+
+	/** Reads one linked table into the cache, remembering a read that fails. */
+	private async readInto(
+		file: TFile,
+		path: string,
+		version: number,
+		onLoaded?: () => void,
+	): Promise<void> {
+		try {
+			const text = await this.app.vault.cachedRead(file);
+			// Another read may have landed while this one was in flight.
+			if ((this.versions.get(path) ?? 0) !== version) {
+				return;
+			}
+			this.cache.set(path, parseLayerDoc(text).doc);
+		} catch (error: unknown) {
+			/*
+			 * Remembered, not retried. A read that keeps failing would otherwise
+			 * be asked for again on every paint, and every failure asks for a
+			 * repaint — a loop that never settles and leaves the board unusable.
+			 */
+			this.unavailable.add(path);
+			console.warn(
+				`[obsidian-layer-base] Could not read the linked table "${path}":`,
+				error,
+			);
+		} finally {
+			this.loading.delete(path);
+			onLoaded?.();
+			this.emit();
+		}
 	}
 
 	/** Drops a cached table, so the next paint reads it again. */

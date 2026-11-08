@@ -1,5 +1,5 @@
 /*
- * Layer Base — multi-dimensional tables for Obsidian.
+ * Layer Base — multi-dimensional boards for Obsidian.
  * Copyright (C) 2026 CryingObsidian-CO
  *
  * This program is free software: you can redistribute it and/or modify it under the
@@ -14,7 +14,7 @@
  * program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Notice, Plugin, TFolder } from 'obsidian';
+import { normalizePath, Notice, Plugin, TFolder } from 'obsidian';
 import {
 	COMMAND_CREATE_FILE,
 	COMMAND_REDO,
@@ -27,6 +27,7 @@ import { LayerStore } from './io/layer-store';
 import {
 	DEFAULT_SETTINGS,
 	LayerBaseSettingTab,
+	LEGACY_DEFAULT_FILE_NAME,
 	type LayerBaseSettings,
 } from './settings';
 import { createLayerView, LayerView } from './views/layer-view';
@@ -141,6 +142,15 @@ export default class LayerBasePlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			(await this.loadData()) as Partial<LayerBaseSettings>,
 		);
+		/*
+		 * The base name used to be the English literal. It is now the reader's own
+		 * language, but saved settings keep a copy of the old default, which would
+		 * pin every new file to English. Only that exact value is cleared: a name
+		 * someone typed is kept as it is.
+		 */
+		if (this.settings.defaultFileName === LEGACY_DEFAULT_FILE_NAME) {
+			this.settings.defaultFileName = '';
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -184,7 +194,8 @@ export default class LayerBasePlugin extends Plugin {
 
 	/** Resolves a configured folder path, returning null when it is absent. */
 	private resolveFolder(path: string): TFolder | null {
-		const file = this.app.vault.getAbstractFileByPath(path);
+		// The setting is typed or picked by hand, so it is normalised before asking.
+		const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
 		return file instanceof TFolder ? file : null;
 	}
 }

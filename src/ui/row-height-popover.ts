@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Setting, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import {
 	rowHeightPresetOf,
@@ -44,10 +44,10 @@ export class RowHeightPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-row-height');
 
-		contentEl.createEl('h2', {
-			cls: 'layer-row-height-title',
-			text: t().rowHeightButton,
-		});
+		new Setting(contentEl)
+			.setName(t().rowHeightButton)
+			.setHeading()
+			.settingEl.addClass('layer-row-height-title');
 		contentEl.createDiv({
 			cls: 'layer-row-height-heading',
 			text: t().rowHeightHint,

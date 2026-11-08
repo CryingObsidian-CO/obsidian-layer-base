@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Setting, setIcon } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, KanbanView } from '../types';
 import { specFor } from '../model/fields';
@@ -53,10 +53,10 @@ export class BoardFieldsPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-board-fields');
 
-		contentEl.createEl('h2', {
-			cls: 'layer-board-fields-title',
-			text: t().boardFieldsTitle,
-		});
+		new Setting(contentEl)
+			.setName(t().boardFieldsTitle)
+			.setHeading()
+			.settingEl.addClass('layer-board-fields-title');
 
 		this.groupByFieldId = this.renderChoice(
 			contentEl,

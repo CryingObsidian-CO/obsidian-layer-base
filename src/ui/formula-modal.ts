@@ -1,4 +1,4 @@
-import { Modal, setIcon, setTooltip, type App } from 'obsidian';
+import { Modal, Setting, setIcon, setTooltip, type App } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, FormulaResultType } from '../types';
 import { fieldsUsed, parseFormula } from '../model/formula/parser';
@@ -58,7 +58,10 @@ export class FormulaModal extends Modal {
 		contentEl.addClass('layer-formula-editor');
 		this.modalEl.addClass('layer-formula-modal');
 
-		contentEl.createEl('h2', { cls: 'layer-formula-title', text: t().formulaTitle });
+		new Setting(contentEl)
+			.setName(t().formulaTitle)
+			.setHeading()
+			.settingEl.addClass('layer-formula-title');
 
 		this.input = contentEl.createEl('textarea', {
 			cls: 'layer-formula-input',

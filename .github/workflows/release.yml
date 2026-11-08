@@ -69,6 +69,14 @@ jobs:
                   EXPECTED_TAG: ${{ inputs.tag || github.ref_name }}
               run: npm run check:version
 
+            # One download for a hand install: the same three files Obsidian's own
+            # installer fetches, in an archive with no folder inside it. The separate
+            # assets stay, because the in-app installer and BRAT download them by name.
+            - name: Zip the installable files
+              env:
+                  TAG: ${{ inputs.tag || github.ref_name }}
+              run: zip -j "obsidian-layer-base-${TAG}.zip" main.js manifest.json styles.css
+
             - name: Attest build provenance
               uses: actions/attest@v4
               with:
@@ -86,4 +94,5 @@ jobs:
                     --title="$TAG" \
                     --draft \
                     --generate-notes \
-                    main.js manifest.json styles.css mcp-server.cjs
+                    main.js manifest.json styles.css mcp-server.cjs \
+                    "obsidian-layer-base-${TAG}.zip"

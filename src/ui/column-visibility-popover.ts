@@ -1,4 +1,4 @@
-import { setIcon, setTooltip } from 'obsidian';
+import { Setting, setIcon, setTooltip } from 'obsidian';
 import { t } from '../i18n';
 import type { Field, View } from '../types';
 import { specFor } from '../model/fields';
@@ -43,10 +43,10 @@ export class ColumnVisibilityPopover extends AnchoredPopover {
 		contentEl.empty();
 		contentEl.addClass('layer-visibility');
 
-		contentEl.createEl('h2', {
-			cls: 'layer-visibility-title',
-			text: t().viewFieldsButton,
-		});
+		new Setting(contentEl)
+			.setName(t().viewFieldsButton)
+			.setHeading()
+			.settingEl.addClass('layer-visibility-title');
 		contentEl.createDiv({
 			cls: 'layer-visibility-heading',
 			text: t().viewFieldsHint,

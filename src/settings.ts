@@ -6,15 +6,24 @@ import type { NoteLabelStyle } from './types';
 export interface LayerBaseSettings {
 	/** Folder for newly created boards. Empty means the vault root. */
 	defaultFolder: string;
-	/** Base name for newly created boards; a numeric suffix is added if taken. */
+	/**
+	 * Base name for newly created boards; a numeric suffix is added if taken.
+	 * Empty means the name in the reader's own language.
+	 */
 	defaultFileName: string;
 	/** What a `note` cell shows: the file's own name, or the path it lives at. */
 	noteLabel: NoteLabelStyle;
 }
 
+/**
+ * The built-in base name from before it was localized. Saved settings hold a copy,
+ * so this exact value is cleared on load; anything else was typed by hand.
+ */
+export const LEGACY_DEFAULT_FILE_NAME = 'Untitled board';
+
 export const DEFAULT_SETTINGS: LayerBaseSettings = {
 	defaultFolder: '',
-	defaultFileName: 'Untitled board',
+	defaultFileName: '',
 	noteLabel: 'name',
 };
 
