@@ -9,8 +9,19 @@
  * The vault is named by `LAYER_VAULT` (or the first argument). Only files inside it
  * are touched.
  */
-import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import {
+	basename,
+	dirname,
+	join,
+	mkdirSync,
+	proc,
+	readFileSync,
+	readdirSync,
+	relative,
+	resolve,
+	statSync,
+	writeFileSync,
+} from './node-api';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { FutureVersionError } from '../src/io/migrate';
 import { vaultGuard } from './vault-path';
@@ -108,7 +119,7 @@ const FORMULA_TYPES: readonly FormulaResultType[] = [
 	'boolean',
 ];
 
-const VAULT = resolve(process.env.LAYER_VAULT ?? process.argv[2] ?? '');
+const VAULT = resolve(proc.env.LAYER_VAULT ?? proc.argv[2] ?? '');
 
 /** Said once, so every tool explains where a path is measured from. */
 const PATH_HINT =
@@ -2151,7 +2162,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 }
 
 function send(message: unknown): void {
-	process.stdout.write(`${JSON.stringify(message)}\n`);
+	proc.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
 function answer(id: Request['id'], result: unknown): void {
@@ -2173,9 +2184,9 @@ function handle(request: Request): void {
 						? params.protocolVersion
 						: '2024-11-05',
 				capabilities: { tools: {} },
-				// Kept in step with manifest.json by hand; nothing reads it but a client
-				// showing which build it is talking to.
-				serverInfo: { name: 'layer-base', version: '0.1.0' },
+				// Read by a client showing which build it is talking to. `check-version`
+				// keeps it equal to manifest.json, so a release cannot leave it behind.
+				serverInfo: { name: 'layer-base', version: '0.1.2' },
 			});
 			return;
 		case 'notifications/initialized':
@@ -2210,14 +2221,14 @@ function handle(request: Request): void {
 	}
 }
 
-if (!process.env.LAYER_VAULT && !process.argv[2]) {
+if (!proc.env.LAYER_VAULT && !proc.argv[2]) {
 	console.error('[layer-mcp] Set LAYER_VAULT to the vault folder.');
-	process.exit(1);
+	proc.exit(1);
 }
 
 let buffer = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk: string) => {
+proc.stdin.setEncoding('utf8');
+proc.stdin.on('data', (chunk: string) => {
 	buffer += chunk;
 	for (;;) {
 		const newline = buffer.indexOf('\n');

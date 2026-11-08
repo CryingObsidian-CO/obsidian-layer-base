@@ -1,6 +1,6 @@
 {
   "name": "layer-base",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Multi-dimensional tables in self-contained .layer files: 16 column types, formulas, relations and rollups.",
   "main": "main.js",
   "type": "module",

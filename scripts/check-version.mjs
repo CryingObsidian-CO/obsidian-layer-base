@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 
 /*
- * The three files that carry a version have to agree, and the release tag has to
- * match them: Obsidian refuses a release whose tag differs from the manifest, and a
- * stale versions.json leaves users on an update that never arrives.
+ * Every copy of the version has to agree — manifest.json, package.json, versions.json
+ * and the MCP server's own announcement — and the release tag has to match them:
+ * Obsidian refuses a release whose tag differs from the manifest, a stale
+ * versions.json leaves users on an update that never arrives, and a stale MCP line
+ * ships a server that calls itself older than the plugin it came with.
  */
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
@@ -25,6 +27,23 @@ if (mapped === undefined) {
 } else if (mapped !== manifest.minAppVersion) {
 	problems.push(
 		`versions.json maps ${manifest.version} to ${mapped}, but minAppVersion is ${manifest.minAppVersion}`,
+	);
+}
+
+/*
+ * The MCP server announces its own version in `initialize`, and that copy lives in
+ * source rather than in a version file. Matched loosely, so the line may be
+ * reformatted over time; only the announced version has to agree.
+ */
+const mcpServer = readFileSync('mcp/server.ts', 'utf8');
+const announced = /serverInfo:\s*\{[^}]*\bversion:\s*'([^']+)'/.exec(mcpServer);
+if (announced === null) {
+	problems.push(
+		'mcp/server.ts announces no version in its serverInfo, so this check cannot compare it',
+	);
+} else if (announced[1] !== manifest.version) {
+	problems.push(
+		`mcp/server.ts announces ${announced[1]} but manifest.json is ${manifest.version}`,
 	);
 }
 

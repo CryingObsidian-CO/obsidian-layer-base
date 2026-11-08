@@ -1,10 +1,18 @@
-import { realpathSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import {
+	basename,
+	dirname,
+	isAbsolute,
+	join,
+	realpathNative,
+	relative,
+	resolve,
+	sep,
+} from './node-api';
 
 /**
  * Where a path really is, following every link on its way there.
  *
- * `realpathSync.native` and not the plain one: on Windows the JavaScript version
+ * The `native` form and not the plain one: on Windows the JavaScript version
  * does not follow a junction, and a junction is exactly the link a user can make
  * without administrator rights.
  *
@@ -17,7 +25,7 @@ export function realPath(path: string): string {
 	const tail: string[] = [];
 	for (;;) {
 		try {
-			const real = realpathSync.native(head);
+			const real = realpathNative(head);
 			return tail.length === 0 ? real : join(real, ...tail);
 		} catch {
 			const parent = dirname(head);
