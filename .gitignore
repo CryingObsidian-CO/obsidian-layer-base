@@ -36,3 +36,6 @@ data.json
 
 .agent-teams
 .dsh-**
+
+# A local code-review viewer export, not part of the plugin.
+review.html

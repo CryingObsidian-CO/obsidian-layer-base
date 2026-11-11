@@ -17,6 +17,11 @@ export default defineConfig(
 		'tsconfig.json',
 		// Local maintenance scripts; not part of the plugin bundle.
 		'scripts',
+		// Session and Agent Teams scratch directories, which the plugin never ships.
+		'.dsh-*/**',
+		'.agent-teams/**',
+		// A local code-review export, not part of the plugin.
+		'review.html',
 	]),
 	{
 		languageOptions: {
