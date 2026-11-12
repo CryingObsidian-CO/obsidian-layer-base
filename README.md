@@ -260,6 +260,9 @@ back in `refused`.
   the file immediately before writing; if another writer — Obsidian, a sync client,
   another assistant — saved it in between, nothing is written and the call fails.
   Read the table again and re-apply the change.
+- **An open table follows the file.** When another program writes it, the open view
+  reloads it. If the view had unsaved edits, your version is saved as a conflict
+  copy named in the notice instead of overwriting the other writer.
 - **A view is named, never "the one on screen".** The file does not record which
   view is open and the server cannot see Obsidian, so pass the view's name or
   id. Read the views with `read_table` first.

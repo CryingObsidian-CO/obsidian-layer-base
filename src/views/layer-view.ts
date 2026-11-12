@@ -236,6 +236,19 @@ export class LayerView extends TextFileView {
 				});
 			}),
 		);
+		/*
+		 * Another process — the MCP server, a sync client — can write this table
+		 * while its view is open. Reading the file here is what makes that change
+		 * visible without reopening the board; `setViewData` decides whether it can
+		 * replace the document or has to wait for the unsaved-edit conflict path.
+		 */
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (file instanceof TFile && file.path === this.file?.path) {
+					void this.reloadFromDisk();
+				}
+			}),
+		);
 		// A linked table arriving or changing has to reach the cells that read it.
 		this.register(this.plugin.tables.onChange(() => this.onTargetLoaded()));
 		// A rename carries the exact old-and-new pair, which is the only way to
@@ -297,6 +310,32 @@ export class LayerView extends TextFileView {
 		// text that comes back is never byte-equal to what the document would write.
 		this.lastSaved = text;
 		return text;
+	}
+
+	/**
+	 * Reads the file after an outside writer touched it.
+	 *
+	 * The view is a long-lived window onto a file that other processes can write:
+	 * the MCP server, a sync pull, another editor. Without this read the open
+	 * table keeps showing the last document it loaded until it is reopened. If an
+	 * edit is unsaved, `setViewData` keeps the local document and leaves it to
+	 * `save` to put it aside as a conflict copy instead of overwriting the file.
+	 */
+	private async reloadFromDisk(): Promise<void> {
+		const file = this.file;
+		if (file === null) {
+			return;
+		}
+		let text: string;
+		try {
+			text = await this.app.vault.read(file);
+		} catch {
+			return;
+		}
+		if (text === this.lastDisk) {
+			return;
+		}
+		this.setViewData(text, false);
 	}
 
 	/**
