@@ -133,6 +133,12 @@ export class LayerView extends TextFileView {
 	private unsupportedText = '';
 	/** The text handed to the file on the last save, to recognise its echo. */
 	private lastSaved = '';
+	/** The text this view believes the file on disk holds. */
+	private lastDisk = '';
+	/** A change this view holds that the file has not taken yet. */
+	private unsaved = false;
+	/** Text that arrived from outside while `unsaved` was true. */
+	private pendingExternal: string | null = null;
 	private activeViewId: string | null = null;
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
@@ -188,6 +194,9 @@ export class LayerView extends TextFileView {
 
 	async onLoadFile(file: TFile): Promise<void> {
 		this.lastSaved = '';
+		this.lastDisk = '';
+		this.unsaved = false;
+		this.pendingExternal = null;
 		// Another file is another document: steps taken in the old one must not be
 		// replayed onto this one.
 		this.history.clear();
@@ -290,6 +299,64 @@ export class LayerView extends TextFileView {
 		return text;
 	}
 
+	/**
+	 * Saves this view, unless the file on disk changed while an edit was pending.
+	 *
+	 * `TextFileView` saves on a two-second debounce, so an outside write — the MCP
+	 * server, a sync client, another editor — can land after the edit but before
+	 * this call. Overwriting it would lose that write silently. The local document
+	 * is copied beside the table instead, the outside version becomes the file,
+	 * and the reader is told where their copy went.
+	 */
+	async save(clear = false): Promise<void> {
+		const file = this.file;
+		const local =
+			this.doc === null
+				? this.unsupported !== null
+					? this.unsupportedText
+					: ''
+				: serializeLayerDoc(this.doc);
+		if (file !== null && local !== '' && this.lastDisk !== '') {
+			let disk: string | null = null;
+			try {
+				disk = await this.app.vault.read(file);
+			} catch {
+				// A file that cannot be read now is left to the base class, whose
+				// save reports the failure instead of inventing a conflict.
+				disk = null;
+			}
+			if (disk !== null && disk !== this.lastDisk && disk !== local) {
+				this.pendingExternal = disk;
+				this.unsaved = true;
+			}
+		}
+
+		const incoming = this.pendingExternal;
+		if (incoming !== null) {
+			if (local !== '' && file !== null) {
+				try {
+					const copy = await this.plugin.store.writeConflictCopy(file, local);
+					new Notice(t().noticeConflictSaved(copy.path));
+				} catch (error) {
+					console.error('[layer-base] Could not save a conflict copy:', error);
+					new Notice(t().noticeConflictFailed);
+					return;
+				}
+			}
+			this.pendingExternal = null;
+			this.unsaved = false;
+			// The outside version is the one that stays on disk; show it now.
+			this.setViewData(incoming, false);
+			return;
+		}
+
+		await super.save(clear);
+		if (!clear) {
+			this.lastDisk = local;
+			this.unsaved = false;
+		}
+	}
+
 	setViewData(data: string, _clear: boolean): void {
 		/*
 		 * Whether this is the file echoing our own save. Two tests, either of which is
@@ -306,8 +373,13 @@ export class LayerView extends TextFileView {
 		 */
 		if (this.lastSaved !== '' && data === this.lastSaved) {
 			this.lastSaved = '';
+			this.lastDisk = data;
 			return;
 		}
+
+		// An edit still open in a cell lives in the DOM, not the document. It has
+		// to reach the document before an outside version is compared with it.
+		this.commitOpenEdit();
 
 		let parsed: ReturnType<typeof parseLayerDoc>;
 		try {
@@ -321,6 +393,20 @@ export class LayerView extends TextFileView {
 		}
 
 		if (data !== '' && this.doc && this.sameContent(parsed.doc)) {
+			this.lastDisk = data;
+			return;
+		}
+
+		/*
+		 * An outside write arrived while this view holds an edit the file has not
+		 * taken yet. Keep the local document on screen; save() will copy it aside
+		 * and adopt the outside version, so neither side is lost.
+		 */
+		if (data !== '' && this.doc !== null && this.unsaved) {
+			if (this.pendingExternal === null) {
+				new Notice(t().noticeExternalChangePending);
+			}
+			this.pendingExternal = data;
 			return;
 		}
 
@@ -329,6 +415,7 @@ export class LayerView extends TextFileView {
 		this.unsupported = null;
 		this.unsupportedText = '';
 		this.lastSaved = '';
+		this.lastDisk = data;
 		/*
 		 * The document was replaced from outside — synced in, or edited elsewhere. The
 		 * steps recorded against the previous contents no longer describe it, and
@@ -365,6 +452,9 @@ export class LayerView extends TextFileView {
 		this.unsupported = null;
 		this.unsupportedText = '';
 		this.lastSaved = '';
+		this.lastDisk = '';
+		this.unsaved = false;
+		this.pendingExternal = null;
 		this.contentEl.empty();
 	}
 	/**
@@ -378,6 +468,7 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
+		this.unsaved = true;
 		this.requestSave();
 	}
 
@@ -572,6 +663,7 @@ export class LayerView extends TextFileView {
 		this.unsupported = version;
 		this.unsupportedText = text;
 		this.lastSaved = '';
+		this.lastDisk = text;
 		this.history.clear();
 		this.selection = null;
 		this.render();

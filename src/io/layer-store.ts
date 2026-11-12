@@ -101,6 +101,26 @@ export class LayerStore {
 			`Could not find an unused name after ${MAX_NAME_ATTEMPTS} attempts`,
 		);
 	}
+
+	/**
+	 * Keeps a view's unsaved document beside its table when an outside write wins.
+	 *
+	 * The copy is a real `.layer` file, so the reader can open it and move what
+	 * they need back into the table. It deliberately never overwrites an existing
+	 * file: losing one conflict copy to make room for another is still a loss.
+	 */
+	async writeConflictCopy(file: TFile, text: string): Promise<TFile> {
+		const folder = file.parent;
+		if (folder === null) {
+			throw new Error('A table file has no folder to hold a conflict copy.');
+		}
+		const stamp = new Date().toISOString().replace(/[:]/g, '-').replace(/\..+$/, '');
+		return this.writeExport(
+			folder,
+			`${file.basename} (conflict ${stamp}).${file.extension}`,
+			text,
+		);
+	}
 }
 
 /** True when the file is one this plugin can open. */

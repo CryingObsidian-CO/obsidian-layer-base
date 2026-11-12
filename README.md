@@ -256,6 +256,10 @@ back in `refused`.
   exception, because a row's position can be counted on either side. Every other
   computed column carries an `unreadable` note with a `tellUser` sentence: it is
   the assistant's job to pass that on rather than report the column as empty.
+- **A write is refused if the file changed after it was read.** The server re-reads
+  the file immediately before writing; if another writer — Obsidian, a sync client,
+  another assistant — saved it in between, nothing is written and the call fails.
+  Read the table again and re-apply the change.
 - **A view is named, never "the one on screen".** The file does not record which
   view is open and the server cannot see Obsidian, so pass the view's name or
   id. Read the views with `read_table` first.
@@ -276,7 +280,7 @@ reports it, and a write to it is refused — it is not a stored value.
 | `No table at "..."`                 | The path is not relative to the vault root — run `list_tables` |
 | `Outside the vault`                 | The path escapes `LAYER_VAULT`                                 |
 | The client lists no tools           | `node` is not on `PATH`, or `args[0]` is wrong                 |
-| Changes are not visible in Obsidian | The table is open with unsaved state; reopen it                |
+| Changes are not visible in Obsidian | This view had unsaved edits when the file changed; your version is in a conflict copy named in the notice |
 
 ## Known limitations
 

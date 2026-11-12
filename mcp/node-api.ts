@@ -24,7 +24,14 @@ export interface DirEntry {
  */
 interface FsApi {
 	readFileSync: (path: string, encoding: 'utf8') => string;
-	writeFileSync: (path: string, data: string, encoding: 'utf8') => void;
+	writeFileSync: (
+		path: string,
+		data: string,
+		options: 'utf8' | { encoding: 'utf8'; flag: 'wx' },
+	) => void;
+	renameSync: (oldPath: string, newPath: string) => void;
+	unlinkSync: (path: string) => void;
+	existsSync: (path: string) => boolean;
 	readdirSync: (path: string, options: { withFileTypes: true }) => DirEntry[];
 	statSync: (path: string) => { isDirectory(): boolean };
 	mkdirSync: (path: string, options: { recursive: true }) => void;
@@ -47,6 +54,9 @@ const paths = nodePath as unknown as PathApi;
 
 export const readFileSync = fs.readFileSync;
 export const writeFileSync = fs.writeFileSync;
+export const renameSync = fs.renameSync;
+export const unlinkSync = fs.unlinkSync;
+export const existsSync = fs.existsSync;
 export const readdirSync = fs.readdirSync;
 export const statSync = fs.statSync;
 export const mkdirSync = fs.mkdirSync;

@@ -12,18 +12,18 @@
 import {
 	basename,
 	dirname,
+	existsSync,
 	join,
 	mkdirSync,
 	proc,
-	readFileSync,
 	readdirSync,
 	relative,
 	resolve,
 	statSync,
-	writeFileSync,
 } from './node-api';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { FutureVersionError } from '../src/io/migrate';
+import { createFileText, readFileText, writeFileText } from './table-file';
 import { vaultGuard } from './vault-path';
 import {
 	FIELD_TYPES,
@@ -125,6 +125,10 @@ const VAULT = resolve(proc.env.LAYER_VAULT ?? proc.argv[2] ?? '');
 const PATH_HINT =
 	'Path of the .layer file, relative to the vault root. Discover them with list_tables.';
 
+/** The sentence a write tool uses when a refusal can mean a concurrent change. */
+const WRITE_REVISION_NOTE =
+	' If the file changed on disk after the call read it, nothing is written and the call fails; read the table again.';
+
 interface Request {
 	jsonrpc: '2.0';
 	id?: number | string | null;
@@ -141,11 +145,11 @@ interface Request {
  */
 const vaultFile = vaultGuard(VAULT);
 
-function loadTable(path: unknown): { doc: LayerDoc; file: string } {
+function loadTable(path: unknown): { doc: LayerDoc; file: string; text: string } {
 	const file = vaultFile(path);
 	let text: string;
 	try {
-		text = readFileSync(file, 'utf8');
+		text = readFileText(file);
 	} catch {
 		// Said in the terms a caller can act on: a wrong path is the usual mistake,
 		// and the answer is one call away.
@@ -170,11 +174,18 @@ function loadTable(path: unknown): { doc: LayerDoc; file: string } {
 	if (warnings.length > 0) {
 		console.error(`[layer-mcp] Repaired ${warnings.length} issue(s) in ${file}`);
 	}
-	return { doc, file };
+	return { doc, file, text };
 }
 
-function saveTable(file: string, doc: LayerDoc): void {
-	writeFileSync(file, serializeLayerDoc(doc), 'utf8');
+/**
+ * Writes the document back, refusing if the file changed since `loadTable` read it.
+ *
+ * `expectedText` is the exact text the caller parsed: a mismatch means another
+ * writer landed between the read and this write, and replacing the file would
+ * delete that change without anyone seeing it.
+ */
+function saveTable(file: string, doc: LayerDoc, expectedText: string): void {
+	writeFileText(file, serializeLayerDoc(doc), expectedText);
 }
 
 function fieldOf(doc: LayerDoc, nameOrId: unknown): Field {
@@ -1078,7 +1089,8 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	{
 		name: 'add_records',
 		description:
-			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property, numbering) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
+			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property, numbering) is skipped. A value the column cannot hold comes back in `refused` instead of being written.' +
+			WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1095,7 +1107,8 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	{
 		name: 'update_cells',
 		description:
-			'Set individual cells. A record id comes from read_table; a column may be named or given by id. Values follow the same rules as add_records, and a value the column cannot hold is reported in `refused` rather than written. A computed column cannot be written.',
+			'Set individual cells. A record id comes from read_table; a column may be named or given by id. Values follow the same rules as add_records, and a value the column cannot hold is reported in `refused` rather than written. A computed column cannot be written.' +
+			WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1118,7 +1131,7 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	},
 	{
 		name: 'delete_records',
-		description: 'Remove rows by id.',
+		description: 'Remove rows by id.' + WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1592,7 +1605,22 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				views: [view],
 			};
 			mkdirSync(dirname(file), { recursive: true });
-			writeFileSync(file, serializeLayerDoc(doc), 'utf8');
+			try {
+				createFileText(file, serializeLayerDoc(doc));
+			} catch (error) {
+				/*
+				 * The path was absent a moment ago, but a sync pull or a second
+				 * process can take it between the check and the create. Say what
+				 * happened; anything else (a full disk, a read-only vault) is the
+				 * real failure and is passed through untouched.
+				 */
+				if (existsSync(file)) {
+					throw new Error(
+						`Something is already at "${String(args.path)}"; choose another path. Nothing was written.`,
+					);
+				}
+				throw error;
+			}
 			return { path: args.path, name: doc.name, fields: 0, records: 0, views: 1 };
 		}
 
@@ -1703,7 +1731,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'add_records': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const rows = Array.isArray(args.records) ? args.records : [];
 			const added: string[] = [];
 			const refused: Array<{ field: string; value: unknown }> = [];
@@ -1750,12 +1778,12 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 				added.push(record.id);
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { added, refused, skipped };
 		}
 
 		case 'update_cells': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const updates = Array.isArray(args.updates) ? args.updates : [];
 			const refused: Array<{
 				recordId: string;
@@ -1792,22 +1820,22 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					});
 				}
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { updated, refused };
 		}
 
 		case 'delete_records': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const ids = Array.isArray(args.recordIds)
 				? args.recordIds.filter((id): id is string => typeof id === 'string')
 				: [];
 			const removed = removeRecords(doc, ids);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed };
 		}
 
 		case 'add_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const name = typeof args.name === 'string' ? args.name.trim() : '';
 			const type = args.type as FieldType;
 			if (name === '') {
@@ -1868,7 +1896,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			applyFieldSettings(doc, field, args, file, true);
 
 			addField(doc, field);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			// The column exists but cannot be filled from here; the caller owes the reader
 			// that sentence now, not after they have typed the first value into it.
 			if (field.type === 'noteProp') {
@@ -1884,7 +1912,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'update_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const field = fieldOf(doc, args.field);
 			const changed: string[] = [];
 			let droppedCells = 0;
@@ -2021,7 +2049,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				};
 			}
 
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return {
 				id: field.id,
 				name: field.name,
@@ -2037,15 +2065,15 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'delete_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const field = fieldOf(doc, args.field);
 			const removed = removeField(doc, field.id);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed, name: field.name };
 		}
 
 		case 'add_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const name = typeof args.name === 'string' ? args.name.trim() : '';
 			if (name === '') {
 				throw new Error('A view name is required');
@@ -2057,12 +2085,12 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			if (typeof args.groupByField === 'string' && args.groupByField !== '') {
 				view.groupByFieldId = fieldOf(doc, args.groupByField).id;
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { id: view.id, name: view.name, groupByFieldId: view.groupByFieldId };
 		}
 
 		case 'update_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const view = viewOf(doc, args.view);
 			if (typeof args.name === 'string' && args.name.trim() !== '') {
 				renameView(doc, view.id, args.name.trim());
@@ -2144,15 +2172,15 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					view.showEmptyColumns = args.showEmptyColumns;
 				}
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return shownView(doc, view);
 		}
 
 		case 'delete_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const view = viewOf(doc, args.view);
 			const removed = removeView(doc, view.id);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed, name: view.name };
 		}
 

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -416,6 +416,53 @@ if (probeDoc !== null) {
 		renamed !== undefined && view?.columnWidths?.[renamed.id] === 200,
 		'a column width was written',
 	);
+
+	/*
+	 * A write has to start from the file as it is now, not from the version an
+	 * earlier call saw. Change the file between two server runs and check that
+	 * both the outside column and the MCP cell survive.
+	 */
+	const external = JSON.parse(JSON.stringify(probeDoc));
+	external.fields.push({ id: 'f_external', name: '外部列', type: 'text' });
+	writeFileSync(
+		join(vault, 'probe', '选项.layer'),
+		JSON.stringify(external, null, '\t'),
+		'utf8',
+	);
+	const afterExternal = await drive([
+		call(1, 'update_cells', {
+			path: 'probe/选项.layer',
+			updates: [
+				{
+					recordId: external.records[0]?.id ?? '',
+					field: '外部列',
+					value: '写入了',
+				},
+			],
+		}),
+	]).catch((error) => stop(error.message));
+	check(
+		afterExternal.messages[0]?.result?.isError !== true,
+		'update_cells writes after an external edit',
+	);
+	let merged = null;
+	try {
+		merged = JSON.parse(readFileSync(join(vault, 'probe', '选项.layer'), 'utf8'));
+	} catch (error) {
+		failures.push(`the externally edited table could not be read: ${String(error)}`);
+	}
+	if (merged !== null) {
+		check(
+			merged.fields.some((field) => field.name === '外部列'),
+			'an external column survives an MCP write',
+		);
+		const mergedAmount = merged.fields.find((field) => field.name === '外部列');
+		check(
+			mergedAmount !== undefined &&
+				merged.records[0]?.cells[mergedAmount.id] === '写入了',
+			'the MCP update landed beside the external change',
+		);
+	}
 }
 
 rmSync(vault, { recursive: true, force: true });
