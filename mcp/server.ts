@@ -542,6 +542,31 @@ function formulaReferences(expression: string): string[] {
 }
 
 /**
+ * Where a reading stops, when the column type has a limit the caller has to know.
+ *
+ * A blank cell is ambiguous unless the reason is named: a missing relation, a
+ * nested frontmatter object and a truly empty value all produce empty text. This
+ * is the field-level warning; `shownRecord` additionally puts a formula error or
+ * an unreadable note property into that row's `notes`.
+ */
+function readLimit(field: Field): string | null {
+	switch (field.type) {
+		case 'formula':
+			return 'A formula error reads as #<error-code>, not as a value.';
+		case 'relationBack':
+			return 'Reads empty when the back-reference table or its title column is missing.';
+		case 'rollup':
+			return 'Reads empty when the source relation, the other table, or the gathered column is missing.';
+		case 'lookup':
+			return 'Reads empty when the source relation, the other table, or the shown column is missing.';
+		case 'noteProp':
+			return 'Only top-level scalar frontmatter values and simple arrays are read; nested mappings, missing notes or missing keys read as empty.';
+		default:
+			return null;
+	}
+}
+
+/**
  * Where a computed column gets its value, in terms a caller can pass on.
  *
  * A lookup or rollup may read a column that is itself computed in another table;
@@ -1183,6 +1208,7 @@ function shownRecord(
 	numbering?: ReadonlyMap<string, ReadonlyMap<string, string>>,
 ): Record<string, unknown> {
 	const cells: Record<string, CellValue> = {};
+	const notes: Record<string, string> = {};
 	for (const field of doc.fields) {
 		if (field.type === 'autoNumber') {
 			const text = numbering?.get(field.id)?.get(record.id);
@@ -1195,6 +1221,9 @@ function shownRecord(
 			const reading = reader.reading(doc, field, record);
 			if (reading !== null) {
 				cells[field.name] = reading.text;
+				if (reading.hint !== undefined && reading.hint !== '') {
+					notes[field.name] = reading.hint;
+				}
 			}
 			continue;
 		}
@@ -1203,7 +1232,11 @@ function shownRecord(
 			cells[field.name] = shownValue(field, value);
 		}
 	}
-	return { id: record.id, cells };
+	return {
+		id: record.id,
+		cells,
+		...(Object.keys(notes).length > 0 ? { notes } : {}),
+	};
 }
 
 /** The number every row shows, per numbering column. */
@@ -1298,7 +1331,7 @@ const tools = [
 		description:
 			`Read a table: its columns, its views, and its rows. Cells are keyed by column name and select values read as option names, so what comes back can be sent straight to update_cells or add_records. Every view is reported with its own filter, sorts and hidden columns — read them before changing a view, because a view is named, not "the one on screen".
 
-A computed column is read back as the value its cell shows. A value that comes from another table — a rollup, lookup or relation showing a computed column — carries \`computedFrom\` with that table, column and type, so you can explain where it came from; it is computed, not stored here. A note property is read from the note's frontmatter through a small top-level YAML subset; nested mappings read as empty.`,
+A computed column is read back as the value its cell shows. Each field reports \`readable\`, \`writable\`, and — when a value has a limit — \`readLimit\` or \`writeLimit\`. A value that comes from another table — a rollup, lookup or relation showing a computed column — carries \`computedFrom\` with that table, column and type, so you can explain where it came from; it is computed, not stored here. A note property is read from the note's frontmatter through a small top-level YAML subset; nested mappings read as empty and are called out in that row's \`notes\`. A formula error also appears in \`notes\` rather than being mistaken for a value.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1373,7 +1406,7 @@ Choosing the type is the part that goes wrong, so read this before deciding:
 - When a cell holds a reference to *another row* — a dependency, an owner, a parent, a related item — the type is \`relation\`. That holds even when the rows live in the same table, and even when the text looks like a plain label. A value that is itself a row, with its own columns, is a row reference.
 - \`select\` and \`multiSelect\` are for a fixed list of labels that exist only inside this column, typed or picked by hand. If the choices are rows of a table that also has a name, an id and other columns, it is \`relation\`, not \`multiSelect\`.
 - \`select\` holds one label; \`multiSelect\` holds several.
-- \`note\` holds a vault path to a note; \`noteProp\` reads or writes one frontmatter key of the note a \`note\` column points at.
+- \`note\` holds a vault path to a note; \`noteProp\` reads one frontmatter key of the note a \`note\` column points at. This server cannot write a \`noteProp\` value.
 - \`formula\` computes from other columns; \`rollup\` totals a related table through a relation column; \`relationBack\` lists the rows that point back here; \`lookup\` shows one column of those rows as it reads over there, without totalling anything.
 
 Every type that computes from something else needs that something named, and the call fails rather than storing a column that cannot work: \`relation\` needs \`linkField\` (plus \`targetTable\` when the rows are in another file), \`formula\` needs \`formula\`, \`rollup\` needs \`rollupSource\`, \`rollupField\` and \`rollupAggregate\`, \`lookup\` needs \`lookupSource\` and \`lookupField\`, \`noteProp\` needs \`noteField\`.
@@ -1962,10 +1995,20 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				fields: doc.fields.map((field) => {
 					const config = fieldConfig(doc, field, otherTables);
 					const origin = computedFrom(doc, field, otherTables);
+					const limit = readLimit(field);
 					return {
 						id: field.id,
 						name: field.name,
 						type: field.type,
+						readable: true,
+						writable: !isDerived(field.type),
+						...(limit ? { readLimit: limit } : {}),
+						...(field.type === 'noteProp'
+							? {
+									writeLimit:
+										'Frontmatter values can only be edited in the note or the app; MCP cannot write them.',
+								}
+							: {}),
 						...(field.options
 							? { options: field.options.map((option) => option.name) }
 							: {}),

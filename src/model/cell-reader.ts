@@ -42,8 +42,8 @@ export interface CellReaderHost {
 	 * empty path means that same table.
 	 */
 	table(field: Field, from: LayerDoc, direction: 'link' | 'back'): LayerDoc | null;
-	/** The text of one frontmatter key in the note at `notePath`. */
-	noteProperty(notePath: string, key: string): string;
+	/** The text of one frontmatter key in the note at `notePath`; null when the value is too complex to read. */
+	noteProperty(notePath: string, key: string): string | null;
 	/** How a formula error reads in the caller's language, for the cell and its hover. */
 	formulaError(error: FormulaError): { text: string; hint: string };
 }
@@ -139,11 +139,19 @@ export class CellReader {
 
 	/** What a note property row reads. */
 	notePropReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
-		return { text: this.notePropValueIn(doc, field, recordId), broken: 0 };
+		const text = this.notePropValueIn(doc, field, recordId);
+		if (text === null) {
+			return {
+				text: '',
+				broken: 0,
+				hint: 'This frontmatter value is nested or otherwise too complex to read; only top-level scalar values and simple arrays can be read.',
+			};
+		}
+		return { text, broken: 0 };
 	}
 
 	/** The value a note property row reads, resolved through the row's note column. */
-	private notePropValueIn(doc: LayerDoc, field: Field, recordId: string): string {
+	private notePropValueIn(doc: LayerDoc, field: Field, recordId: string): string | null {
 		const record = findRecord(doc, recordId);
 		if (!record) {
 			return '';
@@ -233,7 +241,7 @@ export class CellReader {
 				return answer.kind === 'number' ? Number(answer.text) : answer.text;
 			}
 			case 'noteProp':
-				return this.notePropValueIn(doc, field, recordId);
+				return this.notePropValueIn(doc, field, recordId) ?? '';
 			default:
 				return undefined;
 		}

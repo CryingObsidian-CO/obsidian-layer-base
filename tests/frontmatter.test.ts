@@ -20,8 +20,8 @@ describe('reading a note property from frontmatter', () => {
 		);
 	});
 
-	it('answers empty for a nested mapping or a missing key', () => {
-		expect(frontmatterValue(note('owner:\n  name: Ada'), 'owner')).toBe('');
+	it('answers empty for a missing key and null for a nested mapping', () => {
+		expect(frontmatterValue(note('owner:\n  name: Ada'), 'owner')).toBeNull();
 		expect(frontmatterValue(note('status: done'), 'missing')).toBe('');
 	});
 

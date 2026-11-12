@@ -580,6 +580,22 @@ if (computedDoc !== null) {
 		) === true,
 		'a formula names the computed column it reads',
 	);
+	const titleField = (computedDoc.fields ?? []).find((field) => field.name === '标题');
+	check(
+		titleField?.readable === true && titleField?.writable === true,
+		'a stored column says it is readable and writable',
+	);
+	check(
+		doubled?.writable === false && String(doubled?.readLimit).includes('error'),
+		'a formula says it is read-only and names its error limit',
+	);
+	const noteField = (computedDoc.fields ?? []).find((field) => field.name === '笔记状态');
+	check(
+		noteField?.writable === false &&
+			String(noteField?.readLimit).includes('top-level') &&
+			String(noteField?.writeLimit).includes('cannot write'),
+		'a note property says what can be read and that it cannot be written',
+	);
 }
 
 rmSync(vault, { recursive: true, force: true });

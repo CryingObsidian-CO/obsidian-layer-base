@@ -131,4 +131,23 @@ describe('computed cell readings', () => {
 		);
 		expect(reader.notePropReading(table, prop, 'r1').text).toBe('done');
 	});
+
+	it('marks an unreadable note property with a hint instead of a silent empty', () => {
+		const note: Field = { id: 'f_note', name: 'Note', type: 'note' };
+		const prop: Field = {
+			id: 'f_prop',
+			name: 'Owner',
+			type: 'noteProp',
+			noteFieldId: 'f_note',
+			frontmatterKey: 'owner',
+		};
+		const table = doc('Notes', [title, note, prop], [record('r1', { f_title: 'One', f_note: 'Notes/One' })]);
+		const reader = new CellReader({
+			...hostFor({}),
+			noteProperty: () => null,
+		});
+		const reading = reader.notePropReading(table, prop, 'r1');
+		expect(reading.text).toBe('');
+		expect(reading.hint).toContain('nested');
+	});
 });

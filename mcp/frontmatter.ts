@@ -97,11 +97,12 @@ function inlineList(text: string): string[] {
 /**
  * The value of one top-level frontmatter key.
  *
- * A missing note, a missing key and a value this subset cannot read all answer
- * empty; the caller is responsible for saying that only simple frontmatter values
- * are read rather than turning an unsupported object into a quiet blank.
+ * A missing note, a missing key and an empty value all answer `''`. `null` means
+ * the key exists but its value is a nested mapping or another shape this subset
+ * cannot read, so the caller can say that the cell is unreadable rather than
+ * passing it off as genuinely empty.
  */
-export function frontmatterValue(text: string, key: string): string {
+export function frontmatterValue(text: string, key: string): string | null {
 	const block = frontmatterBlock(text);
 	if (block === null) {
 		return '';
@@ -137,7 +138,7 @@ export function frontmatterValue(text: string, key: string): string {
 					nestedMapping = true;
 				}
 			}
-			return nestedMapping && items.length === 0 ? '' : items.join(', ');
+			return nestedMapping ? null : items.join(', ');
 		}
 		if (value.startsWith('|') || value.startsWith('>')) {
 			const folded = value.startsWith('>');
@@ -155,7 +156,7 @@ export function frontmatterValue(text: string, key: string): string {
 			return inlineList(value).join(', ');
 		}
 		if (value.startsWith('{') && value.endsWith('}')) {
-			return '';
+			return null;
 		}
 		return scalar(value);
 	}

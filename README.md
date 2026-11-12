@@ -253,10 +253,12 @@ back in `refused`.
   number and date, whose own parser has no empty value; a clear is what the app
   does when a cell is emptied.
 - **A computed column reads back as the value the screen shows.** Numbering is
-  counted here too. A rollup, lookup or relation that reads a computed column in
-  another table carries `computedFrom`, which names the table and column; the
-  value is computed, not stored, so it cannot be written here. A note property
-  reads top-level frontmatter values; nested mappings read as empty.
+  counted here too. Each field says whether it is `readable` and `writable`, and
+  carries `readLimit`/`writeLimit` when a value has a limit. A rollup, lookup or
+  relation that reads a computed column in another table carries `computedFrom`,
+  which names the table and column; the value is computed, not stored, so it cannot
+  be written here. A note property reads top-level frontmatter values; nested
+  mappings read as empty and are named in that row's `notes`.
 - **A write is refused if the file changed after it was read.** The server re-reads
   the file immediately before writing; if another writer — Obsidian, a sync client,
   another assistant — saved it in between, nothing is written and the call fails.
