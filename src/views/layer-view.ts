@@ -46,22 +46,15 @@ import {
 	relationIds,
 	usesOptions,
 } from '../model/fields';
-import {readsFromView} from '../model/capabilities';
-import {computeFormulaWithReader, type FormulaValue} from '../model/formula';
-import {aggregateRollup, type RollupValue} from '../model/rollup';
-import {numberTexts} from '../model/numbering';
+import type { FormulaValue } from '../model/formula';
 import {noteLabel} from '../model/note-path';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
 import {filterRecords} from '../model/filter';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
+import { CellReader as CellTableReader } from '../model/cell-reader';
 import {
-	relationBackIndex,
-	relationBackRows,
-	type BacklinkRow,
-	lookupChips,
 	relationCandidates as candidatesOf,
-	relationText as textOf,
 	repairRelationPaths,
 	type RelationCandidate,
 	type CellReader,
@@ -143,29 +136,12 @@ export class LayerView extends TextFileView {
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
 	private readonly history = new History();
+	/** Reads every cell the document cannot read by itself. */
+	private readonly reader: CellTableReader;
 	/** The copy taken before an edit, waiting to be recorded once it lands. */
 	private pendingEdit: { label: string; before: Snapshot } | null = null;
-	/** How deep a cell is being read through other tables; stops a cycle. */
-	private readDepth = 0;
 	private grid: GridRenderer | null = null;
 	private kanban: KanbanRenderer | null = null;
-	/** Reverse lookups for the current render pass, per source column. */
-	private readonly backIndexes = new Map<
-		string,
-		Map<string, string[]> | null
-	>();
-	/** The pointing rows themselves, per source column, for the current render pass. */
-	private readonly backRows = new Map<
-		string,
-		Map<string, BacklinkRow[]> | null
-	>();
-	/**
-	 * The number each row shows, per numbering column, for the current render pass.
-	 *
-	 * Counted once rather than per cell: the count walks every row in the group, and
-	 * asking that per cell would make a table cost its own square.
-	 */
-	private readonly numbers = new Map<string, Map<string, string>>();
 	/** A repaint is already scheduled, so a burst of changes paints once. */
 	private repaintQueued = false;
 	/** Guards a redraw so a commit that triggers one cannot re-enter it. */
@@ -174,6 +150,17 @@ export class LayerView extends TextFileView {
 
 	constructor(leaf: WorkspaceLeaf, private readonly plugin: LayerBasePlugin) {
 		super(leaf);
+		this.reader = new CellTableReader({
+			table: (field, from, direction) =>
+				direction === 'back'
+					? this.sourceDoc(field, from)
+					: this.targetDoc(field, from),
+			noteProperty: (path, key) => this.notePropertyValue(path, key),
+			formulaError: (error) => ({
+				text: formulaErrorShort(error),
+				hint: formulaErrorMessage(error),
+			}),
+		});
 	}
 
 	getViewType(): string {
@@ -901,9 +888,7 @@ export class LayerView extends TextFileView {
 		const offset = this.grid?.offset() ?? { left: 0, top: 0 };
 
 		// The reverse lookups belong to the tree about to be thrown away.
-		this.backIndexes.clear();
-		this.backRows.clear();
-		this.numbers.clear();
+		this.reader.reset();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
 
@@ -2167,48 +2152,7 @@ export class LayerView extends TextFileView {
 		field: Field,
 		record: LayerRecord,
 	): string | null {
-		/*
-		 * Two tables can point at each other, and a formula that reads a lookup into
-		 * the table pointing back would otherwise ask forever. Past a few hops the
-		 * answer falls back to the stored value, which is what a column that cannot be
-		 * read shows anyway.
-		 */
-		if (this.readDepth > 8) {
-			return null;
-		}
-		this.readDepth += 1;
-		try {
-			return this.readCellTextIn(doc, field, record);
-		} finally {
-			this.readDepth -= 1;
-		}
-	}
-
-	private readCellTextIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-	): string | null {
-		switch (field.type) {
-			case 'noteProp':
-				return this.notePropValueIn(doc, field, record.id);
-			case 'autoNumber':
-				return this.autoNumberTextIn(doc, field, record.id);
-			case 'relation':
-				return this.relationTextIn(doc, field, record.cells[field.id] ?? '')
-					.text;
-			case 'relationBack':
-				return this.backTextIn(doc, field, record.id).text;
-			case 'formula':
-				return this.formulaTextIn(doc, field, record.id).text;
-			case 'rollup':
-				return this.rollupTextIn(doc, field, record.id).text;
-			case 'lookup':
-				return this.lookupTextIn(doc, field, record.id).text;
-			default:
-				// Every stored type is read by the document itself.
-				return null;
-		}
+		return this.reader.reading(doc, field, record)?.text ?? null;
 	}
 
 	/** The same question, asked of the table that is open. */
@@ -2225,9 +2169,7 @@ export class LayerView extends TextFileView {
 	 * title a numbering column — one answer, every table.
 	 */
 	private readerIn(doc: LayerDoc): CellReader {
-		return (field, record) =>
-			this.cellTextIn(doc, field, record) ??
-			formatCell(field, record.cells[field.id] ?? '');
+		return this.reader.readerIn(doc);
 	}
 
 	/**
@@ -2289,31 +2231,23 @@ export class LayerView extends TextFileView {
 	 * The value a note property row reads.
 	 *
 	 * It is not in this document: it lives in the frontmatter of the note the row's note
-	 * column names. A row with no note, a note that is not there, or a note without that
-	 * key all read as nothing, which is what an empty cell already means.
+	 * column names. The reader asks this view for that file's text through
+	 * `notePropertyValue`.
 	 */
 	private notePropValueIn(
 		doc: LayerDoc,
 		field: Field,
 		recordId: string,
 	): string {
-		const record = findRecord(doc, recordId);
-		if (!record) {
-			return '';
-		}
-		const source = doc.fields.find((candidate) => candidate.id === field.noteFieldId);
-		if (!source || source.type !== 'note') {
-			return '';
-		}
-		const path = record.cells[source.id];
-		if (typeof path !== 'string' || path === '') {
-			return '';
-		}
+		return this.reader.notePropReading(doc, field, recordId).text;
+	}
+
+	/** One frontmatter value, for the reader's note-property case. */
+	private notePropertyValue(path: string, key: string): string {
 		const file = this.resolveNote(path);
 		if (!file) {
 			return '';
 		}
-		const key = field.frontmatterKey ?? field.name;
 		return frontmatterText(this.app.metadataCache.getFileCache(file)?.frontmatter?.[key]);
 	}
 
@@ -2370,48 +2304,7 @@ export class LayerView extends TextFileView {
 	 * must read the values as they are now.
 	 */
 	private formulaTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!record || !target) {
-			return {text: '', broken: 0};
-		}
-		/*
-		 * A column with no expression yet is not an error, it is a column waiting to
-		 * be set up, so it reads as empty rather than reporting a failure in every
-		 * row of a field that was just created.
-		 */
-		if ((target.formula ?? '').trim() === '') {
-			return {text: '', broken: 0};
-		}
-		const result = computeFormulaWithReader(doc, record, target, (other) =>
-			this.formulaCellValueIn(doc, other, record, recordId),
-		);
-		if (result.ok) {
-			/*
-			 * The text is always what was computed; only the dressing follows the
-			 * column's declared kind. Coercing here would quietly change a result
-			 * the reader can see, which is worse than presenting it plainly.
-			 */
-			return {
-				text: result.text,
-				broken: 0,
-				kind: target.formulaType ?? result.kind,
-				ticked: result.truthy,
-			};
-		}
-		/*
-		 * A broken formula says so in the cell, and is marked so it reads as a
-		 * problem rather than as a value that happens to start with `#`.
-		 *
-		 * The cell names the KIND of mistake — a raw code like `trailing-text` tells
-		 * a reader nothing — and the sentence explaining it travels as the hover and
-		 * the accessible name.
-		 */
-		return {
-			text: formulaErrorShort(result.error),
-			broken: 1,
-			hint: formulaErrorMessage(result.error),
-		};
+		return this.reader.formulaReading(doc, field, recordId);
 	}
 
 	/** The same answer for the table that is open. */
@@ -2422,75 +2315,25 @@ export class LayerView extends TextFileView {
 			: this.formulaTextIn(doc, field, recordId);
 	}
 
-	/**
-	 * What one column hands a formula.
-	 *
-	 * Asked only for the columns the document cannot read on its own: a relation
-	 * keeps row ids where the grid shows names, and a lookup, rollup, reverse
-	 * relation, note property or numbering keeps nothing at all. Every other type
-	 * answers `undefined` and is read from its stored cell — which matters, because
-	 * a number column must arrive as a number or `+` would join it as text instead
-	 * of adding it.
-	 *
-	 * A rollup's total goes back to being a number for that same reason: on screen
-	 * it is dressed text, but a formula that adds to it means arithmetic.
-	 *
-	 * A numbering cell answers with the padded text the cell shows, not with the
-	 * bare number: what a reader builds from it is an identifier — `{Module}-{No}`
-	 * has to read `MOD-01`, not `MOD-1` — and `{No} * 1` is there for the rare
-	 * formula that means arithmetic.
-	 */
+	/** What one column hands a formula. */
 	private formulaCellValueIn(
 		doc: LayerDoc,
 		field: Field,
 		record: LayerRecord,
 		recordId: string,
 	): FormulaValue | undefined {
-		switch (field.type) {
-			case 'relation':
-				return this.relationTextIn(doc, field, record.cells[field.id] ?? '')
-					.text;
-			case 'relationBack':
-				return this.backTextIn(doc, field, recordId).text;
-			case 'lookup':
-				return this.lookupTextIn(doc, field, recordId).text;
-			case 'autoNumber':
-				return this.autoNumberTextIn(doc, field, recordId);
-			case 'rollup': {
-				const answer = this.rollupAnswerIn(doc, field, record, recordId);
-				if (answer === null) {
-					return '';
-				}
-				return answer.kind === 'number' ? Number(answer.text) : answer.text;
-			}
-			case 'noteProp':
-				return this.notePropValueIn(doc, field, recordId);
-			default:
-				return undefined;
-		}
+		return this.reader.formulaCellValueIn(doc, field, record, recordId);
 	}
 
 	/**
 	 * What a numbering cell reads: its position within its group, padded.
-	 *
-	 * Counted for the whole column at once and kept for this render pass, because
-	 * the count walks every row of the group — asking that per cell would make the
-	 * table cost its own square.
 	 */
 	private autoNumberTextIn(
 		doc: LayerDoc,
 		field: Field,
 		recordId: string,
 	): string {
-		let texts = this.numbers.get(field.id);
-		if (!texts) {
-			// The live column, not the copy the paint was handed, so a setting
-			// changed since the tree was built cannot be counted with.
-			const target = doc.fields.find((other) => other.id === field.id) ?? field;
-			texts = numberTexts(doc, target);
-			this.numbers.set(field.id, texts);
-		}
-		return texts.get(recordId) ?? '';
+		return this.reader.autoNumberReading(doc, field, recordId).text;
 	}
 
 	/** The same answer for the table that is open. */
@@ -2504,59 +2347,9 @@ export class LayerView extends TextFileView {
 		return {text: this.autoNumberText(field, recordId), broken: 0, kind: 'number'};
 	}
 
-	/**
-	 * What a rollup gathered from the rows this row is linked to.
-	 */
+	/** What a rollup gathered from the rows this row is linked to. */
 	private rollupTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		if (!record) {
-			return {text: '', broken: 0};
-		}
-		const answer = this.rollupAnswerIn(doc, field, record, recordId);
-		if (answer === null) {
-			return {text: '', broken: 0};
-		}
-		return {text: answer.text, broken: 0, kind: answer.kind};
-	}
-
-	/**
-	 * The total a rollup reached, before it is dressed for the cell.
-	 *
-	 * Null covers both "this column is not set up" and "the other table cannot be
-	 * read": either way the column has nothing to show, and neither is an error.
-	 */
-	private rollupAnswerIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-		recordId: string,
-	): RollupValue | null {
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!target) {
-			return null;
-		}
-		const sourceField = doc.fields.find(
-			(candidate) => candidate.id === target.rollupSourceFieldId,
-		);
-		// Not configured yet, or pointing at a column that is gone: a column waiting
-		// to be set up reads as empty, not as a failure in every row.
-		if (!sourceField || !target.rollupFieldId) {
-			return null;
-		}
-		const gathered = this.gatheredValuesIn(
-			doc,
-			sourceField,
-			target.rollupFieldId,
-			record,
-			recordId,
-		);
-		if (gathered === null) {
-			return null;
-		}
-		return aggregateRollup(
-			gathered.map((entry) => entry.text ?? entry.value),
-			target.rollupAggregate ?? 'sum',
-		);
+		return this.reader.rollupReading(doc, field, recordId);
 	}
 
 	/** The same answer for the table that is open. */
@@ -2575,54 +2368,7 @@ export class LayerView extends TextFileView {
 	 * Nothing about it is stored, so it cannot go stale when the other table moves.
 	 */
 	private lookupTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!record || !target) {
-			return {text: '', broken: 0};
-		}
-		const sourceField = doc.fields.find(
-			(candidate) => candidate.id === target.lookupSourceFieldId,
-		);
-		const columnId = target.lookupFieldId ?? '';
-		// Not set up yet, or pointing at a column that is gone: an unconfigured
-		// column reads as empty, not as a failure in every row.
-		if (!sourceField || columnId === '') {
-			return {text: '', broken: 0};
-		}
-		const other =
-			sourceField.type === 'relation'
-				? this.targetDoc(sourceField, doc)
-				: this.sourceDoc(sourceField, doc);
-		const gathered = this.gatheredValuesIn(
-			doc,
-			sourceField,
-			columnId,
-			record,
-			recordId,
-		);
-		if (!other || gathered === null) {
-			return {text: '', broken: 0};
-		}
-		/*
-		 * Read through the formatter of the column the values came from, not
-		 * through a link reader: a gathered value is the value itself, while a
-		 * link reader expects a cell holding a list of row ids and answers
-		 * with nothing for anything else.
-		 */
-		const column = other.fields.find(
-			(candidate) => candidate.id === columnId,
-		);
-		if (!column) {
-			return {text: '', broken: 0};
-		}
-		const chips = lookupChips(
-			column,
-			gathered.map((entry) => entry.value),
-			(linked, value) =>
-				this.relationTextIn(other, linked, value).chips ?? [],
-			gathered.map((entry) => entry.text),
-		);
-		return {text: chips.join(', '), broken: 0, chips};
+		return this.reader.lookupReading(doc, field, recordId);
 	}
 
 	/** The same answer for the table that is open. */
@@ -2631,77 +2377,6 @@ export class LayerView extends TextFileView {
 		return doc === null
 			? {text: '', broken: 0}
 			: this.lookupTextIn(doc, field, recordId);
-	}
-
-	/**
-	 * The values a rollup reduces, or null when the other table cannot be read.
-	 *
-	 * Null is not the same as an empty list: an empty list means the other table was
-	 * read and had nothing to contribute, which a count answers as zero.
-	 */
-	private gatheredValuesIn(
-		doc: LayerDoc,
-		sourceField: Field,
-		columnId: string,
-		record: LayerRecord,
-		recordId: string,
-	): readonly {value: CellValue; text: string | null}[] | null {
-		if (sourceField.type === 'relation') {
-			const other = this.targetDoc(sourceField, doc);
-			if (!other) {
-				return null;
-			}
-			return relationIds(record.cells[sourceField.id] ?? '').map((id) =>
-				this.gatheredIn(other, columnId, findRecord(other, id)),
-			);
-		}
-
-		if (sourceField.type === 'relationBack') {
-			const other = this.sourceDoc(sourceField, doc);
-			if (!other) {
-				return null;
-			}
-			const key = `${sourceField.id}\u0000${sourceField.backFieldId ?? ''}`;
-			let rows = this.backRows.get(key);
-			if (rows === undefined) {
-				rows = relationBackRows(other, sourceField.backFieldId ?? '');
-				this.backRows.set(key, rows);
-			}
-			if (rows === null) {
-				return null;
-			}
-			return (rows.get(recordId) ?? []).map((row) =>
-				this.gatheredIn(other, columnId, row.record),
-			);
-		}
-
-		// A source column that is neither kind is a configuration this column cannot
-		// answer, so it reads as empty rather than guessing at a direction.
-		return null;
-	}
-
-	/**
-	 * One gathered value, plus the text to use when that column computes it.
-	 *
-	 * `text` is null for every column that stores what it shows, so the caller reads
-	 * the stored value — a number column has to stay a number or a total stops being
-	 * arithmetic. A computed column has nothing stored, so what its cell reads as is
-	 * all there is; without this, a lookup or rollup over a formula gathered blanks.
-	 */
-	private gatheredIn(
-		doc: LayerDoc,
-		columnId: string,
-		record: LayerRecord | undefined,
-	): {value: CellValue; text: string | null} {
-		if (!record) {
-			return {value: '', text: null};
-		}
-		const stored = record.cells[columnId] ?? '';
-		const column = doc.fields.find((candidate) => candidate.id === columnId);
-		if (!column || !readsFromView(column.type)) {
-			return {value: stored, text: null};
-		}
-		return {value: stored, text: this.cellTextIn(doc, column, record) ?? ''};
 	}
 
 	private relationCandidates(field: Field): readonly RelationCandidate[] {
@@ -2718,21 +2393,7 @@ export class LayerView extends TextFileView {
 		field: Field,
 		value: CellValue,
 	): CellText {
-		const target = this.targetDoc(field, doc);
-		if (!target) {
-			return {text: '', broken: relationIds(value).length};
-		}
-		const resolved = textOf(
-			target,
-			field.linkFieldId ?? '',
-			value,
-			this.readerIn(target),
-		);
-		return {
-			text: resolved.texts.join(', '),
-			broken: resolved.broken,
-			chips: resolved.texts,
-		};
+		return this.reader.relationReading(doc, field, value);
 	}
 
 	/** The same answer for the table that is open. */
@@ -2745,35 +2406,7 @@ export class LayerView extends TextFileView {
 
 	/** What a reverse relation row shows: the rows elsewhere that point at it. */
 	private backTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const source = this.sourceDoc(field, doc);
-		if (source === null) {
-			return {text: '', broken: 1};
-		}
-		/*
-		 * Built once per column per render, not once per cell: asking per cell
-		 * would scan the whole source table for every row of this one.
-		 */
-		const titleFieldId = field.backTitleFieldId ?? '';
-		const key = `${field.backPath ?? ''}\u0000${field.backFieldId ?? ''}\u0000${titleFieldId}`;
-		let index = this.backIndexes.get(key);
-		if (index === undefined) {
-			index = relationBackIndex(
-				source,
-				field.backFieldId ?? '',
-				titleFieldId,
-				this.readerIn(source),
-			);
-			this.backIndexes.set(key, index);
-		}
-		if (index === null) {
-			return {text: '', broken: 1};
-		}
-		const texts = index.get(recordId) ?? [];
-		return {
-			text: texts.join(', '),
-			broken: 0,
-			chips: texts,
-		};
+		return this.reader.backReading(doc, field, recordId);
 	}
 
 	/** The same answer for the table that is open. */

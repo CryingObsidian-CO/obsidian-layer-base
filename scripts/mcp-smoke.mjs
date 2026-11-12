@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -280,8 +280,8 @@ check(
 	'a type change to a computed column asks for the setting it cannot work without',
 );
 check(
-	textOf(24).includes('unreadable') && textOf(24).includes('tellUser'),
-	'read_table says which column it cannot read, and what to tell the reader',
+	!textOf(24).includes('"unreadable"'),
+	'read_table no longer marks a computed column unreadable',
 );
 
 check(textOf(3).includes('新表'), 'create_table reports the name it used');
@@ -463,6 +463,123 @@ if (probeDoc !== null) {
 			'the MCP update landed beside the external change',
 		);
 	}
+}
+
+/*
+ * The computed columns another table contributes to. The target table stores the
+ * numbers; the main table reaches them through a relation and reads a rollup,
+ * a lookup and a formula over that rollup. The answer has to hold both the values
+ * and the `computedFrom` chain that says where they came from. A note property is
+ * read from a real note in the temporary vault, not from the `.layer` file.
+ */
+mkdirSync(join(vault, 'computed'), { recursive: true });
+writeFileSync(join(vault, 'computed', 'Note.md'), '---\nstatus: done\n---\n');
+const computedRun = await drive([
+	call(1, 'create_table', { path: 'computed/来源.layer', name: '来源' }),
+	call(2, 'add_field', { path: 'computed/来源.layer', name: '名称', type: 'text' }),
+	call(3, 'add_field', { path: 'computed/来源.layer', name: '金额', type: 'number' }),
+	call(4, 'add_records', {
+		path: 'computed/来源.layer',
+		records: [{ 名称: '甲', 金额: '2' }, { 名称: '乙', 金额: '4' }],
+	}),
+	call(5, 'create_table', { path: 'computed/主表.layer', name: '主表' }),
+	call(6, 'add_field', { path: 'computed/主表.layer', name: '标题', type: 'text' }),
+	call(7, 'add_field', {
+		path: 'computed/主表.layer',
+		name: '条目',
+		type: 'relation',
+		targetTable: 'computed/来源.layer',
+		linkField: '名称',
+	}),
+	call(8, 'add_records', {
+		path: 'computed/主表.layer',
+		records: [{ 标题: '订单一', 条目: ['甲', '乙'] }],
+	}),
+	call(9, 'add_field', {
+		path: 'computed/主表.layer',
+		name: '汇总',
+		type: 'rollup',
+		rollupSource: '条目',
+		rollupField: '金额',
+		rollupAggregate: 'sum',
+	}),
+	call(10, 'add_field', {
+		path: 'computed/主表.layer',
+		name: '查找金额',
+		type: 'lookup',
+		lookupSource: '条目',
+		lookupField: '金额',
+	}),
+	call(11, 'add_field', {
+		path: 'computed/主表.layer',
+		name: '翻倍',
+		type: 'formula',
+		formula: '{汇总} * 2',
+		formulaType: 'number',
+	}),
+	call(12, 'add_field', { path: 'computed/主表.layer', name: '笔记', type: 'note' }),
+	call(13, 'add_field', {
+		path: 'computed/主表.layer',
+		name: '笔记状态',
+		type: 'noteProp',
+		noteField: '笔记',
+		frontmatterKey: 'status',
+	}),
+]).catch((error) => stop(error.message));
+
+const computedById = new Map(computedRun.messages.map((message) => [message.id, message]));
+const computedText = (id) => computedById.get(id)?.result?.content?.[0]?.text ?? '';
+const computedError = (id) => computedById.get(id)?.result?.isError === true;
+
+check(
+	[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].every((id) => !computedError(id)),
+	'the computed-column fixture was built',
+);
+
+const noteRun = await drive([
+	call(1, 'update_cells', {
+		path: 'computed/主表.layer',
+		updates: [
+			{
+				recordId: JSON.parse(computedText(8)).added?.[0] ?? '',
+				field: '笔记',
+				value: 'computed/Note',
+			},
+		],
+	}),
+	call(2, 'read_table', { path: 'computed/主表.layer' }),
+]).catch((error) => stop(error.message));
+const noteById = new Map(noteRun.messages.map((message) => [message.id, message]));
+const noteText = (id) => noteById.get(id)?.result?.content?.[0]?.text ?? '';
+const noteError = (id) => noteById.get(id)?.result?.isError === true;
+check(!noteError(1), 'update_cells writes a note path');
+check(!noteError(2), 'read_table reads a table with computed columns');
+
+let computedDoc = null;
+try {
+	computedDoc = JSON.parse(noteText(2));
+} catch (error) {
+	failures.push(`the computed read did not return JSON: ${String(error)}`);
+}
+if (computedDoc !== null) {
+	const cells = computedDoc.records?.[0]?.cells ?? {};
+	check(cells['汇总'] === '6', `a rollup reads its total: ${cells['汇总']}`);
+	check(cells['查找金额'] === '2, 4', `a lookup reads both values: ${cells['查找金额']}`);
+	check(cells['翻倍'] === '12', `a formula reads the rollup as a number: ${cells['翻倍']}`);
+	check(cells['笔记状态'] === 'done', `a note property reads its frontmatter: ${cells['笔记状态']}`);
+	const total = (computedDoc.fields ?? []).find((field) => field.name === '汇总');
+	check(
+		total?.computedFrom?.table === 'computed/来源.layer' &&
+			total?.computedFrom?.column === '金额',
+		'a computed column names the table and column it reads',
+	);
+	const doubled = (computedDoc.fields ?? []).find((field) => field.name === '翻倍');
+	check(
+		doubled?.computedFrom?.reads?.some(
+			(read) => read.field === '汇总' && read.computed === true,
+		) === true,
+		'a formula names the computed column it reads',
+	);
 }
 
 rmSync(vault, { recursive: true, force: true });

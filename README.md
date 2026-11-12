@@ -252,10 +252,11 @@ back in `refused`.
 - **A cell is emptied by writing `""`.** Every column type accepts it, including
   number and date, whose own parser has no empty value; a clear is what the app
   does when a cell is emptied.
-- **A computed column's value cannot be read from here.** Numbering is the
-  exception, because a row's position can be counted on either side. Every other
-  computed column carries an `unreadable` note with a `tellUser` sentence: it is
-  the assistant's job to pass that on rather than report the column as empty.
+- **A computed column reads back as the value the screen shows.** Numbering is
+  counted here too. A rollup, lookup or relation that reads a computed column in
+  another table carries `computedFrom`, which names the table and column; the
+  value is computed, not stored, so it cannot be written here. A note property
+  reads top-level frontmatter values; nested mappings read as empty.
 - **A write is refused if the file changed after it was read.** The server re-reads
   the file immediately before writing; if another writer — Obsidian, a sync client,
   another assistant — saved it in between, nothing is written and the call fails.
