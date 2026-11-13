@@ -5,7 +5,6 @@ import { addRecord, addRecordAtTop, setCellValue } from '../src/model/records';
 import { createEmptyDoc, parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import type { Field, LayerDoc } from '../src/types';
 
-/** A table whose rows are numbered, optionally grouped by another column. */
 function board(fields: Field[]): LayerDoc {
 	const doc = createEmptyDoc('Board');
 	doc.fields = fields.map((field) => ({ ...field }));
@@ -24,7 +23,6 @@ const grouped: Field = {
 
 const groupColumn: Field = { id: 'f_group', name: 'Group', type: 'text' };
 
-/** What every row reads in that column, top to bottom. */
 function numbers(doc: LayerDoc, field: Field): string[] {
 	const texts = numberTexts(doc, field);
 	return doc.records.map((record) => texts.get(record.id) ?? '—');

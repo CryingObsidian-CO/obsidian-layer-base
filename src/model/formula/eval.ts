@@ -9,17 +9,10 @@ import {
 import { parseShownNumber } from '../number';
 import type { FormulaNode } from './parser';
 
-/** What a formula needs from the row it sits in. */
 export interface FormulaContext {
-	/** The value of another column, by field name. */
 	field(name: string): FormulaValue | undefined;
-	/** Whether a field with this name exists. */
 	hasField(name: string): boolean;
-	/**
-	 * What "now" is, for the functions that ask. Passed in rather than read from
-	 * the system clock inside the engine, so a test can say what day it is and get
-	 * the same answer twice.
-	 */
+	/** Passed in, not read from the clock, so a test gets the same answer twice. */
 	now: Date;
 }
 
@@ -31,7 +24,6 @@ function fail(code: string, detail?: string, at?: number): EvalResult {
 	return { ok: false, error: { code, detail, at } };
 }
 
-/** How a value reads in text: numbers without trailing noise, booleans as words. */
 export function toText(value: FormulaValue): string {
 	if (typeof value === 'number') {
 		return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
@@ -42,7 +34,6 @@ export function toText(value: FormulaValue): string {
 	return value;
 }
 
-/** The number a value stands for, or null when it does not stand for one. */
 function toNumber(value: FormulaValue): number | null {
 	if (typeof value === 'number') {
 		return Number.isFinite(value) ? value : null;
@@ -54,15 +45,11 @@ function toNumber(value: FormulaValue): number | null {
 	if (trimmed === '') {
 		return 0;
 	}
-	/*
-	 * The same reading the cells use, so a text cell holding "50%" is the same
-	 * quantity as a percent cell showing it: half, not fifty. A formula that
-	 * multiplies by a percentage is the whole point of the type.
-	 */
+	// The same reading the cells use, so "50%" is half, not fifty.
 	return parseShownNumber(trimmed);
 }
 
-/** What a value means as a yes or no, shared so a forced checkbox follows it too. */
+/** The one reading of truth, shared so a forced checkbox follows it too. */
 export function toBoolean(value: FormulaValue): boolean {
 	if (typeof value === 'boolean') {
 		return value;
@@ -74,22 +61,13 @@ export function toBoolean(value: FormulaValue): boolean {
 	return !(lowered === '' || lowered === 'false' || lowered === '0' || lowered === 'no');
 }
 
-/** Arguments of a function, evaluated in order and reported as a list. */
 function evalArgs(args: readonly FormulaNode[], context: FormulaContext): EvalResult[] {
 	return args.map((arg) => evaluate(arg, context));
 }
 
 /**
- * The built-in functions.
- *
- * Kept small and total: each one either answers or reports why it could not, and
- * none of them can reach outside the row it was given.
- *
- * Two shapes. Most take their arguments' values, which are all evaluated first.
- * The four that can answer without reading everything — IF, COALESCE, AND, OR —
- * take the arguments as written instead, so a branch they never take cannot fail
- * the formula: `IF({done}, 1/0, 0)` is a value when the box is unticked, not an
- * error about a division that was never asked for.
+ * Four functions (IF, COALESCE, AND, OR) take their arguments unevaluated, so a branch never
+ * taken cannot fail: `IF({done}, 1/0, 0)` is a value when the box is unticked.
  */
 type Builtin =
 	| {
@@ -106,7 +84,6 @@ type Builtin =
 			) => EvalResult;
 	  };
 
-/** One part of a date, refusing a value that is not a date. */
 function datePart(
 	value: FormulaValue,
 	which: 'year' | 'month' | 'day',
@@ -119,12 +96,7 @@ function datePart(
 		: { ok: true, value: part };
 }
 
-/**
- * What to name when a date was expected and something else was given.
- *
- * Two dates are checked for `DATEDIFF`, and only the offending one is worth
- * naming; when both look wrong the first is named, which is the one to look at.
- */
+/** Names the offending date; when both look wrong, the first is the one to look at. */
 function notADate(...values: readonly string[]): string {
 	return values.find((value) => partOf(value, 'year') === null) ?? values[0] ?? '';
 }
@@ -288,8 +260,7 @@ const BUILTINS: Record<string, Builtin> = {
 		max: 1,
 		run: (values) => ({ ok: true, value: !toBoolean(values[0] as FormulaValue) }),
 	},
-	// Empty is about the text a value reads as, so an unticked box is not blank
-	// and an empty cell is.
+	// Empty means the text reads blank: an unticked box is not blank, an empty cell is.
 	ISBLANK: {
 		min: 1,
 		max: 1,
@@ -298,14 +269,13 @@ const BUILTINS: Record<string, Builtin> = {
 			value: toText(values[0] as FormulaValue).trim() === '',
 		}),
 	},
-	// The empty value itself, for writing `IF(x, y, BLANK())` explicitly.
+	// The empty value itself, for `IF(x, y, BLANK())`.
 	BLANK: {
 		min: 0,
 		max: 0,
 		run: () => ({ ok: true, value: '' }),
 	},
-	// How many of the given values are filled. Without column references this is
-	// what counting can honestly mean, and `COUNT({a}, {b})` still answers it.
+	// Filled arguments; without column references this is what counting can honestly mean.
 	COUNT: {
 		min: 1,
 		max: Infinity,
@@ -324,8 +294,7 @@ const BUILTINS: Record<string, Builtin> = {
 		max: 0,
 		run: (_values, _at, now) => ({ ok: true, value: nowIso(now) }),
 	},
-	// A date column holds text, so these read that text rather than a number. A
-	// value that is not a date is refused instead of being guessed at.
+	// A date column holds text, so these read that text; anything that is not a date is refused.
 	YEAR: {
 		min: 1,
 		max: 1,
@@ -371,18 +340,13 @@ const BUILTINS: Record<string, Builtin> = {
 	},
 };
 
-/** The names a formula may call, for the editor to list. */
 export const FORMULA_FUNCTIONS: readonly string[] = Object.keys(BUILTINS).sort();
 
 /**
- * How the functions are grouped where they are offered, by what they are for.
- *
- * Declared next to the functions themselves rather than in the panel, so the two
- * can be checked against each other: every function must sit in exactly one
- * group, and a group must not name a function that does not exist.
+ * Declared here, beside the functions, so a check can prove every function sits in exactly one
+ * group and no group names a function that does not exist.
  */
 export const FORMULA_FUNCTION_GROUPS: readonly {
-	/** The locale key naming the group. */
 	labelKey: string;
 	functions: readonly string[];
 }[] = [
@@ -405,16 +369,10 @@ export const FORMULA_FUNCTION_GROUPS: readonly {
 ];
 
 /**
- * The symbols a formula is written with, grouped the way the functions are.
- *
- * Offered as buttons so the syntax does not have to be known in order to be used,
- * and each carries the key of a sentence saying what it does — a symbol on its own
- * tells a reader that it exists, not what it is for. `hintKey` is declared here
- * rather than looked up from the symbol so the check script can prove that every
- * one of them has wording in all three locales.
+ * Offered as buttons, so each symbol carries the locale key of its own sentence; declaring the key
+ * here lets the check script prove every symbol has wording in all three locales.
  */
 export const FORMULA_SYMBOL_GROUPS: readonly {
-	/** The locale key naming the group. */
 	labelKey: string;
 	symbols: readonly { symbol: string; hintKey: string }[];
 }[] = [
@@ -452,7 +410,6 @@ export const FORMULA_SYMBOL_GROUPS: readonly {
 	},
 ];
 
-/** The total a formula is allowed to compute, used only as a guard. */
 export function evaluate(node: FormulaNode, context: FormulaContext): EvalResult {
 	switch (node.kind) {
 		case 'number':
@@ -495,15 +452,10 @@ export function evaluate(node: FormulaNode, context: FormulaContext): EvalResult
 				return fail('unknown-function', node.name, node.at);
 			}
 			if (node.args.length < builtin.min || node.args.length > builtin.max) {
-				// Only the name: the locale wording already says it took the wrong
-				// number of arguments, and a sentence here would be wrapped in that
-				// sentence and read as a mangled half-English remark.
+				// Only the name: the locale sentence already says the argument count was wrong.
 				return fail('bad-arity', node.name, node.at);
 			}
-			/*
-			 * An answer that does not need every argument: the branch not taken is
-			 * never evaluated, so it cannot fail the formula either.
-			 */
+			// A branch not taken is never evaluated, so it cannot fail the formula either.
 			if ('lazy' in builtin) {
 				return builtin.lazy(node.args, (arg) => evaluate(arg, context));
 			}
@@ -524,8 +476,6 @@ function applyBinary(op: string, left: FormulaValue, right: FormulaValue, at: nu
 	switch (op) {
 		case '==':
 		case '=':
-			// = and == mean the same thing; the short form is what a spreadsheet
-			// user reaches for.
 			return { ok: true, value: compareEqual(left, right) };
 		case '!=':
 			return { ok: true, value: !compareEqual(left, right) };
@@ -537,9 +487,8 @@ function applyBinary(op: string, left: FormulaValue, right: FormulaValue, at: nu
 			const b = toNumber(right);
 			if (a === null || b === null) {
 				/*
-				 * Two values that are not numbers compare as text, which is what
-				 * makes `{due} < TODAY()` work at all: a date column holds ISO
-				 * text, and ISO text sorts in date order.
+				 * Not numbers: compare as text, which is what makes `{due} < TODAY()` work — ISO text
+				 * sorts in date order.
 				 */
 				const x = toText(left);
 				const y = toText(right);
@@ -566,8 +515,7 @@ function applyBinary(op: string, left: FormulaValue, right: FormulaValue, at: nu
 			return { ok: true, value: a >= b };
 		}
 		case '+': {
-			// `+` joins text when either side is text, which is what a reader
-			// expects from `{标题} + "-" + {编号}`.
+			// `+` joins text when either side is text, which is what `{标题} + "-" + {编号}` expects.
 			if (typeof left === 'string' || typeof right === 'string') {
 				return { ok: true, value: toText(left) + toText(right) };
 			}

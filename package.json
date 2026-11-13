@@ -1,13 +1,13 @@
 {
   "name": "layer-base",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Multi-dimensional tables in self-contained .layer files: 16 column types, formulas, relations and rollups.",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "version": "node version-bump.mjs && git add manifest.json versions.json",
+    "version": "node version-bump.mjs && git add manifest.json versions.json mcp/server.ts",
     "test": "vitest run",
     "lint": "eslint .",
     "verify:css": "node scripts/verify-css-vars.mjs",

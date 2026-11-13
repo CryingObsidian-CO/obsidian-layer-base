@@ -5,15 +5,10 @@ import { dayNumber } from './date';
 import { parseShownNumber } from './number';
 
 /**
- * What a column's footer reports.
- *
- * Nothing is totalled unless the reader asks for it: a table that added up every
- * numeric column by itself would put numbers under columns nobody wanted counted,
- * and that choice belongs to whoever is reading the table. The figures come from the
- * rows on screen, so a filtered table totals what is in front of it.
+ * Nothing is totalled unless the reader asks for it; the figures come from the rows on
+ * screen, so a filtered table totals what is in front of it.
  */
 
-/** The ways a column can be summarised. */
 export type SummaryKind =
 	| 'none'
 	| 'filled'
@@ -27,28 +22,15 @@ export type SummaryKind =
 	| 'latest'
 	| 'range';
 
-/**
- * The choices offered for a column.
- *
- * The counts are always offered because every column can answer them. Adding up is
- * offered only where it means something, and a date is summarised as a span rather
- * than a quantity: two dates added together are not a day.
- */
 export function summaryChoicesFor(field: Field): readonly SummaryKind[] {
 	return capabilityOf(field.type).summaries;
 }
 
-/** Whether a column may be summarised the given way. */
 export function canSummarize(field: Field, kind: SummaryKind): boolean {
 	return kind === 'none' || summaryChoicesFor(field).includes(kind);
 }
 
-/**
- * The text a column's footer shows for the given rows.
- *
- * An empty answer is returned as an empty string rather than as a dash: the footer
- * is a quiet strip, and a column with nothing to report should stay blank.
- */
+/** An empty answer is a blank footer, not a dash. */
 export function summarize(
 	field: Field,
 	records: readonly LayerRecord[],
@@ -60,10 +42,8 @@ export function summarize(
 	}
 
 	/*
-	 * A computed column stores nothing — its values are worked out by the view, which
-	 * is out of reach here. Given a reader, those values are asked for and the total
-	 * is about what is on screen; without one, the counts still answer, by counting
-	 * the stored cell of a computed column as empty.
+	 * A computed column stores nothing; with `textOf` the total is about what is on screen,
+	 * without one the stored cell counts as empty.
 	 */
 	const texts: string[] = [];
 	for (const record of records) {
@@ -83,10 +63,7 @@ export function summarize(
 		return String(texts.length - filled.length);
 	}
 	if (kind === 'unique') {
-		/*
-		 * How many values appear exactly once — not how many distinct values there are.
-		 * `A, A, B` holds one unique value, B, even though it holds two distinct ones.
-		 */
+		// How many values appear exactly once, not how many distinct ones: `A, A, B` holds one unique value, B.
 		const seen = new Map<string, number>();
 		for (const text of filled) {
 			seen.set(text, (seen.get(text) ?? 0) + 1);
@@ -141,18 +118,13 @@ export function summarize(
 }
 
 /**
- * A total written in the column's own terms.
- *
- * A number column formats the figure the way its cells read, so a per cent total
- * keeps its sign. An auto-numbered column has no cell to format — its numbers come
- * from the view — so the figure is written plainly, without the padding a serial
- * number carries: a total is not a serial.
+ * A total is written in the column's own terms; an auto-numbered column has no cell to format,
+ * and a total is not a serial, so it is not padded.
  */
 function figureOf(field: Field, value: number): string {
 	return field.type === 'autoNumber' ? String(value) : formatCell(field, value);
 }
 
-/** The numbers a column holds, skipping blanks and anything that is not a number. */
 function numericValues(
 	field: Field,
 	records: readonly LayerRecord[],
@@ -161,20 +133,13 @@ function numericValues(
 	const numbers: number[] = [];
 	for (const record of records) {
 		const value: CellValue = record.cells[field.id] ?? '';
-		/*
-		 * A stored number is the value itself. Its display text is a rounding of it —
-		 * and in a per cent column that text carries a `%`, which reads as no number
-		 * at all, so a footer drawn from the text found nothing to add and stayed
-		 * blank for every percentage the column held.
-		 */
+		/* A stored number is the value itself; its display text may be rounded, and a per cent
+		 * column's text carries a `%` that parses as no number at all. */
 		if (typeof value === 'number' && Number.isFinite(value)) {
 			numbers.push(value);
 			continue;
 		}
-		/*
-		 * Nothing stored to read: a computed column's value arrives as the text the
-		 * view draws, and an auto-numbered cell has no cell of its own either.
-		 */
+		// Nothing stored to read: a computed column's value arrives as the text the view draws.
 		let text = '';
 		if (textOf) {
 			text = textOf(record).trim();
@@ -201,7 +166,6 @@ function sumOf(numbers: readonly number[]): number {
 	return total;
 }
 
-/** A number without floating-point noise trailing behind it. */
 function round(value: number): number {
 	return Number.isInteger(value) ? value : Number(value.toFixed(6));
 }

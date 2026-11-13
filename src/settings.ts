@@ -4,21 +4,15 @@ import LayerBasePlugin from './main';
 import type { NoteLabelStyle } from './types';
 
 export interface LayerBaseSettings {
-	/** Folder for newly created boards. Empty means the vault root. */
+	/** Folder for newly created boards; empty means the vault root. */
 	defaultFolder: string;
-	/**
-	 * Base name for newly created boards; a numeric suffix is added if taken.
-	 * Empty means the name in the reader's own language.
-	 */
+	/** Base name for new boards, suffixed if taken; empty means the name in the reader's language. */
 	defaultFileName: string;
-	/** What a `note` cell shows: the file's own name, or the path it lives at. */
 	noteLabel: NoteLabelStyle;
 }
 
-/**
- * The built-in base name from before it was localized. Saved settings hold a copy,
- * so this exact value is cleared on load; anything else was typed by hand.
- */
+/** The built-in base name from before it was localized. Saved settings hold a copy, so this exact
+ * value is cleared on load; anything else was typed by hand. */
 export const LEGACY_DEFAULT_FILE_NAME = 'Untitled board';
 
 export const DEFAULT_SETTINGS: LayerBaseSettings = {
@@ -27,7 +21,6 @@ export const DEFAULT_SETTINGS: LayerBaseSettings = {
 	noteLabel: 'name',
 };
 
-/** Keys of the settings object, used as control keys in the declarative API. */
 type SettingsKey = keyof LayerBaseSettings;
 
 export class LayerBaseSettingTab extends PluginSettingTab {
@@ -44,12 +37,8 @@ export class LayerBaseSettingTab extends PluginSettingTab {
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
-		/*
-		 * Written through an index rather than by the key's own type: the settings hold
-		 * values of different types, and a union of keys narrows to what every one of
-		 * them accepts — which is only the narrowest, so a plain string would not be
-		 * assignable to the dropdown's two spellings.
-		 */
+		/* Written through an index rather than the key's own type: a union of keys narrows to what every
+		 * one of them accepts, so a plain string would not be assignable to the dropdown's two spellings. */
 		const settings = this.plugin.settings as unknown as Record<string, unknown>;
 		settings[key] = value;
 		await this.plugin.saveSettings();

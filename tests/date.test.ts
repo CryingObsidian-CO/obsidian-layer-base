@@ -243,8 +243,7 @@ describe('day arithmetic without a clock', () => {
 	});
 
 	it('does not shift with a daylight-saving change', () => {
-		// The reason this does not use Date: a local-zone count would answer 0 or 2
-		// on the days the clocks move, depending on where the reader lives.
+		// A local-zone count would answer 0 or 2 across a daylight-saving change.
 		expect(dayNumber('2026-03-29')! - dayNumber('2026-03-28')!).toBe(1);
 		expect(dayNumber('2026-10-25')! - dayNumber('2026-10-24')!).toBe(1);
 	});
@@ -263,7 +262,6 @@ describe('day arithmetic without a clock', () => {
 		expect(dayNumber('soon')).toBeNull();
 		expect(dayNumber('2026-02-30')).toBeNull();
 		expect(addDays('soon', 1)).toBeNull();
-		// Half a day has no meaning in a column of dates.
 		expect(addDays('2026-10-18', 1.5)).toBeNull();
 	});
 
@@ -293,7 +291,6 @@ describe('a date as a number to compare by', () => {
 
 	it('keeps the time of day, and drops the seconds', () => {
 		expect(dateMinutes('2026-10-18T23:00')).toBe(29872740);
-		// The space form is how a date-time reads on screen; the same value either way.
 		expect(dateMinutes('2026-10-18 23:00')).toBe(29872740);
 		// The format stores minutes, so 23:00:59 is the minute 23:00.
 		expect(dateMinutes('2026-10-18T23:00:59')).toBe(29872740);
@@ -306,11 +303,6 @@ describe('a date as a number to compare by', () => {
 	});
 
 	it('gives no number to a value it cannot read as a date', () => {
-		/*
-		 * A made-up count is worse than none: it would place the value among real
-		 * dates and nothing would look wrong. These are refused by the editor, the
-		 * loader and the formula engine too, so sorting has to refuse them as well.
-		 */
 		for (const text of [
 			'2024-99-99T48:00',
 			'2026-13-01',
@@ -331,7 +323,6 @@ describe('a date as a number to compare by', () => {
 describe('a year before 1000', () => {
 	it('is written with four digits, so it reads back', () => {
 		expect(normaliseDate('0001-01-01')).toBe('0001-01-01');
-		// The stored form has to survive being read again: it is what the next load sees.
 		expect(normaliseDate(normaliseDate('0001-01-01') ?? '')).toBe('0001-01-01');
 	});
 

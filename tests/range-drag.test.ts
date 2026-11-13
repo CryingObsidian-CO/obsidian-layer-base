@@ -6,12 +6,7 @@ import {
 
 type AnyListener = (event: unknown) => void;
 
-/**
- * The smallest node `cellFromEvent` will accept.
- *
- * It answers the selector lookups the module makes, so no DOM engine is needed to
- * tell a press on a cell from one on the scrollbar beside it.
- */
+/** The smallest node the drag code accepts, so these tests need no DOM. */
 class FakeNode {
 	dataset: Record<string, string> = {};
 	private readonly closest_ = new Map<string, FakeNode | null>();
@@ -98,19 +93,15 @@ describe('isOnScrollbarStrip', () => {
 	});
 
 	it('excludes nothing when the cell does not scroll', () => {
-		// No scrollbar means no strip: every part of the cell is a drag handle.
 		expect(isOnScrollbarStrip(300, 300, 0)).toBe(false);
 		expect(isOnScrollbarStrip(299, 300, 0)).toBe(false);
 	});
 
 	it('says nothing is a scrollbar when the measurement is nonsense', () => {
-		// A negative gutter cannot happen, and if it did it must not swallow cells.
 		expect(isOnScrollbarStrip(300, 300, -5)).toBe(false);
 	});
 
 	it('does not reach past the cell it was asked about', () => {
-		// A point beyond the right edge is outside the cell, and must not be read
-		// as this cell's scrollbar.
 		expect(isOnScrollbarStrip(400, 300, 12)).toBe(false);
 	});
 });
@@ -142,19 +133,13 @@ describe('a range drag', () => {
 		env.press(press(fakeCell('f_a', 'r1')));
 		env.fire('keydown', { key: 'Escape', preventDefault });
 
-		// Nothing of the drag's has run, so nothing of the drag's is ended: an
-		// `onEnd` here would answer an `onStart` that never came.
 		expect(ends).toEqual([]);
-		// And the Escape was not ours to swallow — a modal listening for it still
-		// receives an unprevented press.
 		expect(preventDefault).not.toHaveBeenCalled();
-		// The press is still live, so its own release is what ends it.
 		expect(env.count('keydown')).toBe(1);
 		expect(env.count('mousemove')).toBe(1);
 
 		env.fire('mouseup', {});
 		expect(env.count('keydown')).toBe(0);
-		// A plain click on a cell is a choice of that cell, and stays one.
 		expect(handle.consumeStaleClick()).toBe(false);
 
 		handle.teardown();
@@ -174,12 +159,9 @@ describe('a range drag', () => {
 		env.fire('keydown', { key: 'Escape', preventDefault });
 		expect(ends).toEqual([1]);
 		expect(preventDefault).toHaveBeenCalledTimes(1);
-		// Escape took the listeners with it; the release below has nothing to run.
 		expect(env.count('mousemove')).toBe(0);
 		expect(env.count('keydown')).toBe(0);
 
-		// The release still produces a click, and it belongs to the cancelled press:
-		// without this flag it would reselect a single cell right after cancelling.
 		env.fire('mouseup', {});
 		expect(handle.consumeStaleClick()).toBe(true);
 		expect(handle.consumeStaleClick()).toBe(false);

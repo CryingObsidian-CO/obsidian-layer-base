@@ -50,9 +50,8 @@ export function setCellValue(
 }
 
 /**
- * Whether a value has the shape this field's type stores. Enforced, not assumed:
- * the value can come from a paste, a hand-edited file, or a caller that still
- * thinks every cell is a string.
+ * Enforced, not assumed: the value can come from a paste, a hand-edited file, or a caller that
+ * still thinks every cell is a string.
  */
 function matchesFieldShape(field: Field, value: CellValue): boolean {
 	return acceptsValue(field.type, value);
@@ -75,7 +74,6 @@ export function addRecord(doc: LayerDoc): LayerRecord {
 	return insertRecordAt(doc, doc.records.length);
 }
 
-/** Inserts at the top of the board, above everything already there. */
 export function addRecordAtTop(doc: LayerDoc): LayerRecord {
 	return insertRecordAt(doc, 0);
 }
@@ -302,18 +300,8 @@ export function clearRecord(doc: LayerDoc, recordId: string): boolean {
 }
 
 /**
- * A second column configured like this one.
- *
- * Everything the column is set up with comes along — the formula, the rollup's
- * source and target, the note a property reads — because that setup is the reason
- * for duplicating rather than adding an empty column. Copied by spread rather than
- * by name, so a setting added to `Field` later arrives here without anyone
- * remembering to list it.
- *
- * Three things are deliberately not copied: the id (it is a new column), `primary`
- * (a table has one), and `frontmatterKey` — the key is the address of a value that
- * lives in someone's note, and two columns writing one key would overwrite each
- * other. The copy reads its own key, which the reader names in the column settings.
+ * A second column configured like this one, copied by spread so a new `Field` setting arrives
+ * without being listed. The id, `primary` and `frontmatterKey` are deliberately not copied.
  */
 export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 	const index = doc.fields.findIndex((f) => f.id === fieldId);
@@ -336,11 +324,8 @@ export function duplicateField(doc: LayerDoc, fieldId: string): Field | null {
 }
 
 /**
- * Every setting on one column that names another column by id.
- *
- * A deleted column has to be forgotten by all of them: each is looked up while a
- * cell is being worked out, and an id that resolves to nothing draws an empty
- * relation, a rollup with no source, or a numbering that counts by nothing.
+ * Settings that name another column by id; a deleted column must be forgotten by all of them, or
+ * a relation draws empty and a rollup has no source.
  */
 const FIELD_REFERENCES = [
 	'linkFieldId',
@@ -365,12 +350,6 @@ export function removeField(doc: LayerDoc, fieldId: string): boolean {
 		delete record.cells[fieldId];
 	}
 
-	/*
-	 * A column is more than its cells: other columns name it by id, and an id that
-	 * no longer resolves is a relation with no target column, a rollup with no
-	 * source, a numbering that counts by nothing. Those references go with it,
-	 * rather than being left for a reader to look up and find missing.
-	 */
 	for (const field of doc.fields) {
 		for (const key of FIELD_REFERENCES) {
 			if (field[key] === fieldId) {
@@ -497,7 +476,6 @@ export function moveFieldBefore(
 	return true;
 }
 
-/** Removes every value in one field, and says how many there were. */
 export function clearFieldCells(doc: LayerDoc, fieldId: string): number {
 	let cleared = 0;
 	for (const record of doc.records) {
@@ -527,14 +505,12 @@ export function changeFieldType(
 	} else {
 		delete field.options;
 	}
-	// The number settings would be meaningless on another type, so they go with it.
 	if (nextType !== 'number') {
 		delete field.numberFormat;
 		delete field.decimals;
 		delete field.min;
 		delete field.max;
 	}
-	// Same for a relation's target, which no other type can use.
 	if (nextType !== 'relation') {
 		delete field.linkPath;
 		delete field.linkFieldId;
@@ -561,19 +537,16 @@ export function changeFieldType(
 		delete field.lookupSourceFieldId;
 		delete field.lookupFieldId;
 	}
-	// A note property reads one key of the file a note column points at: both the
-	// column and the key belong to that type alone.
+	// A note property reads one key of the note a note column points at; both belong to that type alone.
 	if (nextType !== 'noteProp') {
 		delete field.noteFieldId;
 		delete field.frontmatterKey;
 	}
 
 	/*
-	 * The comparisons a column offers change with its type: "is ticked" means
-	 * nothing on a text column. A saved rule that named this column with one of the
-	 * old comparisons starts over on the first the new type offers, rather than
-	 * filtering by something the column cannot answer — which answered "no" for
-	 * every row and hid the whole table with no visible cause.
+	 * The comparisons a column offers change with its type ("is ticked" means nothing on text).
+	 * A saved rule using an old comparison starts over on the new type's first, or it would
+	 * answer "no" for every row and hide the whole table with no visible cause.
 	 */
 	const offered = operatorsFor(field);
 	const rebase = (condition: FilterCondition): void => {

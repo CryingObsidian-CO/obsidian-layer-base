@@ -4,11 +4,7 @@ import { sortRecords } from '../src/model/sort';
 import type { CellTextResolver } from '../src/model/filter';
 import type { Field, LayerRecord } from '../src/types';
 
-/*
- * A `noteProp` cell holds nothing in the document: its text is read from another
- * file. These cases stand in for that file by answering through the resolver, which
- * is what lets such a column be filtered and sorted at all.
- */
+// A noteProp cell holds nothing in the document; its text comes from another file through the resolver.
 
 const noteField: Field = { id: 'f_note', name: 'Note', type: 'note' };
 const propField: Field = {
@@ -24,7 +20,6 @@ function record(id: string, status: string): LayerRecord {
 	return { id, created: '', cells: { f_note: `notes/${id}` } };
 }
 
-/** Stands in for the notes' frontmatter, keyed by row id. */
 const statuses: Record<string, string> = { r1: 'done', r2: 'todo', r3: '' };
 
 const resolve: CellTextResolver = (field, rec) =>
@@ -75,7 +70,6 @@ describe('a cell text resolver', () => {
 			undefined,
 			resolve,
 		);
-		// The resolver answers null for text, so the stored cells decide and none match.
 		expect(kept).toHaveLength(0);
 	});
 });

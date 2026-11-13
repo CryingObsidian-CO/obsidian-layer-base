@@ -3,7 +3,6 @@ import { attachColumnDrag } from '../src/views/grid/column-drag';
 
 type Listener = (event: MouseEvent) => void;
 
-/** A document that keeps its listeners in a list, so a test can count them. */
 function fakeDocument() {
 	const listeners = new Map<string, Set<Listener>>();
 	const classes = new Set<string>();
@@ -89,15 +88,9 @@ describe('a column drag', () => {
 		env.fire('mousemove', move(40, 0));
 		expect(moves).toEqual([40]);
 
-		// A second press while the first is still listening.
 		handle.press(press(0, 0));
 		env.fire('mousemove', move(50, 0));
 
-		/*
-		 * One listener means one move per event: left alone, the older gesture answered
-		 * as well, so one pointer move reported twice and the abandoned drag kept its
-		 * preview.
-		 */
 		expect(env.count('mousemove')).toBe(1);
 		expect(moves).toEqual([40, 50]);
 		expect(cancels).toBe(1);

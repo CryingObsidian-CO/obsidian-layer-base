@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-/*
- * The panel editors are not exercised here: they need a live document and offer
- * nothing this test is about. What matters is that every way an edit can end
- * reports completion exactly once, and each of those ways below is one of the
- * plain inputs (Enter, Escape, blur). The option panel is captured so the one
- * test about it can drive its callbacks.
- */
+// The panel editors need a live document and are mocked here; what matters is that every way an edit can end reports completion exactly once.
 const panels = vi.hoisted(() => ({
 	option: null as null | {
 		onPickMany?: (optionIds: string[]) => void;
@@ -32,10 +26,7 @@ class FakeInput {
 	private stored = '';
 	private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
-	/**
-	 * Mirrors a native control: a value it cannot represent is dropped to the
-	 * empty string, which is exactly the trap the date editor has to notice.
-	 */
+	/** Mirrors a native control: a value it cannot represent reads as ''. */
 	set value(text: string) {
 		this.stored = this.represents(text) ? text : '';
 	}
@@ -185,7 +176,6 @@ describe('a cell edit ending', () => {
 	});
 
 	it('does not report twice when a second end arrives', () => {
-		// blur ends the edit; the Escape that follows has nothing left to end.
 		const t = openText();
 		t.input.fire('blur', {});
 		t.input.fire('keydown', key('Escape'));
@@ -213,7 +203,6 @@ describe('a cell edit ending', () => {
 		const [input] = cell.created;
 		input?.fire('blur', {});
 
-		// The notice arrives while the caller still holds the handle, and clears it.
 		expect(held).toBe(true);
 		expect(handle).toBeNull();
 	});
@@ -302,13 +291,10 @@ describe('a panel that commits while it stays open', () => {
 		const panel = panels.option;
 		expect(panel).not.toBeNull();
 
-		// A toggle commits the cell behind the panel, which stays open: the edit is
-		// not over yet, so completion must not fire here.
 		panel?.onPickMany?.(['o_1']);
 		expect(commits).toEqual([['o_1']]);
 		expect(finished).toBe(0);
 
-		// Closing it is what ends the edit.
 		panel?.onCancel();
 		expect(finished).toBe(1);
 	});

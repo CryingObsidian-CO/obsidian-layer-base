@@ -114,10 +114,7 @@ describe('setRowHeight', () => {
 		setRowHeightPreset(view, 'compact');
 		setRowHeight(view, 'r_a', DEFAULT_ROW_HEIGHT);
 
-		/*
-		 * 42 in a table of 24-high rows is a row of its own. Dropping the key here
-		 * would have made it snap back to 24 the moment it was let go.
-		 */
+		// 42 in a table of 24-high rows is a row of its own; dropping the key here would snap it back to 24.
 		expect(view.rowHeights.r_a).toBe(DEFAULT_ROW_HEIGHT);
 		expect(rowHeightOf(view, 'r_a')).toBe(DEFAULT_ROW_HEIGHT);
 	});
@@ -241,11 +238,7 @@ describe('the base row height survives a save and reload', () => {
 });
 
 describe('the standard height is the default', () => {
-	/*
-	 * These two have to agree: a table that never chose a height reports the
-	 * default, and the list ticks whichever preset names that number. If they
-	 * drift apart, every table opens with nothing ticked.
-	 */
+	/* A table that never chose a height reports the default while the list ticks whichever preset names that number; drift leaves every table with nothing ticked. */
 	it('names the default height with the standard preset', () => {
 		expect(ROW_HEIGHTS.standard).toBe(DEFAULT_ROW_HEIGHT);
 	});

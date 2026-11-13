@@ -48,7 +48,6 @@ describe('parseGrid', () => {
 	});
 
 	it('keeps empty cells in place', () => {
-		// The empty middle field is a blank value, not a shifted row.
 		expect(parseGrid('a\t\tc')).toEqual([['a', '', 'c']]);
 	});
 });
@@ -179,7 +178,6 @@ describe('pasteFormatted', () => {
 		]);
 
 		expect(report).toEqual({ written: 2, refused: 0 });
-		// The option id travels as itself, so the option is the same one.
 		expect(r1.cells.f_status).toBe('o_2');
 	});
 
@@ -343,7 +341,6 @@ describe('paste fills from the corner, extending outward', () => {
 		const r2 = addRecord(doc);
 		const order = { recordIds: [r1.id, r2.id], fields: [TITLE, STATUS] };
 
-		// Both rows selected, one value on the clipboard: it lands in the first.
 		const target = grow([r1.id, r2.id], [TITLE], 1, 1, order);
 		expect(target?.recordIds).toEqual([r1.id]);
 
@@ -396,7 +393,6 @@ describe('clearCells', () => {
 		const r1 = addRecord(doc);
 		setCellValue(doc, r1.id, TITLE, 'kept');
 
-		// Status is already empty, so clearing the pair changes one cell.
 		expect(clearCells(doc, [r1.id], [TITLE, STATUS])).toBe(1);
 	});
 

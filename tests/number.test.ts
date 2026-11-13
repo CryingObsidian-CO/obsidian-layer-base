@@ -83,7 +83,6 @@ describe('parseNumber', () => {
 		expect(parseNumberIn(percent, '100')).toBe(1);
 		expect(parseNumberIn(percent, '100%')).toBe(1);
 		expect(parseNumberIn(percent, '0.5')).toBe(0.005);
-		// A plain field takes the sign as a conversion, since that is what it means.
 		expect(parseNumberIn(plain, '50%')).toBe(0.5);
 		expect(parseNumberIn(plain, '50')).toBe(50);
 	});
@@ -143,7 +142,7 @@ describe('formatNumber', () => {
 		expect(
 			formatNumber(0.125, withSettings({ numberFormat: 'percent', decimals: 1 })),
 		).toBe('12.5%');
-		// Multiplied back exactly: fifty percent cannot come out as 15.000000000000002.
+		// Multiplied back exactly: fifty per cent cannot come out as 15.000000000000002.
 		expect(formatNumber(0.15, withSettings({ numberFormat: 'percent' }))).toBe('15%');
 	});
 
@@ -246,7 +245,6 @@ describe('through the cell model', () => {
 
 	it('rounds by the digits the reader sees, not the digits in the file', () => {
 		const field = withSettings({ numberFormat: 'percent', decimals: 1 });
-		// One decimal of a percentage is three of a proportion: 12.5% is 0.125.
 		expect(cellFromText(field, '12.5%')).toEqual({ ok: true, value: 0.125 });
 		expect(cellToText(field, 0.125)).toBe('12.5%');
 	});
@@ -273,7 +271,6 @@ describe('through the file', () => {
 
 		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
 		expect(parsed.records[0]?.cells.f_n).toBe(12.5);
-		// The point of a JSON number: it survives as a number, not as "12.5".
 		const raw = JSON.parse(serializeLayerDoc(doc)) as {
 			records: { cells: Record<string, unknown> }[];
 		};

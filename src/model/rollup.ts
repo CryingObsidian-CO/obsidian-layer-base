@@ -3,21 +3,14 @@ import { capabilityOf } from './capabilities';
 import { dateMinutes } from './date';
 import { parseShownNumber } from './number';
 
-/**
- * What a rollup computed, and what kind of value stands behind it.
- *
- * `kind` travels with the text for the same reason a formula's does: a total has
- * to line up on the right, and a date has to be shown as a date.
- */
+/** `kind` travels with the text so a total lines up on the right and a date shows as a date. */
 export interface RollupValue {
 	text: string;
 	kind: 'number' | 'text';
 }
 
-/** A value a rollup gathered from one related row. */
 type Gathered = CellValue;
 
-/** Whether a cell holds anything to reduce: blank text and empty lists do not. */
 function isFilled(value: Gathered): boolean {
 	if (value === undefined || value === null) {
 		return false;
@@ -31,7 +24,6 @@ function isFilled(value: Gathered): boolean {
 	return true;
 }
 
-/** The number a cell stands for, or null when it does not stand for one. */
 function asNumber(value: Gathered): number | null {
 	if (typeof value === 'number') {
 		return Number.isFinite(value) ? value : null;
@@ -50,7 +42,6 @@ function asNumber(value: Gathered): number | null {
 	return parseShownNumber(trimmed);
 }
 
-/** The text a cell reads as, which is what a text aggregate gathers. */
 function asText(value: Gathered): string {
 	if (typeof value === 'string') {
 		return value;
@@ -68,13 +59,8 @@ function asText(value: Gathered): string {
 }
 
 /**
- * Where a gathered value sits in time, in minutes.
- *
- * Measured in minutes rather than in days because a date-time column keeps its
- * time: reduced to a day, two values from 09:00 and 18:00 tie, the strict
- * comparison keeps whichever came first, and a "latest deadline" rollup answered
- * 09:00. A value naming only a day sits at the start of it, so a date column reads
- * exactly as it did.
+ * Minutes, not days: otherwise two date-times on one day tie and "latest" keeps 09:00. A value
+ * naming only a day sits at the start of it.
  */
 function asMoment(value: Gathered): number | null {
 	const text = asText(value).trim();
@@ -82,13 +68,8 @@ function asMoment(value: Gathered): number | null {
 }
 
 /**
- * Reduces the values gathered from the related rows.
- *
- * Two rules are worth stating because they decide what an empty column shows:
- * a row that holds nothing does not contribute to any aggregate, and a rollup
- * over no rows at all answers `null` — except the two counts, which have a true
- * answer of zero. That is the difference between "no children" and "the total is
- * nothing", which a reader needs to be able to tell apart.
+ * A row that holds nothing contributes to no aggregate, and a rollup over no rows answers null
+ * except the two counts, whose true answer is zero: "no children" is not "the total is nothing".
  */
 export function aggregateRollup(
 	values: readonly Gathered[],
@@ -116,8 +97,7 @@ export function aggregateRollup(
 				used += 1;
 			}
 		}
-		// Nothing in the column could be read as a number, so there is no total to
-		// report rather than a total of zero.
+		// Nothing could be read as a number: no total to report, rather than a total of zero.
 		if (used === 0) {
 			return null;
 		}
@@ -125,9 +105,7 @@ export function aggregateRollup(
 		return { text: formatNumber(answer), kind: 'number' };
 	}
 
-	// The rest are min and max, which compare numbers and dates. A column of dates
-	// answers with the date itself, so the reader sees the day rather than a count —
-	// and with a date-time, the time of the day it answers with too.
+	// min/max compare numbers or dates; a date column answers with the date itself, time included.
 	const moments = filled
 		.map(asMoment)
 		.filter((moment): moment is number => moment !== null);
@@ -144,8 +122,7 @@ export function aggregateRollup(
 		return picked === null ? null : { text: formatNumber(picked), kind: 'number' };
 	}
 
-	// Mixed or unreadable: fall back to comparing the text, which at least answers
-	// the same way twice instead of refusing the whole column.
+	// Mixed or unreadable: compare as text, which at least answers the same way twice.
 	const texts = filled.map(asText);
 	const chosen = texts.reduce((best, next) =>
 		how === 'min' ? (next < best ? next : best) : next > best ? next : best,
@@ -181,19 +158,10 @@ function pickMoment(
 	return values[bestIndex] ?? null;
 }
 
-/** A computed number without floating-point noise trailing behind it. */
 function formatNumber(value: number): string {
 	return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(6)));
 }
 
-/**
- * The aggregates a column of this type can answer.
- *
- * Narrowed by type on purpose: offering "sum" for a column of text would let a
- * rollup be configured that can never produce anything, and the mistake would only
- * show as an empty column afterwards. Dates get the comparisons but not the sums,
- * because adding two dates is not a quantity.
- */
 export function aggregatesFor(type: FieldType): readonly RollupAggregate[] {
 	return capabilityOf(type).aggregates;
 }

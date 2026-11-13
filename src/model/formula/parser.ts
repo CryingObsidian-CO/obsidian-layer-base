@@ -1,12 +1,6 @@
 import { tokenize, type FormulaError, type Token } from './lexer';
 
-/**
- * The parsed shape of a formula.
- *
- * Small on purpose: a handful of node kinds is enough for the arithmetic and
- * comparisons a row formula needs, and every kind keeps the offset it started
- * at so an error can point back at the source.
- */
+/** Every node keeps its source offset, so an error can point back at the text. */
 export type FormulaNode =
 	| { kind: 'number'; value: number; at: number }
 	| { kind: 'string'; value: string; at: number }
@@ -17,12 +11,8 @@ export type FormulaNode =
 	| { kind: 'binary'; op: string; left: FormulaNode; right: FormulaNode; at: number };
 
 /**
- * The two words a formula may write a truth value as.
- *
- * Read as literals rather than as column names, so `AND(TRUE, {done})` works in a
- * table that happens to have no column called TRUE. A name that is followed by
- * `(` is a call instead, and a column genuinely named TRUE still wins through
- * `{TRUE}`, which is the braced form that always means a reference.
+ * Literals, not column names: `AND(TRUE, {done})` works without a column called TRUE, and the
+ * braced `{TRUE}` still reaches a column of that name.
  */
 const BOOLEANS: Record<string, boolean> = { TRUE: true, FALSE: false };
 
@@ -30,7 +20,6 @@ type ParseResult =
 	| { ok: true; node: FormulaNode }
 	| { ok: false; error: FormulaError };
 
-const COMPARISONS = new Set(['==', '=', '!=', '<', '>', '<=', '>=']);
 /** Lowest first: a later entry binds more tightly. */
 const PRECEDENCE: readonly (readonly string[])[] = [
 	['==', '=', '!=', '<', '>', '<=', '>='],
@@ -53,7 +42,6 @@ class Parser {
 		return token;
 	}
 
-	/** Whether the next token is a call's opening parenthesis. */
 	private atCall(): boolean {
 		const token = this.peek();
 		return token.kind === 'op' && token.value === '(';
@@ -147,8 +135,7 @@ class Parser {
 			if (this.atCall()) {
 				return this.parseCall(token.value, token.at);
 			}
-			// A bare TRUE or FALSE is the value itself; the braced form is always a
-			// column, so a table with a column named that still works.
+			// A bare TRUE or FALSE is the value itself; the braced form is always a column, so a table with such a column still works.
 			if (token.braced !== true) {
 				const literal = BOOLEANS[token.value.toUpperCase()];
 				if (literal !== undefined) {
@@ -182,7 +169,6 @@ class Parser {
 	}
 
 	private parseCall(name: string, at: number): ParseResult {
-		// Past the `(`.
 		this.next();
 		const args: FormulaNode[] = [];
 		const first = this.peek();
@@ -222,7 +208,6 @@ export function parseFormula(source: string): { ok: true; node: FormulaNode } | 
 	return new Parser(lexed.tokens).parse();
 }
 
-/** Every field name a formula reads, so the caller can check they exist. */
 export function fieldsUsed(node: FormulaNode, into = new Set<string>()): Set<string> {
 	if (node.kind === 'field') {
 		into.add(node.name);
@@ -238,5 +223,3 @@ export function fieldsUsed(node: FormulaNode, into = new Set<string>()): Set<str
 	}
 	return into;
 }
-
-export { COMPARISONS };

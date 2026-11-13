@@ -6,53 +6,19 @@ import type {
 } from '../types';
 import type { SummaryKind } from './summary';
 
-/**
- * What each column type can do, stated once.
- *
- * Field types used to answer these questions in a dozen separate `switch`
- * statements — one in the write gate, one in the filter panel, one in the footer,
- * one in the rollup picker, one in the field editor. A rule copied that many times
- * is a rule with a mistake in it somewhere, and nobody can see the whole answer in
- * one place.
- *
- * So every "does this type do X" lives here, and the code that needs the answer
- * asks for it. The split between this file and `SPECS` in `fields.ts` is the split
- * between *whether* and *how*: this table says whether a type has options, is
- * computed, may be required, what shape its value takes, which operators, totals
- * and reductions it answers, and whether it can name a row. `SPECS` says how a
- * value of that type is formatted and parsed.
- */
+/** Whether a field type does something; `SPECS` in `fields.ts` says how its values are formatted and parsed. */
 export interface FieldCapability {
-	/** Cells pick from this field's option list. */
 	options: boolean;
-	/** The value is not stored in the document; something computes it. */
 	derived: boolean;
-	/**
-	 * The document cannot say what this cell reads as; only the view can.
-	 *
-	 * Two different things land here. A derived column stores nothing, so there is
-	 * no value to read. A `relation` stores row ids, which is not what the cell
-	 * says on screen — reading them gives `r_3f9a`, and that is what got copied
-	 * onto the clipboard, sorted a relation column by id, and titled a row with an
-	 * id instead of a name. Both cases want the same answer from the same place,
-	 * so they share a flag rather than each caller testing for them separately.
-	 */
+	/** Derived cells store nothing and `relation` stores row ids, so neither reads from the document. */
 	readsFromView: boolean;
-	/** The reader cannot type into it. */
 	readOnly: boolean;
-	/** The required flag may be set on it. */
 	required: boolean;
-	/** What "clear" writes: the empty value of this type's shape. */
 	empty: () => CellValue;
-	/** Whether a value has the shape this type stores. */
 	accepts: (value: CellValue) => boolean;
-	/** The operators a filter over this type offers. */
 	filters: readonly FilterOperator[];
-	/** What the footer may report for it. */
 	summaries: readonly SummaryKind[];
-	/** How a rollup may reduce it. */
 	aggregates: readonly RollupAggregate[];
-	/** Whether its text can stand in for a row's name. */
 	namesARow: boolean;
 }
 
@@ -110,21 +76,13 @@ const takesNumber = (value: CellValue): boolean =>
 	typeof value === 'number' || value === '';
 const takesList = (value: CellValue): boolean => Array.isArray(value);
 const takesBoolean = (value: CellValue): boolean => typeof value === 'boolean';
-/** A computed column keeps nothing, so no value can be written into it. */
 const takesNothing = (): boolean => false;
 
 const emptyText = (): CellValue => '';
 const emptyList = (): CellValue => [];
 const emptyBoolean = (): CellValue => false;
 
-/**
- * The table itself, in `FIELD_TYPES` order.
- *
- * Each row is written out rather than derived from a few shared flags: "derived"
- * and "read only" differ for a note property, "required" is narrower than both,
- * and a reader of this file should be able to see one type's whole answer without
- * following a chain of conditions.
- */
+/** Written out per type rather than derived from shared flags: `derived`, `readOnly` and `required` differ for `noteProp`. */
 export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	text: {
 		options: false,
@@ -193,7 +151,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	},
 	relation: {
 		options: false,
-		/* Stored, but as row ids: the document holds the links, not the names. */
+		/* Stored, but as row ids: the document holds links, not names. */
 		derived: false,
 		readsFromView: true,
 		readOnly: false,
@@ -241,7 +199,7 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 		accepts: takesNothing,
 		filters: NUMBER_FILTERS,
 		summaries: NUMBER_SUMMARIES,
-		/* A numbering column is counted, not reduced: a rollup over it is a count. */
+		/* Counted, not reduced: a rollup over a numbering column is a count. */
 		aggregates: COUNT_AGGREGATES,
 		namesARow: true,
 	},
@@ -325,15 +283,13 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	},
 	noteProp: {
 		options: false,
-		/* Derived, yet editable: the value lives in a note, and an edit goes back
-		 * there rather than being refused. */
+		/* Derived yet editable: the value lives in a note, and an edit goes back there. */
 		derived: true,
 		readsFromView: true,
 		readOnly: false,
 		required: false,
 		empty: emptyText,
-		/* Editable, but never through the stored-value path: an edit is routed to
-		 * the note's frontmatter, so no value is written into this document. */
+		/* Editable, but only through the note: no value is written into this document. */
 		accepts: takesNothing,
 		filters: TEXT_FILTERS,
 		summaries: COUNT_SUMMARIES,
@@ -342,24 +298,15 @@ export const CAPABILITIES: Record<FieldType, FieldCapability> = {
 	},
 };
 
-/** The row for one type. */
 export function capabilityOf(type: FieldType): FieldCapability {
 	return CAPABILITIES[type];
 }
 
-/** Whether a value has the shape this type stores. */
 export function acceptsValue(type: FieldType, value: CellValue): boolean {
 	return CAPABILITIES[type].accepts(value);
 }
 
-/**
- * Whether this type's cells can only be read by the view.
- *
- * The one question every reader of a cell has to answer before it falls back to
- * the stored value: copying, sorting, filtering, a footer's count, a row's title.
- * Asking it here means a reader cannot be right about a formula and wrong about a
- * relation — which is what happened while each site decided for itself.
- */
+/** Ask this before falling back to the stored value: it is wrong for formulas and relations alike. */
 export function readsFromView(type: FieldType): boolean {
 	return CAPABILITIES[type].readsFromView;
 }

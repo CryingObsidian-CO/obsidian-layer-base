@@ -1,7 +1,8 @@
 name: CI
 
-# Runs on every branch and every pull request, so a change is verified whether it is
-# pushed straight to a long-lived branch or proposed through a PR.
+# Every branch and every pull request runs the checks. The build is held back to what can
+# be released — a pull request, or anything landing on master — so a branch that is still
+# being written does not spend a runner on packaging it cannot ship.
 on:
     push:
         branches: [ '**' ]
@@ -20,6 +21,9 @@ jobs:
     verify:
         name: Checks
         runs-on: ubuntu-latest
+        # A hung install, or a test runner that never exits, would otherwise sit here for
+        # the default six hours and hold the concurrency slot open.
+        timeout-minutes: 15
         steps:
             -   uses: actions/checkout@v7
 
@@ -51,9 +55,23 @@ jobs:
             -   name: Tests
                 run: npm test
 
+            # The MCP server is a process with no unit tests; this drives it over stdio
+            # and checks the files it leaves behind. It runs here, on every branch, and
+            # not in the build job: a test is what a branch being written needs on every
+            # push, while packaging is what waits until there is something to release.
+            -   name: Bundle the MCP server
+                run: npm run build:mcp
+
+            -   name: MCP server smoke test
+                run: npm run test:mcp
+
     build:
         name: Build
         runs-on: ubuntu-latest
+        # Packaging is only worth doing for something that can be released, so this job
+        # stays out of the way of a branch that is still being written.
+        if: github.event_name != 'push' || github.ref == 'refs/heads/master'
+        timeout-minutes: 15
         steps:
             -   uses: actions/checkout@v7
 
@@ -82,11 +100,6 @@ jobs:
                     done
                     echo "main.js is $(wc -c < main.js) bytes"
 
-            # The MCP server is a process with no unit tests; this drives it over stdio
-            # and checks the files it leaves behind.
-            -   name: MCP server smoke test
-                run: npm run test:mcp
-
             -   name: Keep the build for inspection
                 uses: actions/upload-artifact@v7
                 with:
@@ -101,6 +114,7 @@ jobs:
     flow:
         name: Branch flow
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         # master holds what has been released; develop holds what is being written.
         # The one mistake this flow allows is forgetting to merge a release back, so
         # it is checked instead of remembered.

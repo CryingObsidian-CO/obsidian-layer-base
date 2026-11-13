@@ -29,8 +29,7 @@ const long: Field = { id: 'f_l', name: 'Notes', type: 'longtext' };
 
 function docWith(fields: Field[]): LayerDoc {
 	const doc = createEmptyDoc('Board');
-	// The first field is the primary one, so parsing does not warn about a board
-	// that has none — that warning is a different test's subject.
+	// The first field is primary so parsing does not warn about a board that has none.
 	doc.fields = fields.map((field, index) =>
 		index === 0 ? { ...field, primary: true } : { ...field },
 	);
@@ -193,10 +192,7 @@ describe('serializeCellValue', () => {
 	});
 
 	it('reads a legacy string that happens to parse as JSON as a list, not as nothing', () => {
-		/*
-		 * These parse, but none of them is a list. Answering [] would empty the cell
-		 * and lose the id that is sitting in it.
-		 */
+		// These parse but are not lists; answering [] would empty the cell and lose the id.
 		expect(deserializeCellValue('5', multi)).toEqual(['5']);
 		expect(deserializeCellValue('true', multi)).toEqual(['true']);
 		expect(deserializeCellValue('{}', multi)).toEqual(['{}']);
@@ -296,9 +292,7 @@ describe('required across the new types', () => {
 
 describe('round trip through the file', () => {
 	it('keeps a multi-select field OPTIONS, not only its cells', () => {
-		// The cells alone can survive a parse that drops the options — the ids are
-		// still strings — but they then resolve to nothing and the next save writes
-		// the field back with no options at all. So the options are asserted too.
+		// The cells alone survive a parse that drops the options, then resolve to nothing and are saved back as no options.
 		const doc = docWith([multi]);
 		const record = addRecord(doc);
 		record.cells.f_m = ['o_1', 'o_3'];

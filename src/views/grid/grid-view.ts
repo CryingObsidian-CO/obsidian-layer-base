@@ -70,7 +70,6 @@ export interface GridHandlers {
 
 	onClearRecord(recordId: string): void;
 
-	/** Stores what a column's footer reports. */
 	onSetSummary(fieldId: string, kind: SummaryKind): void;
 
 	onEditField(field: Field, at: { x: number; y: number } | null): void;
@@ -83,47 +82,30 @@ export interface GridHandlers {
 
 	onClearCells(recordIds: string[], fields: Field[]): void;
 
-	/**
-	 * Opens the note a `note` cell names, creating it when the vault has no such file.
-	 * The grid cannot reach the vault itself.
-	 */
+	/** The grid cannot reach the vault itself. */
 	onOpenNote(path: string): void;
 
-	/** What a `note` cell shows: the file's name, or the path it lives at. */
 	noteLabelStyle(): NoteLabelStyle;
 
-	/** What a note property row reads from the linked note's frontmatter. */
 	notePropText(field: Field, recordId: string): CellText;
 
-	/** Creates an option on a select field for a name typed into a cell. */
 	onCreateOption(field: Field, name: string): SelectOption | null;
 
-	/** The rows a relation cell may point at, read from the table it links to. */
 	relationCandidates(field: Field): readonly RelationCandidate[];
 
-	/** What a relation cell reads as; the grid cannot read another table itself. */
 	relationText(field: Field, value: CellValue): CellText;
 
-	/** What a reverse relation row shows: the rows that point at it. */
 	backText(field: Field, recordId: string): CellText;
 
-	/** What a formula row computes to. */
 	formulaText(field: Field, recordId: string): CellText;
 
-	/** What a rollup gathered from the rows this row is linked to. */
 	rollupText(field: Field, recordId: string): CellText;
-	/** The values a lookup read from the linked rows, one chip each. */
 	lookupText(field: Field, recordId: string): CellText;
 
-	/** What a numbering cell counts to, which the grid cannot work out itself. */
 	autoNumberText(field: Field, recordId: string): CellText;
 
-	/**
-	 * A cell's text as the reader sees it, whatever its type.
-	 *
-	 * Asked by the footer, so a total adds up what is on screen — including the
-	 * columns the view computes, which store nothing to add up.
-	 */
+	// Asked by the footer, so a total adds up what is on screen — including the columns the view
+	// computes, which store nothing to add up.
 	cellText(field: Field, record: LayerRecord): string;
 
 	onCopyRange(recordIds: string[], fields: Field[]): void;
@@ -141,12 +123,7 @@ export interface GridHandlers {
 
 	onRowResize(recordId: string, height: number): void;
 
-	/**
-	 * The wash this row wears, or null for none.
-	 *
-	 * Resolved by the view rather than here: a colour rule is a condition, and the
-	 * conditions in this app are answered where the whole document is in hand.
-	 */
+	/** Resolved by the view: a colour rule is a condition, answered where the document is at hand. */
 	rowColor(record: LayerRecord): string | null;
 }
 
@@ -157,52 +134,32 @@ export class GridRenderer {
 	private headers = new Map<string, HTMLElement>();
 	private cols = new Map<string, HTMLTableColElement>();
 	private fit: HTMLElement | null = null;
-	/** The table this renderer built, kept so its totals can be redrawn alone. */
 	private table: HTMLTableElement | null = null;
-	/** What this tree was drawn from, so any part of it can be drawn again. */
 	private view: GridView | null = null;
 	private shownRows: readonly LayerRecord[] = [];
-	/** The scrolling element, so its offset can be carried across a redraw. */
 	private scroller: HTMLElement | null = null;
-	/**
-	 * An offset to apply after the next redraw, handed over by whoever is about to
-	 * replace this renderer. Held rather than applied immediately because the table's
-	 * width is not settled yet.
-	 */
+	// Held rather than applied at once: the table's width is not settled yet.
 	private pendingOffset: { left: number; top: number } | null = null;
 
-	/** How far the table is scrolled across, for whoever is about to tear it down. */
 	offset(): { left: number; top: number } {
 		return { left: this.scrollLeft(), top: this.scrollTop() };
 	}
 
-	/**
-	 * Asks for the table to be scrolled to an offset once it has been laid out.
-	 *
-	 * Called before `render`, because rendering empties the host: an offset applied
-	 * afterwards would race the redraw it belongs to.
-	 */
+	// Called before `render`, which empties the host: applying the offset afterwards would race it.
 	restoreTo(left: number, top: number): void {
 		this.pendingOffset = { left, top };
 	}
 
-	/** How far the table is scrolled across. */
 	private scrollLeft(): number {
 		return this.scroller?.scrollLeft ?? 0;
 	}
 
-	/** How far the table is scrolled down. */
 	private scrollTop(): number {
 		return this.scroller?.scrollTop ?? 0;
 	}
 
-	/**
-	 * Puts the table back where it was before the redraw.
-	 *
-	 * Deferred to the next frame: the table's width is only settled once it has been
-	 * laid out, and a browser clamps an offset larger than the current scroll range,
-	 * so restoring too early would silently land at the start.
-	 */
+	// Deferred a frame: a browser clamps an offset past the current scroll range, so restoring
+	// before the table has been laid out would silently land at the start.
 	private restoreScroll(left: number, top: number): void {
 		if (left === 0 && top === 0) {
 			return;
@@ -230,7 +187,6 @@ export class GridRenderer {
 	private marquee: HTMLElement | null = null;
 	private marqueeHost: HTMLElement | null = null;
 	private rangeDrag: RangeDragHandle | null = null;
-	/** The edit in progress, so a teardown can keep what it holds. */
 	private openEdit: CellEditHandle | null = null;
 
 	private readonly selection: SelectionTracker;
@@ -243,11 +199,7 @@ export class GridRenderer {
 	}
 
 	render(doc: LayerDoc, view: GridView, order?: readonly LayerRecord[]): void {
-		/*
-		 * An offset handed over by the previous renderer wins; otherwise this table keeps
-		 * its own. Both are read before the host is emptied, since that throws the
-		 * scroller away.
-		 */
+		// Both offsets are read before the host is emptied, which throws the scroller away.
 		const kept = this.pendingOffset ?? {
 			left: this.scrollLeft(),
 			top: this.scrollTop(),
@@ -258,11 +210,8 @@ export class GridRenderer {
 		this.openEdit = null;
 		this.host.empty();
 		this.host.addClass('layer-grid');
-		/*
-		 * The chosen height and the wrapping are drawn by the stylesheet, which
-		 * needs to know about them before the rows are measured: the compact height
-		 * only fits a line once the cell's own padding has shrunk with it.
-		 */
+		// The stylesheet draws the height and wrapping, and must know before rows are measured:
+		// the compact height only fits a line once the cell's padding has shrunk with it.
 		this.host.toggleClass('is-compact', rowHeightPresetOf(view) === 'compact');
 		this.host.toggleClass('is-wrapped', wrapsOf(view));
 		this.cells.clear();
@@ -326,8 +275,7 @@ export class GridRenderer {
 		this.renderColgroup(table, fields, view);
 		this.renderHead(table, doc, fields, view);
 		this.renderBody(table, doc, fields, view, order);
-		// The footer adds up the rows on screen, so a filtered table totals what the
-		// reader is looking at rather than everything stored.
+		// The footer totals the rows on screen, not everything stored.
 		this.renderFoot(table, fields, view, order ?? doc.records);
 
 		this.restoreScroll(kept.left, kept.top);
@@ -341,13 +289,6 @@ export class GridRenderer {
 		return {recordIds: [...this.recordOrder], fields: [...this.visible]};
 	}
 
-	/**
-	 * Selects a row and brings it into view.
-	 *
-	 * Used when a card on a board is opened: the board carries a title and nothing
-	 * else, so the row is edited where its columns are. The row may be anywhere in
-	 * a long table, so it is scrolled to rather than left to be found.
-	 */
 	revealRecord(recordId: string): void {
 		const row = this.rows.get(recordId);
 		if (!row) {
@@ -357,7 +298,6 @@ export class GridRenderer {
 		row.scrollIntoView({block: 'nearest'});
 	}
 
-	/** A column's header element, for anchoring a panel to it. */
 	headerFor(fieldId: string): HTMLElement | null {
 		return this.headers.get(fieldId) ?? null;
 	}
@@ -411,12 +351,11 @@ export class GridRenderer {
 			if (field.primary) {
 				th.addClass('is-primary');
 			}
-			/* A column the table fills in says so before its type. */
 			if (isReadOnly(field.type)) {
 				th.addClass('is-derived');
 				const lock = th.createSpan({cls: 'layer-grid-derived-icon'});
 				setIcon(lock, 'lock');
-				// Handed out, not worked out: a number gets its own wording.
+				// The numbering column gets its own wording; the rest share one.
 				const hint =
 					field.type === 'autoNumber'
 						? t().fieldAutoNumberLockHint
@@ -429,11 +368,7 @@ export class GridRenderer {
 			setIcon(icon, specFor(field.type).icon);
 			th.createSpan({cls: 'layer-grid-th-name', text: field.name});
 
-			/*
-			 * A sorted column says so in its own header: the toolbar names the column
-			 * too, but the eye is on the table, and a second rule's column would
-			 * otherwise be invisible. The rank shows which rule it is.
-			 */
+			// A sorted column says so, with the rank when there is more than one rule.
 			const sortIndex = view.sorts.findIndex(
 				(sort) => sort.fieldId === field.id,
 			);
@@ -499,14 +434,8 @@ export class GridRenderer {
 		});
 	}
 
-	/**
-	 * The corner cell: selects everything.
-	 *
-	 * The same range the mouse would draw from the first cell to the last, so
-	 * what gets highlighted afterwards is exactly what a drag over the table
-	 * would highlight — the status row, the marquee and the context menu then all
-	 * read from it without special-casing a "select all" selection.
-	 */
+	// The same range a drag from the first cell to the last would draw, so nothing downstream
+	// needs a "select all" case of its own.
 	private renderHeadSelectAll(
 		cell: HTMLTableCellElement,
 		enabled: boolean,
@@ -516,8 +445,8 @@ export class GridRenderer {
 		const button = cell.createEl('button', {cls: 'layer-grid-select-all'});
 		button.setAttribute('aria-label', t().selectAll);
 		setIcon(button, 'move-diagonal');
-		// Nothing to select on an empty board, and a button that answers the
-		// click by doing nothing is worse than one that says it is unavailable.
+		// Nothing to select on an empty table, and a button that does nothing is worse than a
+		// disabled one.
 		button.toggleClass('is-disabled', !enabled);
 		button.disabled = !enabled;
 		button.addEventListener('click', (event) => {
@@ -547,9 +476,8 @@ export class GridRenderer {
 		attachColumnResize(handle, {
 			onStart: () => {
 				const col = this.cols.get(field.id);
-				// The inline width is what the last drag left on screen, which is
-				// the size this gesture has to continue from. The document is only
-				// the fallback for a column that has not been dragged yet.
+				// The inline width is what the last drag left; the document is the fallback for a
+				// column that has never been dragged.
 				return col?.style.width
 					? Number.parseFloat(col.style.width)
 					: columnWidthOf(view, field.id);
@@ -616,8 +544,7 @@ export class GridRenderer {
 	private showDropTarget(draggedId: string, clientX: number): void {
 		this.clearDropTarget();
 		const anchor = this.dropAnchorAt(draggedId, clientX);
-		// At most one header carries the class at a time: the drop is one gap, and
-		// two bars in the same gap read as two separate insertion points.
+		// One bar per gap: two would read as two insertion points.
 		const target =
 			anchor === null ? this.tailHead : this.headers.get(anchor);
 		target?.addClass('is-drop-before');
@@ -630,13 +557,8 @@ export class GridRenderer {
 		this.tailHead?.removeClass('is-drop-before');
 	}
 
-	/**
-	 * The totals under the last row.
-	 *
-	 * A real `tfoot` rather than a detached strip, so it scrolls and lines up with
-	 * the columns without any measuring. Only numeric and date columns say anything
-	 * more than a count: a column of names has no total worth reading.
-	 */
+	// A real `tfoot` rather than a detached strip, so it scrolls and lines up with the columns
+	// without any measuring.
 	private renderFoot(
 		table: HTMLTableElement,
 		fields: Field[],
@@ -663,30 +585,24 @@ export class GridRenderer {
 				cell,
 				kind === 'none' ? t().summaryChoose : t().summaryFor(summaryLabel(kind)),
 			);
-			// Pressing the cell offers the ways this column can be summarised, which is
-			// where the choice belongs: on the figure being chosen.
 			cell.addEventListener('click', (event) => {
 				event.preventDefault();
 				this.showSummaryMenu(cell, field, view);
 			});
 		}
 
-		// Under the trailing add-column cell, which has nothing to add up.
 		row.insertCell().addClass('layer-grid-foot');
 	}
 
-	/** The summary a column is set to, defaulting to none. */
 	private summaryChoices(field: Field): readonly SummaryKind[] {
 		return summaryChoicesFor(field);
 	}
 
-	/** What a column's footer is currently set to report. */
 	private currentKind(view: GridView, field: Field): SummaryKind {
 		const chosen = view.summaries?.[field.id];
 		return chosen !== undefined && canSummarize(field, chosen) ? chosen : 'none';
 	}
 
-	/** Offers the ways this column can be summarised. */
 	private showSummaryMenu(cell: HTMLElement, field: Field, view: GridView): void {
 		const current = this.currentKind(view, field);
 		const menu = new Menu();
@@ -710,8 +626,7 @@ export class GridRenderer {
 		order?: readonly LayerRecord[],
 	): void {
 		const body = table.createTBody();
-		// Row numbers, one per field, and the header's trailing add-column cell,
-		// which spans the body too.
+		// Row number, one per field, and the header's trailing add-column cell.
 		const columnCount = fields.length + 2;
 
 		const drawn = order ?? doc.records;
@@ -745,11 +660,8 @@ export class GridRenderer {
 				const cell = row.insertCell();
 				cell.addClass('layer-grid-td', `is-${field.type}`);
 				cell.dataset.fieldId = field.id;
-				/*
-				 * Asked of `isReadOnly`, not `isDerived`, so the two agree with the header:
-				 * a note property is answered by its note rather than by this document, but
-				 * it is still the reader's to change, and must not look like a locked cell.
-				 */
+				// `isReadOnly`, not `isDerived`: a note property is answered by its note but is
+				// still the reader's to change, so it must not look like a locked cell.
 				if (isReadOnly(field.type)) {
 					cell.addClass('is-derived');
 				}
@@ -943,8 +855,8 @@ export class GridRenderer {
 			if (this.rangeDrag?.consumeStaleClick()) {
 				return;
 			}
-			// A checkbox toggles on one press, and the press does not also reselect:
-			// ticking a box inside a selected range must leave the range alone.
+			// A checkbox toggles on one press without reselecting: ticking a box must leave the
+			// selected range alone.
 			if (field.type === 'checkbox' && isCheckboxBox(event)) {
 				this.commit(cell, field, recordId, value !== true);
 				return;
@@ -958,8 +870,7 @@ export class GridRenderer {
 
 		cell.ondblclick = (event) => {
 			event.preventDefault();
-			// Whether a type HAS an editor is `beginCellEdit`'s decision, not a
-			// second list here — the two only drift apart.
+			// Whether a type has an editor is `beginCellEdit`'s decision, not a second list here.
 			this.beginEdit(cell, field, recordId, value);
 		};
 
@@ -1093,15 +1004,11 @@ export class GridRenderer {
 		if (cell.hasClass('is-editing')) {
 			return;
 		}
-		// What the cell shows when the edit ends. A commit moves it on, which a
-		// multi-select needs: its toggles commit while the panel stays open, and
-		// restoring from the value captured at open would undo them.
+		// What the cell shows when the edit ends. A commit moves it on, which a multi-select
+		// needs: its toggles commit while the panel stays open, and its restore must not undo them.
 		let latest = value;
-		/*
-		 * A note property holds nothing in the document, so its editor starts from what
-		 * the note says. Starting blank would let the first keystroke replace a value the
-		 * reader never saw.
-		 */
+		// A note property holds nothing here, so its editor starts from what the note says:
+		// starting blank would let the first keystroke replace a value the reader never saw.
 		const startValue =
 			field.type === 'noteProp'
 				? this.handlers.notePropText(field, recordId).text
@@ -1126,36 +1033,22 @@ export class GridRenderer {
 				),
 			createOption: (name) => this.handlers.onCreateOption(field, name),
 			relationCandidates: () => this.handlers.relationCandidates(field),
-			/*
-			 * An editor ends itself on Enter, Escape, blur, or a panel closing, and
-			 * the handle has to be let go then too. Kept, it leaves `isEditing()` true
-			 * long after the edit, and a repaint deferred for a linked table is then
-			 * dropped instead of drawn. Only this edit's own end clears it: another
-			 * edit may have taken the field over in the meantime.
-			 */
+			// Only this edit's own end clears the handle: another edit may have taken the cell
+			// over. Kept, it leaves `isEditing()` true long after the edit, and a repaint
+			// deferred for a linked table is dropped instead of drawn.
 			onFinished: () => {
 				if (handle !== null && this.openEdit === handle) {
 					this.openEdit = null;
 				}
 			},
 		});
-		/*
-		 * A null handle means no editor was opened — a read-only or checkbox cell, or
-		 * a date control that could not show the stored value. Either way this cell is
-		 * left as it was and no handle is kept.
-		 */
+		// A null handle means no editor was opened, so the cell is left as it was.
 		if (handle !== null) {
 			this.openEdit = handle;
 		}
 	}
 
-	/**
-	 * How this grid resolves a cell to text.
-	 *
-	 * A relation reads from another table, which only the view can reach, so its
-	 * cells go through the handler while every other type keeps the plain
-	 * formatter.
-	 */
+	/** A relation reads from another table, which only the view can reach. */
 	private formatter(): CellFormatter {
 		return (field, value, recordId) => {
 			if (field.type === 'relation') {
@@ -1194,14 +1087,8 @@ export class GridRenderer {
 		return this.openEdit !== null;
 	}
 
-	/**
-	 * Repaints some of a row's cells, without rebuilding the table.
-	 *
-	 * An edit can change what the columns beside it show — a formula, a lookup, a
-	 * rollup, a note property, an auto number counted within it — while the row
-	 * itself stays where it is. Redrawing just those cells keeps the selection, the
-	 * focus and the scroll position that a whole redraw would throw away.
-	 */
+	// An edit can change the cells beside it — a formula, a lookup, a rollup, a note property, an
+	// auto number — and redrawing just those keeps the selection, focus and scroll position.
 	repaintCells(
 		recordId: string,
 		fields: readonly Field[],
@@ -1215,7 +1102,6 @@ export class GridRenderer {
 		}
 	}
 
-	/** Redraws one row's wash, after an edit the colour rules read. */
 	recolorRow(record: LayerRecord): void {
 		const row = this.rows.get(record.id);
 		if (!row) {
@@ -1230,7 +1116,6 @@ export class GridRenderer {
 		row.style.setProperty('--layer-row-tint', tint);
 	}
 
-	/** Rebuilds the totals, after an edit to a column they report on. */
 	refillFoot(): void {
 		const table = this.table;
 		const view = this.view;
@@ -1273,21 +1158,12 @@ function isElement(value: HTMLElement | undefined): value is HTMLElement {
 export interface CellText {
 	text: string;
 	broken: number;
-	/** Values to draw as separate chips, when the cell holds more than one. */
 	chips?: readonly string[];
-	/**
-	 * What kind of value stands behind the text, when the caller knows. A plain
-	 * field always answers text; a computed one says what it computed, so a total
-	 * can line up and a condition can show a tick. A column may also be told which
-	 * kind to present, for rows that compute different ones.
-	 */
+	/** What stands behind the text, so a total can line up and a condition can show a tick. */
 	kind?: 'number' | 'text' | 'boolean';
 	/** Whether a box drawn for this cell is ticked. Only read when `kind` is boolean. */
 	ticked?: boolean;
-	/**
-	 * Why the cell cannot show what it should, as a sentence. Shown on hover and
-	 * read out, so a cell that is too narrow for the reason still offers it.
-	 */
+	/** Why the cell cannot show what it should; shown on hover and read out. */
 	hint?: string;
 }
 
@@ -1310,13 +1186,10 @@ function paintResolved(
 	resolved: CellText,
 ): void {
 	cell.toggleClass('is-broken-reference', resolved.broken > 0);
-	// The kind is carried by the cell rather than the span, so the alignment rule
-	// reaches the text without the span having to know what it holds.
+	// The kind is carried by the cell, so the alignment rule reaches the text.
 	cell.toggleClass('is-value-number', resolved.kind === 'number');
 	if (resolved.kind === 'boolean') {
-		// A condition shows the same box a checkbox column draws, rather than the
-		// words TRUE and FALSE. Whether it is ticked comes from the value's own
-		// meaning, so a column told to show a box has one rule to follow.
+		// A condition draws the same box a checkbox column does, rather than TRUE and FALSE.
 		const ticked = resolved.ticked === true;
 		const box = cell.createSpan({
 			cls: ticked ? 'layer-grid-checkbox is-ticked' : 'layer-grid-checkbox',
@@ -1340,13 +1213,11 @@ function paintResolved(
 		});
 	}
 	if (resolved.broken > 0) {
-		// The reason travels with the cell, so a hover and a screen reader both get
-		// it. A broken link has none of its own, so it keeps the shared wording.
+		// The reason travels with the cell, so a hover and a screen reader both get it.
 		const why = resolved.hint ?? t().relationBroken;
 		cell.setAttribute('aria-label', why);
-		// Registered only when the wording changes: a cell repaints on every scroll
-		// of the grid, and re-registering the same tooltip each time would pile up
-		// handlers for nothing.
+		// Only when the wording changes: a cell repaints on every scroll, and re-registering the
+		// same tooltip each time would pile up handlers.
 		if (cell.dataset.hint !== why) {
 			cell.dataset.hint = why;
 			setTooltip(cell, why);
@@ -1369,18 +1240,13 @@ export function renderCellValue(
 	cell.removeClass('is-broken-reference');
 	cell.removeClass('is-value-number');
 	cell.removeAttribute('aria-label');
-	// Recomputed on every paint, including the restore after a cancelled edit, so
-	// the warning disappears the moment the cell stops being empty. Kept here
-	// rather than in `paintCell` because this function is also the restore path.
+	// Recomputed here rather than in `paintCell`, because this is also the restore path.
 	cell.toggleClass(
 		'is-missing-required',
 		isMissingRequired(field, value),
 	);
-	/*
-	 * Answered before the empty branch, and drawn in both states: an unticked box
-	 * is an empty value, so the branch below would answer it with `—`, which says
-	 * "no data" where the reader needs "not ticked".
-	 */
+	// Before the empty branch: an unticked box is an empty value, and `—` would say "no data"
+	// where the reader needs "not ticked".
 	if (field.type === 'checkbox') {
 		const ticked = value === true;
 		const box = cell.createSpan({
@@ -1390,17 +1256,11 @@ export function renderCellValue(
 		box.setAttribute('aria-label', ticked ? t().cellChecked : t().cellUnchecked);
 		return;
 	}
-	/*
-	 * A derived cell stores nothing, so it is answered before the empty branch:
-	 * that branch would give it `—` even when the other table has plenty to say.
-	 */
+	// A derived cell stores nothing, so it is answered before the empty branch gives it `—`.
 	if (isDerived(field.type)) {
 		const resolved = format(field, value, recordId);
-		/*
-		 * A computed cell that came back with nothing to show reads the same way any
-		 * other empty cell does. A column with no expression yet, and a reverse
-		 * relation nobody points at, are both simply empty — not broken.
-		 */
+		// A computed cell with nothing to show reads like any empty cell: a column with no
+		// expression yet, or a reverse relation nobody points at, is empty rather than broken.
 		const empty =
 			resolved.broken === 0 &&
 			resolved.kind !== 'boolean' &&
@@ -1417,9 +1277,8 @@ export function renderCellValue(
 		cell.createSpan({cls: 'layer-grid-placeholder', text: '—'});
 		return;
 	}
-	// A select cell shows its option as a pill. A value that names no option is
-	// not an option any more — a stale id, a hand-edited file — so it falls
-	// through to the plain span below rather than vanishing from the grid.
+	// A value naming no option is a stale id or a hand-edited file, so it falls through to the
+	// plain span below rather than vanishing from the grid.
 	if (field.type === 'select') {
 		const option = optionForId(field, value);
 		if (option) {
@@ -1438,11 +1297,7 @@ export function renderCellValue(
 			return;
 		}
 	}
-	/*
-	 * A note cell is a way into the file it names, so it is drawn as a link rather than
-	 * as text that happens to hold a path. Answered before the span at the bottom, which
-	 * would otherwise paint it as plain text.
-	 */
+	// Answered before the plain span at the bottom, which would paint a note path as text.
 	if (field.type === 'note' && typeof value === 'string' && value !== '') {
 		renderNoteLink(cell, value, noteLabel(value, noteStyle), onOpenNote);
 		return;
@@ -1451,14 +1306,8 @@ export function renderCellValue(
 	paintResolved(cell, field, format(field, value, recordId));
 }
 
-/**
- * The cell that names a note, drawn as a link.
- *
- * The anchor is only as wide as its text, so the rest of the cell still belongs to the
- * cell: a click out there selects as any other cell does, and a double click edits the
- * path. Clicking the text itself opens the note, and that click is kept from the cell
- * underneath, which would otherwise read it as a selection.
- */
+// The anchor is only as wide as its text, so the rest of the cell still selects and edits as any
+// cell does; a click on the text opens the note and is kept from the cell underneath.
 function renderNoteLink(
 	cell: HTMLElement,
 	path: string,

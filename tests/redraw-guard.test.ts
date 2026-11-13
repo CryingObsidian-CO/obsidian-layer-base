@@ -21,8 +21,7 @@ describe('redrawOnce', () => {
 			state,
 			() => {
 				commits += 1;
-				// A commit can redraw the view (a changed value moves the row, or
-				// filters it out); that inner request must not start a second pass.
+				// A commit can redraw the view (a moved or filtered row); that inner request must not start a second pass.
 				redrawOnce(
 					state,
 					() => commits += 1,

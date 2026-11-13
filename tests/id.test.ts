@@ -13,11 +13,9 @@ describe('generateId', () => {
 
 	it('differs between two runs that share a millisecond', async () => {
 		/*
-		 * The counter restarts at zero in every run, so two processes writing in the
-		 * same millisecond used to reach the same counter step and produce one string.
-		 * A fresh module instance is what a second run has; an id is the key that says
-		 * where a cell's value is stored, so this is the difference between two rows
-		 * and two rows sharing a cell.
+		 * The counter restarts at zero in every run, so two module instances in the same
+		 * millisecond can produce the same string — and an id is the key a cell's value
+		 * is stored under.
 		 */
 		vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
 

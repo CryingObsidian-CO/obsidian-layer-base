@@ -11,6 +11,7 @@ export interface FormattedClipboard {
 	rows: FormattedCell[][];
 }
 
+/** The last formatted copy is kept in memory; a failed system write is still pasteable inside the plugin. */
 let buffered: string | null = null;
 let formatted: FormattedClipboard | null = null;
 

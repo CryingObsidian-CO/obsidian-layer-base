@@ -21,10 +21,7 @@ const PAYLOAD: FormattedClipboard = {
 	],
 };
 
-/**
- * The system clipboard, stood in for by a variable a test owns outright.
- * `null` is the state of a clipboard that holds nothing.
- */
+/** The system clipboard, stood in for by a variable; `null` holds nothing. */
 let system: string | null = null;
 /** Whether the browser refuses clipboard access, as it does without a gesture. */
 let denied = false;
@@ -66,8 +63,7 @@ describe('the buffered payload survives a round trip', () => {
 	});
 
 	it('still hands it back when the clipboard cannot be read back', async () => {
-		// The check exists to catch someone else's copy landing on top. If the
-		// check cannot run, the payload is still the newest thing we wrote.
+		// The check guards against another app's copy landing on top; when it cannot run, the payload is still what we wrote.
 		await copyFormatted(PAYLOAD);
 		denied = true;
 
@@ -88,8 +84,6 @@ describe('a payload the user has since replaced is dropped', () => {
 	});
 
 	it('falls back to reading the new text as plain values', async () => {
-		// The stale payload is gone, but the text that replaced it is still
-		// pasteable — dropping to text is the right answer, not nothing.
 		await copyFormatted(PAYLOAD);
 		system = 'x\ty';
 
@@ -134,8 +128,7 @@ describe('plain text reading', () => {
 
 describe('a clipboard that cannot be written to', () => {
 	it('still keeps the payload for pasting inside the plugin', async () => {
-		// Copying to the system clipboard is best-effort: on a platform that
-		// refuses it, a copy followed by a paste must still work.
+		// Writing to the system clipboard is best-effort: on a platform that refuses it, a copy and paste inside the plugin must still work.
 		denied = true;
 
 		await expect(copyFormatted(PAYLOAD)).resolves.toBeUndefined();

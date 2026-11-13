@@ -18,7 +18,6 @@ function formulaField(id: string, formula: string): Field {
 	return {id, name: id, type: 'formula', formula};
 }
 
-/** What one formula column computed for the single row, as text or `#code`. */
 function value(doc: LayerDoc, id: string, now: Date = NOW): string {
 	const field = doc.fields.find((candidate) => candidate.id === id);
 	if (!field) {
@@ -133,8 +132,6 @@ describe('dates in formulas', () => {
 	});
 
 	it('answers whether something is overdue, the reason text compares', () => {
-		// The point of letting text compare at all: a date column is text, and
-		// "is this past its due date" is the question people actually ask.
 		const doc = board([
 			{id: 'f_due', name: 'due', type: 'date'},
 			formulaField('f', 'IF({due} < TODAY(), "overdue", "on time")'),
@@ -166,15 +163,12 @@ describe('dates in formulas', () => {
 	});
 
 	it('reports the date as a date, not as a number', () => {
-		// The cell presents it as text because a date is stored as text; what
-		// matters is that it is not mistaken for something to add up.
 		const doc = board([formulaField('f', 'TODAY()')]);
 		const result = computeFormula(doc, doc.records[0]!, doc.fields[0]!, 0, new Set(), NOW);
 		expect(result.ok && result.kind).toBe('text');
 	});
 
 	it('gives the same answer twice for the same clock', () => {
-		// Nothing in here reads the system clock, so a render cannot drift.
 		const doc = board([formulaField('f', 'TODAY()')]);
 		expect(value(doc, 'f')).toBe(value(doc, 'f'));
 	});

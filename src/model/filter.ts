@@ -11,21 +11,11 @@ import { dateMinutes, dayNumber, normaliseDateTime } from './date';
 import { formatCell } from './fields';
 import { parseShownNumber } from './number';
 
-/**
- * Deciding which rows a view keeps.
- *
- * Free of the document and of `obsidian` so each operator can be tested on its
- * own: a filter that is wrong for one type hides rows silently, which is worse
- * than showing them.
- */
+/** Free of the document and of `obsidian`, so each operator can be tested on its own. */
 
 /**
- * The text a cell reads as, which is what most operators compare.
- *
- * A relation is the exception, and it cannot be resolved here: its names live in
- * another table this layer cannot see. The caller supplies them through
- * `relationTexts`, so what is filtered on is what the grid shows rather than the
- * row ids it stores underneath.
+ * A relation's names live in another table, so the caller supplies them: what is filtered
+ * on is what the grid shows, not the row ids underneath.
  */
 function textOf(
 	field: Field,
@@ -35,21 +25,14 @@ function textOf(
 	return cellText?.(field, record) ?? formatCell(field, record.cells[field.id] ?? '');
 }
 
-/**
- * How the caller resolves a cell's text for a type this layer cannot read itself.
- *
- * `null` means "not mine to answer", and the plain rules take over — so a caller that
- * knows nothing about these types changes nothing by leaving it out.
- */
+/** `null` means "not mine to answer": the plain rules take over. */
 export type CellTextResolver = (field: Field, record: LayerRecord) => string | null;
 
-/** How the caller resolves the row names a relation cell points at. */
 export type RelationTextResolver = (
 	field: Field,
 	value: CellValue,
 ) => readonly string[];
 
-/** The names a relation cell shows, in the order the cell lists them. */
 function namesOf(
 	field: Field,
 	record: LayerRecord,
@@ -57,15 +40,12 @@ function namesOf(
 ): readonly string[] {
 	const value = record.cells[field.id] ?? '';
 	if (resolve === undefined) {
-		// Without a resolver there are no names to compare, so an unresolvable
-		// relation compares as nothing rather than as its ids — an id would never
-		// match anything a reader typed.
+		// No resolver, no names: comparing ids would never match what a reader typed.
 		return [];
 	}
 	return resolve(field, value);
 }
 
-/** The number a cell stands for, or null when it does not stand for one. */
 function numberOf(
 	field: Field,
 	record: LayerRecord,
@@ -75,8 +55,7 @@ function numberOf(
 	if (typeof raw === 'number') {
 		return Number.isFinite(raw) ? raw : null;
 	}
-	// The display text a percent cell shows is read the way the cell means it, so a
-	// condition compares against the number that cell stores.
+	// Read the way the cell means it, so "42%" compares against 0.42.
 	const text = textOf(field, record, cellText).trim();
 	if (text === '') {
 		return null;
@@ -85,12 +64,8 @@ function numberOf(
 }
 
 /**
- * The number a date or date-time cell is compared by.
- *
- * A date column is compared by the day it names: it holds no time, and the value
- * in the condition came from a date picker, which is a day too. A date-time column
- * keeps the time of day — otherwise "later than 1 February" would be false for
- * everything that happened on 1 February, which is not what the words say.
+ * A date is compared by its day; a date-time keeps the time of day, or "later than
+ * 1 February" would be false for everything that happened that day.
  */
 function momentOf(
 	field: Field,
@@ -101,7 +76,6 @@ function momentOf(
 	return field.type === 'datetime' ? dateMinutes(text) : dayNumber(text);
 }
 
-/** Whether the cell holds nothing, by the same rule the grid draws with. */
 function emptyIn(
 	field: Field,
 	record: LayerRecord,
@@ -117,7 +91,6 @@ function emptyIn(
 	return textOf(field, record, cellText).trim() === '';
 }
 
-/** The value a condition compares against, as text. */
 function wantedText(condition: FilterCondition): string {
 	const value = condition.value;
 	if (value === undefined || value === null) {
@@ -127,17 +100,9 @@ function wantedText(condition: FilterCondition): string {
 }
 
 /**
- * Whether a cell holds exactly what the condition names.
- *
- * Decided from what the value means, not from how it is written: a date-time cell
- * reads "2026-02-01 09:00" while the picker that filled the condition holds
- * "2026-02-01", so comparing the two as text could never be true — and "is not"
- * was then true of every row.
- *
- * `null` means the condition names nothing that can be compared — an empty box, a
- * word where a number belongs, a date that is not one. The two operators then
- * agree to keep no rows, rather than one matching every row holding zero while the
- * other matches all the rest.
+ * By what the value means, not how it is written: a date-time cell reads "2026-02-01 09:00"
+ * while its picker holds "2026-02-01". `null` means nothing comparable was named (an empty box,
+ * a word where a number belongs), and both `is` and `isNot` then keep no rows.
  */
 function sameAsWanted(
 	field: Field,
@@ -162,13 +127,8 @@ function sameAsWanted(
 			// The cell holds nothing this column can read, so it is not that day.
 			return false;
 		}
-		/*
-		 * A picker supplies a day and no time, so a day is compared as a day — the
-		 * same reading the ordered operators use. A date column already counts in
-		 * days; a date-time counts in minutes, so its day is where those minutes
-		 * fall. A condition written out with a time asks about that minute and is
-		 * answered to the minute, which is what "is 1 February 09:00" says.
-		 */
+		// A picker supplies a day and no time, so a day is compared as a day: a date-time's
+		// day is where its minutes fall. A condition with a time asks about that minute.
 		if (field.type === 'date') {
 			return cell === picked;
 		}
@@ -181,14 +141,6 @@ function sameAsWanted(
 	);
 }
 
-/**
- * Whether one row passes one condition.
- *
- * Operators are matched to what the column can actually answer: a number column is
- * compared as a number whatever the reader typed, and a choice column compares the
- * names it shows rather than the ids it stores, so what is filtered on is what is
- * seen.
- */
 export function matchesCondition(
 	field: Field,
 	record: LayerRecord,
@@ -212,27 +164,22 @@ export function matchesCondition(
 		return record.cells[field.id] !== true;
 	}
 
-	/*
-	 * A relation is compared one name at a time, not as a joined string: a cell
-	 * pointing at "Ann" and "Bob" has to answer "is Ann" as well as "contains An",
-	 * and a joined string would only ever match a substring of the whole list.
-	 */
+	// One name at a time, not a joined string: a cell pointing at "Ann" and "Bob" has to
+	// answer both "is Ann" and "contains An".
 	if (field.type === 'relation') {
 		const names = namesOf(field, record, resolve);
 		const needle = wanted.trim().toLowerCase();
 		const matchesOne = (name: string): boolean =>
 			name.trim().toLowerCase() === needle;
 		if (operator === 'is') {
-			// Exactly this row and nothing else: "is Ann" on a row linked to both Ann
-			// and Bob is not a row about Ann alone.
+			// Exactly this one: "is Ann" on a row linked to Ann and Bob is not about Ann alone.
 			return names.length === 1 && matchesOne(names[0] as string);
 		}
 		if (operator === 'isNot') {
 			return !(names.length === 1 && matchesOne(names[0] as string));
 		}
 		if (operator === 'contains') {
-			// Any of the names it points at, which is what a reader means by "linked
-			// to someone called Ann".
+			// Any of the names it points at.
 			return names.some(matchesOne);
 		}
 		if (operator === 'notContains') {
@@ -246,7 +193,6 @@ export function matchesCondition(
 	if (operator === 'is' || operator === 'isNot') {
 		const same = sameAsWanted(field, record, wanted, cellText);
 		if (same === null) {
-			// Nothing to compare against: both operators keep no rows.
 			return false;
 		}
 		return operator === 'is' ? same : !same;
@@ -258,8 +204,7 @@ export function matchesCondition(
 		return !shown.toLowerCase().includes(wanted.toLowerCase());
 	}
 
-	// The four comparisons need an order, which dates and numbers have and text
-	// does not: comparing words by size says nothing a reader means.
+	// The ordered comparisons need an order, which dates and numbers have and text does not.
 	if (field.type === 'date' || field.type === 'datetime') {
 		const left = momentOf(field, record, cellText);
 		const right = momentOf(field, { id: '', created: '', cells: { [field.id]: wanted } });
@@ -270,8 +215,7 @@ export function matchesCondition(
 	}
 
 	const left = numberOf(field, record, cellText);
-	// A blank or unreadable box names no number; comparing against zero would be a
-	// condition the reader never wrote.
+	// A blank box names no number; comparing against zero would be a condition nobody wrote.
 	const right = wanted.trim() === '' ? Number.NaN : Number(wanted);
 	if (left === null || !Number.isFinite(right)) {
 		return false;
@@ -279,7 +223,6 @@ export function matchesCondition(
 	return compareBy(operator, left, right);
 }
 
-/** Applies one of the four ordered operators. */
 function compareBy(operator: FilterOperator, left: number, right: number): boolean {
 	if (operator === 'greaterThan') {
 		return left > right;
@@ -291,11 +234,8 @@ function compareBy(operator: FilterOperator, left: number, right: number): boole
 }
 
 /**
- * The rows a filter keeps.
- *
- * An empty filter keeps everything, and a condition naming a column that is gone
- * is skipped rather than hiding every row: a deleted column should not empty the
- * table.
+ * An empty filter keeps everything, and a condition naming a column that is gone is
+ * skipped: a deleted column should not empty the table.
  */
 export function filterRecords(
 	records: readonly LayerRecord[],
@@ -326,12 +266,10 @@ export function filterRecords(
 	});
 }
 
-/** The operators a column's type can answer. */
 export function operatorsFor(field: Field): readonly FilterOperator[] {
 	return capabilityOf(field.type).filters;
 }
 
-/** Whether an operator needs a value typed in. */
 export function needsValue(operator: FilterOperator): boolean {
 	return (
 		operator !== 'isEmpty' &&

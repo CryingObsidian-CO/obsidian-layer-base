@@ -12,22 +12,11 @@ export interface ColumnVisibilityOptions {
 	anchor: Anchor | null;
 	view: View;
 	fields: readonly Field[];
-	/** Called as each box is ticked, so the table answers immediately. */
+	/** Fires per box, not on close, so the table answers immediately. */
 	onToggle: (fieldId: string, hidden: boolean) => void;
 }
 
-/**
- * Which columns a view shows.
- *
- * The same button that opens the board's own column settings opens this in a table:
- * one place for "what this view shows", whichever view is in front of the reader.
- *
- * Holds no copy of the answer: every box is drawn from the view itself, so a change
- * made elsewhere — or refused, which the view records by not changing — is what the
- * reader sees the moment this redraws. A snapshot taken when the panel opened would
- * drift, and the boxes would then disagree with the table behind them about how
- * many columns are left.
- */
+/** Drawn from the view each time: a snapshot would drift and disagree with the table behind. */
 export class ColumnVisibilityPopover extends AnchoredPopover {
 	constructor(private readonly config: ColumnVisibilityOptions) {
 		super(config.app, config.anchor, VISIBILITY_WIDTH);
@@ -54,8 +43,7 @@ export class ColumnVisibilityPopover extends AnchoredPopover {
 
 		const list = contentEl.createDiv({ cls: 'layer-visibility-list' });
 		const hidden = new Set(this.config.view.hiddenFieldIds);
-		// The last visible column may not be hidden, so the boxes are disabled once
-		// only one is left — a table with no columns has nothing to draw.
+		// The last visible column cannot be hidden: a table with no columns has nothing to draw.
 		const remaining = visibleCount(this.config.fields, this.config.view);
 
 		for (const field of this.config.fields) {
@@ -70,8 +58,7 @@ export class ColumnVisibilityPopover extends AnchoredPopover {
 
 			box.addEventListener('change', () => {
 				this.config.onToggle(field.id, !box.checked);
-				// The disabling of the other boxes depends on this one, and the answer
-				// to what was asked comes from the view, not from this checkbox.
+				// Redraw from the view: which other boxes are disabled depends on this one.
 				this.render();
 			});
 

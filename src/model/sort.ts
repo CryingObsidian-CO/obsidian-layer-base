@@ -3,15 +3,8 @@ import { dateMinutes } from './date';
 import { formatCell, optionIds } from './fields';
 import { optionRanks } from './select-options';
 
-/**
- * Ordering rows by one or more columns.
- *
- * Kept free of the document and of `obsidian` so the comparison rules can be
- * tested directly: an order that is wrong for one type is the sort of defect
- * nobody notices until a list is long.
- */
+/** Free of the document and of `obsidian`, so the comparison rules can be tested directly. */
 
-/** The text a record holds in a field, as the reader would see it. */
 function textOf(
 	field: Field,
 	record: LayerRecord,
@@ -20,16 +13,11 @@ function textOf(
 	return cellText?.(field, record) ?? formatCell(field, record.cells[field.id] ?? '');
 }
 
-/** Reads one record's text in the column being sorted. */
 type TextOf = (record: LayerRecord) => string;
 
 /**
- * The text of every record in one column, worked out once.
- *
- * A sort asks a record for its text once for each comparison it takes part in, and
- * for a computed column that text is the whole cost — a formula, a rollup, a lookup
- * in another table. Within one sort the answer cannot change, so it is kept: one
- * call per record instead of one per pair.
+ * Computed text is the whole cost of a comparison, and cannot change within one sort,
+ * so each record is asked once instead of once per pair.
  */
 function textGetter(field: Field, cellText?: CellTextResolver): TextOf {
 	const seen = new Map<LayerRecord, string>();
@@ -44,15 +32,9 @@ function textGetter(field: Field, cellText?: CellTextResolver): TextOf {
 	};
 }
 
-/**
- * How the caller resolves a cell's text for a type this layer cannot read itself.
- *
- * `null` means "not mine to answer", and the plain rules take over — so a caller that
- * knows nothing about these types changes nothing by leaving it out.
- */
+/** `null` means "not mine to answer": the plain rules take over. */
 export type CellTextResolver = (field: Field, record: LayerRecord) => string | null;
 
-/** The number a cell stands for, or null when it does not stand for one. */
 function numberOrNull(
 	field: Field,
 	record: LayerRecord,
@@ -70,24 +52,12 @@ function numberOrNull(
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
-/**
- * A date or date-time as a comparable number, or null.
- *
- * Asked of the date module rather than read here: sorting has to call a value a
- * date on exactly the terms the editor, the formula engine and the file loader
- * do, or the same cell is one thing to the column and another to the sort. A
- * time of day is kept so two values on the same day still order sensibly.
- */
+/** Asked of the date module, so the sort calls a value a date on the same terms the editor and the loader do. */
 function momentOrNull(shown: string): number | null {
 	return dateMinutes(shown.trim());
 }
 
-/**
- * The number a piece of text is, or null when it is text and nothing else.
- *
- * Strict on purpose: `Number()` also reads `0x10`, `1e5` and `Infinity`, and a text
- * column holding one of those is text, not a quantity.
- */
+/** Strict: `Number()` also reads `0x10`, `1e5` and `Infinity`, and a text column holding one is text. */
 function plainNumber(text: string): number | null {
 	const trimmed = text.trim().replace(/%$/, '').trim();
 	if (!/^[-+]?(\d+(\.\d+)?|\.\d+)$/.test(trimmed)) {
@@ -98,17 +68,8 @@ function plainNumber(text: string): number | null {
 }
 
 /**
- * Where a choice cell sits in its column's option order, or null when it holds
- * nothing.
- *
- * A select cell holds one option id. A multiple-choice cell holds several, and
- * those are shown in the option order too, so the comparison is between the rank
- * lists themselves: `{A, C}` comes before `{B}` when A is defined before B, and
- * `{A}` before `{A, C}` because the shorter list is a prefix of the longer one.
- *
- * A cell holding an id whose option is gone has a value but no place in the
- * order; it sorts after the options that still exist rather than passing for an
- * empty cell.
+ * A multiple choice compares as its list of ranks, so `{A, C}` comes before `{B}` when A is
+ * defined first. An id whose option is gone has a value but no place: it sorts after the rest.
  */
 function rankListOf(
 	field: Field,
@@ -158,7 +119,6 @@ function compareRankLists(
 	return left.length - right.length;
 }
 
-/** How one record compares to another under one column's rule. */
 function compareOne(
 	field: Field,
 	a: LayerRecord,
@@ -168,9 +128,8 @@ function compareOne(
 	if (field.type === 'number' || field.type === 'autoNumber') {
 		const left = numberOrNull(field, a, text);
 		const right = numberOrNull(field, b, text);
-		// "Nothing" is not a small value, it is an absence: it sorts as the smallest
-		// thing there is, which puts it first ascending and last descending, because
-		// the whole comparison is reversed for a descending column.
+		// Nothing is an absence, not a small value: it sorts as the smallest thing, which is
+		// first ascending and last descending once the comparison is reversed.
 		if (left === null && right === null) {
 			return 0;
 		}
@@ -204,22 +163,9 @@ function compareOne(
 		return left - right;
 	}
 
-	/*
-	 * Everything else compares as the text it shows, with one exception: when both
-	 * cells read as plain numbers, they compare as numbers.
-	 *
-	 * A computed column — a lookup, a rollup, a formula — reaches this module only as
-	 * text, and the collator gets decimals wrong: `1.5` came before `1.25`, because
-	 * numeric collation compares digit runs and `5` is smaller than `25`. A text
-	 * column that happens to hold numbers reads the same way to a reader's eye.
-	 *
-	 * A cell holding a number is settled against a cell holding words by a fixed
-	 * rule rather than by the collator. Left to the collator those pairs compared
-	 * digit runs, which is not the same question as "is this a number", and three
-	 * values were enough to make a cycle out of it: `1.25`, `1.5`, `1.5a` came out
-	 * as `1.25 < 1.5`, `1.5 < 1.5a` and `1.5a < 1.25`. A comparator like that has no
-	 * order to find, so `sort` returns whatever its algorithm happens to produce.
-	 */
+	// Two cells that read as plain numbers compare as numbers: numeric collation gets
+	// decimals wrong (`1.5` before `1.25`). A number against a word is settled by a fixed
+	// rule too, or the collator's digit runs make a cycle and `sort` returns any order.
 	const leftText = text(a);
 	const rightText = text(b);
 	const left = plainNumber(leftText);
@@ -227,8 +173,6 @@ function compareOne(
 	if (left !== null && right !== null) {
 		return left - right;
 	}
-	// Numbers first, words after: one fixed answer for every mixed pair, and it
-	// agrees with the numeric order above rather than cutting across it.
 	if (left !== null) {
 		return -1;
 	}
@@ -241,25 +185,12 @@ function compareOne(
 	});
 }
 
-/** How two records compare under one column's rule. */
 type Compare = (a: LayerRecord, b: LayerRecord) => number;
 
-/**
- * One column's comparison, with everything that cannot change during a sort built
- * once.
- *
- * A comparison runs O(n log n) times for one column, so anything it can be given in
- * advance is worth doing before the first call rather than inside each one.
- */
+/** Everything that cannot change during one sort is built before the first comparison, which runs O(n log n) times. */
 function prepareCompare(field: Field, cellText?: CellTextResolver): Compare {
-	/*
-	 * Choice columns order by the options themselves, not by the words in the cells:
-	 * the option list is the one order such a field has — the board draws its columns
-	 * in it and the dropdown lists it in it — so a table sorted this way agrees with
-	 * the board rather than arguing with it. Sorting these by name is what made the
-	 * two disagree. The list does not change during one sort, so the ranks are built
-	 * for the rule instead of for each pair.
-	 */
+	// Choice columns order by the option list, the one order such a field has: the board
+	// draws its columns in it, so a table sorted this way agrees with the board.
 	if (field.type === 'select' || field.type === 'multiSelect') {
 		const ranks = optionRanks(field.options);
 		return (a, b) =>
@@ -273,12 +204,8 @@ function prepareCompare(field: Field, cellText?: CellTextResolver): Compare {
 }
 
 /**
- * The records in the order the view asks for.
- *
- * Rows are not moved in the document: the order is worked out for display, so two
- * views can sort the same table differently and the file keeps the order the rows
- * were entered in. A sort naming a column that no longer exists is skipped rather
- * than clearing the whole order.
+ * Rows are not moved in the document, so two views can sort the same table differently; a
+ * sort naming a column that no longer exists is skipped rather than clearing the order.
  */
 export function sortRecords(
 	records: readonly LayerRecord[],

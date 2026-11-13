@@ -1,30 +1,26 @@
-/*
- * A Model Context Protocol server for .layer tables.
- *
- * It speaks JSON-RPC over stdio and edits the files directly, so an assistant works
- * through structured calls — add a record, set a cell — instead of writing JSON by
- * hand. The same parse and serialize the plugin uses keeps a file valid whatever a
- * caller asks for.
- *
- * The vault is named by `LAYER_VAULT` (or the first argument). Only files inside it
- * are touched.
- */
+/* MCP server for .layer tables: JSON-RPC over stdio, editing the files directly through
+ * the plugin's own parse and serialize. The vault comes from `LAYER_VAULT` (or the first
+ * argument); nothing outside it is touched. */
 import {
 	basename,
 	dirname,
+	existsSync,
 	join,
 	mkdirSync,
 	proc,
-	readFileSync,
 	readdirSync,
 	relative,
 	resolve,
 	statSync,
-	writeFileSync,
 } from './node-api';
 import { parseLayerDoc, serializeLayerDoc } from '../src/io/schema';
 import { FutureVersionError } from '../src/io/migrate';
+import { createFileText, readFileText, writeFileText } from './table-file';
+import { frontmatterValue } from './frontmatter';
 import { vaultGuard } from './vault-path';
+import { CellReader } from '../src/model/cell-reader';
+import { pickTablePath } from '../src/model/table-path';
+import { parseFormula, type FormulaNode } from '../src/model/formula/parser';
 import {
 	FIELD_TYPES,
 	canBeRequired,
@@ -121,9 +117,11 @@ const FORMULA_TYPES: readonly FormulaResultType[] = [
 
 const VAULT = resolve(proc.env.LAYER_VAULT ?? proc.argv[2] ?? '');
 
-/** Said once, so every tool explains where a path is measured from. */
 const PATH_HINT =
 	'Path of the .layer file, relative to the vault root. Discover them with list_tables.';
+
+const WRITE_REVISION_NOTE =
+	' If the file changed on disk after the call read it, nothing is written and the call fails; read the table again.';
 
 interface Request {
 	jsonrpc: '2.0';
@@ -132,23 +130,15 @@ interface Request {
 	params?: Record<string, unknown>;
 }
 
-/**
- * A file path inside the vault, refused when it would point outside it.
- *
- * The rule itself lives in `vault-path.ts`, which answers the two questions a
- * name alone cannot: whether the path stays under the root, and whether the file
- * it really names does.
- */
+/** Refuses a path outside the vault, both lexically and through links. */
 const vaultFile = vaultGuard(VAULT);
 
-function loadTable(path: unknown): { doc: LayerDoc; file: string } {
+function loadTable(path: unknown): { doc: LayerDoc; file: string; text: string } {
 	const file = vaultFile(path);
 	let text: string;
 	try {
-		text = readFileSync(file, 'utf8');
+		text = readFileText(file);
 	} catch {
-		// Said in the terms a caller can act on: a wrong path is the usual mistake,
-		// and the answer is one call away.
 		throw new Error(
 			`No table at "${String(path)}". Paths are relative to the vault root (${VAULT}); call list_tables to see the ones that exist.`,
 		);
@@ -158,8 +148,7 @@ function loadTable(path: unknown): { doc: LayerDoc; file: string } {
 		parsed = parseLayerDoc(text);
 	} catch (error) {
 		if (error instanceof FutureVersionError) {
-			// Refused here rather than read: every write below would rebuild the file
-			// without whatever the newer format added.
+			// Refused rather than rewritten: a write would drop whatever the newer format added.
 			throw new Error(
 				`"${String(path)}" was written by a newer build (format v${error.version}); this server supports up to v${LAYER_FORMAT_VERSION}. It is refused rather than rewritten — update the plugin and this server, then call again.`,
 			);
@@ -170,11 +159,92 @@ function loadTable(path: unknown): { doc: LayerDoc; file: string } {
 	if (warnings.length > 0) {
 		console.error(`[layer-mcp] Repaired ${warnings.length} issue(s) in ${file}`);
 	}
-	return { doc, file };
+	return { doc, file, text };
 }
 
-function saveTable(file: string, doc: LayerDoc): void {
-	writeFileSync(file, serializeLayerDoc(doc), 'utf8');
+/** CAS save: writes only if the file still holds the text `loadTable` read. */
+function saveTable(file: string, doc: LayerDoc, expectedText: string): void {
+	writeFileText(file, serializeLayerDoc(doc), expectedText);
+}
+
+/** The file a note path names, with or without its `.md` extension. */
+function resolveNoteFile(notePath: string): string | null {
+	const candidates = notePath.endsWith('.md')
+		? [notePath]
+		: [notePath, `${notePath}.md`];
+	for (const candidate of candidates) {
+		try {
+			const file = vaultFile(candidate);
+			if (existsSync(file)) {
+				return file;
+			}
+		} catch {
+			// A candidate that cannot be read is simply not the note; try the next.
+		}
+	}
+	return null;
+}
+
+function isFileInVault(path: string): boolean {
+	try {
+		return existsSync(vaultFile(path));
+	} catch {
+		return false;
+	}
+}
+
+/** Lists the vault only when the stored path is gone; a full walk is the slow answer. */
+function tablePathForRead(
+	storedPath: string,
+	tables?: readonly string[],
+): string | null {
+	return pickTablePath(
+		storedPath,
+		tables ?? (isFileInVault(storedPath) ? [] : tableFiles()),
+		isFileInVault,
+	);
+}
+
+/**
+ * Resolves a stored link the way the cell reader does, so what is reported matches what the
+ * cell shows. `loaded` keeps one request to one read per table.
+ */
+function tableAt(
+	doc: LayerDoc,
+	path: string | undefined,
+	loaded: Map<string, LayerDoc>,
+): LayerDoc | null {
+	if (!path) {
+		return doc;
+	}
+	const cached = loaded.get(path);
+	if (cached) {
+		return cached;
+	}
+	const resolved = tablePathForRead(path);
+	if (!resolved) {
+		return null;
+	}
+	try {
+		const other = loadTable(resolved).doc;
+		loaded.set(path, other);
+		loaded.set(resolved, other);
+		return other;
+	} catch {
+		return null;
+	}
+}
+
+function nameIn(table: LayerDoc | null, id?: string): string | null {
+	if (!table || !id) {
+		return null;
+	}
+	return table.fields.find((one) => one.id === id)?.name ?? null;
+}
+
+/** The stored path only when no table answers to it, where naming it explains the failure. */
+function linkPathForRead(path: string | undefined): string | undefined {
+	return path ? (tablePathForRead(path) ?? path) : undefined;
 }
 
 function fieldOf(doc: LayerDoc, nameOrId: unknown): Field {
@@ -203,7 +273,6 @@ function shownValue(field: Field, value: CellValue): CellValue {
 	return value;
 }
 
-/** A view by name or id. */
 function viewOf(doc: LayerDoc, nameOrId: unknown): View {
 	const wanted = typeof nameOrId === 'string' ? nameOrId.trim() : '';
 	if (wanted === '') {
@@ -266,7 +335,6 @@ function fieldIdsOf(doc: LayerDoc, raw: unknown): string[] {
 	return ids;
 }
 
-/** What a stored view says, with ids read back as names where a caller needs them. */
 /** Column footers, by column name, keeping only totals that column can report. */
 function summariesOf(doc: LayerDoc, raw: unknown): Record<string, SummaryKind> {
 	const chosen: Record<string, SummaryKind> = {};
@@ -368,50 +436,26 @@ function shownView(doc: LayerDoc, view: View): Record<string, unknown> {
 	};
 }
 
-/**
- * What a column is wired to. A caller reading a table this way can see how an existing
- * column of the same kind was built, instead of inventing one that half works.
- */
+/** How a column is wired, so a caller can build another like it. */
 function fieldConfig(
 	doc: LayerDoc,
 	field: Field,
 	others: Map<string, LayerDoc>,
 ): Record<string, unknown> {
-	const tableFor = (path?: string): LayerDoc | null => {
-		if (!path) {
-			return doc;
-		}
-		const cached = others.get(path);
-		if (cached) {
-			return cached;
-		}
-		try {
-			const loaded = loadTable(path).doc;
-			others.set(path, loaded);
-			return loaded;
-		} catch {
-			return null;
-		}
-	};
-	const nameIn = (table: LayerDoc | null, id?: string): string | null => {
-		if (!table || !id) {
-			return null;
-		}
-		return table.fields.find((one) => one.id === id)?.name ?? null;
-	};
+	const tableFor = (path?: string): LayerDoc | null => tableAt(doc, path, others);
 
 	switch (field.type) {
 		case 'relation': {
 			const other = tableFor(field.linkPath);
 			return {
-				targetTable: field.linkPath ?? '(this table)',
+				targetTable: linkPathForRead(field.linkPath) ?? '(this table)',
 				shows: nameIn(other, field.linkFieldId),
 			};
 		}
 		case 'relationBack': {
 			const other = tableFor(field.backPath);
 			return {
-				fromTable: field.backPath ?? '(this table)',
+				fromTable: linkPathForRead(field.backPath) ?? '(this table)',
 				viaRelation: nameIn(other, field.backFieldId),
 				titledBy: nameIn(other, field.backTitleFieldId),
 			};
@@ -420,7 +464,9 @@ function fieldConfig(
 			return { formula: field.formula ?? null };
 		case 'rollup': {
 			const source = doc.fields.find((one) => one.id === field.rollupSourceFieldId);
-			const other = tableFor(source?.linkPath);
+			const other = tableFor(
+				source?.type === 'relationBack' ? source.backPath : source?.linkPath,
+			);
 			return {
 				gathersThrough: source?.name ?? null,
 				reads: nameIn(other, field.rollupFieldId),
@@ -429,7 +475,9 @@ function fieldConfig(
 		}
 		case 'lookup': {
 			const source = doc.fields.find((one) => one.id === field.lookupSourceFieldId);
-			const other = tableFor(source?.linkPath);
+			const other = tableFor(
+				source?.type === 'relationBack' ? source.backPath : source?.linkPath,
+			);
 			return {
 				readsThrough: source?.name ?? null,
 				shows: nameIn(other, field.lookupFieldId),
@@ -451,18 +499,245 @@ function fieldConfig(
 }
 
 /**
- * A relation cell, from row ids or from the text the column shows.
- *
- * The grid picks rows from a list, so its own text parser refuses relation values
- * outright. A caller has no list to pick from, so it may name a row either way; anything
- * that matches neither is reported back rather than dropped.
+ * The column names a formula reads, using the evaluator's own parser so a name in a string is
+ * not a column. A formula that does not parse reports none.
+ */
+function formulaReferences(expression: string): string[] {
+	const parsed = parseFormula(expression);
+	if (!parsed.ok) {
+		return [];
+	}
+	const names: string[] = [];
+	const visit = (node: FormulaNode): void => {
+		switch (node.kind) {
+			case 'field':
+				if (!names.includes(node.name)) {
+					names.push(node.name);
+				}
+				return;
+			case 'call':
+				for (const argument of node.args) {
+					visit(argument);
+				}
+				return;
+			case 'unary':
+				visit(node.operand);
+				return;
+			case 'binary':
+				visit(node.left);
+				visit(node.right);
+				return;
+			default:
+				return;
+		}
+	};
+	visit(parsed.node);
+	return names;
+}
+
+/**
+ * Why a blank cell reads blank: a missing relation, a nested mapping and a truly empty value
+ * all produce empty text.
+ */
+function readLimit(field: Field): string | null {
+	switch (field.type) {
+		case 'formula':
+			return 'A formula error reads as #<error-code>, not as a value.';
+		case 'relationBack':
+			return 'Reads empty when the back-reference table or its title column is missing.';
+		case 'rollup':
+			return 'Reads empty when the source relation, the other table, or the gathered column is missing.';
+		case 'lookup':
+			return 'Reads empty when the source relation, the other table, or the shown column is missing.';
+		case 'noteProp':
+			return 'Only top-level scalar frontmatter values and simple arrays are read; nested mappings, missing notes or missing keys read as empty.';
+		default:
+			return null;
+	}
+}
+
+/**
+ * Where a computed column gets its value, in terms a caller can pass on. Null for a column
+ * that is not computed, which this answer does not explain.
+ */
+function computedFrom(
+	doc: LayerDoc,
+	field: Field,
+	others: Map<string, LayerDoc>,
+): Record<string, unknown> | null {
+	const tableFor = (path?: string): LayerDoc | null => tableAt(doc, path, others);
+	const sourceOf = (
+		sourceField: Field | undefined,
+	): { path?: string; table: LayerDoc | null } => {
+		if (!sourceField) {
+			return { table: null };
+		}
+		const stored =
+			sourceField.type === 'relationBack'
+				? sourceField.backPath
+				: sourceField.linkPath;
+		return { path: linkPathForRead(stored), table: tableFor(stored) };
+	};
+	const described = (
+		kind: string,
+		table: LayerDoc | null,
+		path: string | undefined,
+		column: Field | undefined,
+		through: string | null,
+		extra: Record<string, unknown>,
+	): Record<string, unknown> => {
+		const where = path ?? 'this table';
+		const via = through ? ` through ${through}` : '';
+		let explain = `${kind} is not fully configured.`;
+		if (column) {
+			if (kind === 'relation') {
+				explain = `Linked rows show ${column.name} (${column.type}) from ${where}.`;
+			} else if (kind === 'relationBack') {
+				explain = `Rows in ${where} point back here; their ${column.name} (${column.type}) titles them.`;
+			} else if (kind === 'rollup') {
+				explain = `Rollup${via} of ${column.name} (${column.type}) in ${where}.`;
+			} else if (kind === 'lookup') {
+				explain = `Lookup${via} of ${column.name} (${column.type}) in ${where}.`;
+			}
+		}
+		return {
+			kind,
+			table: path ?? null,
+			tableName: table?.name ?? null,
+			column: column?.name ?? null,
+			columnType: column?.type ?? null,
+			columnIsComputed: column ? isDerived(column.type) : false,
+			crossTable: Boolean(path),
+			through,
+			...extra,
+			explain,
+		};
+	};
+
+	switch (field.type) {
+		case 'rollup': {
+			const source = doc.fields.find((one) => one.id === field.rollupSourceFieldId);
+			const resolved = sourceOf(source);
+			const column = resolved.table?.fields.find(
+				(one) => one.id === field.rollupFieldId,
+			);
+			return described(
+				'rollup',
+				resolved.table,
+				resolved.path,
+				column,
+				source?.name ?? null,
+				{ aggregate: field.rollupAggregate ?? null },
+			);
+		}
+		case 'lookup': {
+			const source = doc.fields.find((one) => one.id === field.lookupSourceFieldId);
+			const resolved = sourceOf(source);
+			const column = resolved.table?.fields.find(
+				(one) => one.id === field.lookupFieldId,
+			);
+			return described(
+				'lookup',
+				resolved.table,
+				resolved.path,
+				column,
+				source?.name ?? null,
+				{},
+			);
+		}
+		case 'relation': {
+			if (!field.linkPath) {
+				return null;
+			}
+			const other = tableFor(field.linkPath);
+			const column = other?.fields.find((one) => one.id === field.linkFieldId);
+			return described(
+				'relation',
+				other,
+				linkPathForRead(field.linkPath),
+				column,
+				null,
+				{},
+			);
+		}
+		case 'relationBack': {
+			if (!field.backPath) {
+				return null;
+			}
+			const other = tableFor(field.backPath);
+			const column = other?.fields.find((one) => one.id === field.backTitleFieldId);
+			return described(
+				'relationBack',
+				other,
+				linkPathForRead(field.backPath),
+				column,
+				field.backFieldId ? nameIn(other, field.backFieldId) : null,
+				{},
+			);
+		}
+		case 'noteProp':
+			return {
+				kind: 'noteProp',
+				noteColumn: nameIn(doc, field.noteFieldId),
+				key: field.frontmatterKey ?? field.name,
+				crossTable: false,
+				explain: `Read from the frontmatter key "${
+					field.frontmatterKey ?? field.name
+				}" of the note named in the note column; only simple top-level values are read, and the value is not stored in this table.`,
+			};
+		case 'formula': {
+			const reads = formulaReferences(field.formula ?? '').map((name) => {
+				const target = doc.fields.find((one) => one.name === name);
+				const origin =
+					target &&
+					(target.type === 'rollup' ||
+						target.type === 'lookup' ||
+						target.type === 'relationBack')
+						? computedFrom(doc, target, others)
+						: null;
+				return {
+					field: name,
+					type: target?.type ?? null,
+					computed: target ? isDerived(target.type) : false,
+					...(origin?.crossTable === true
+						? { table: origin.table, column: origin.column }
+						: {}),
+				};
+			});
+			return {
+				kind: 'formula',
+				expression: field.formula ?? null,
+				reads,
+				crossTable: reads.some((read) => 'table' in read && read.table !== null),
+				explain:
+					reads.length === 0
+						? 'Computed from other columns by this formula; value is not stored in this table.'
+						: `Computed by this formula from ${reads
+								.map((read) => `${read.field} (${read.type ?? 'unknown'})`)
+								.join(', ')}; value is not stored in this table.`,
+			};
+		}
+		default:
+			return null;
+	}
+}
+
+/**
+ * A relation cannot go through the grid's text parser — rows are picked, never typed — so a
+ * caller may name a row by id or by the text the relation shows.
  */
 function relationCell(
 	doc: LayerDoc,
 	field: Field,
 	raw: unknown,
+	others: Map<string, LayerDoc>,
 ): { ids: string[]; unknown: string[] } {
-	const target = field.linkPath ? loadTable(field.linkPath).doc : doc;
+	const target = tableAt(doc, field.linkPath, others);
+	if (!target) {
+		throw new Error(
+			`The relation column "${field.name}" points at "${field.linkPath ?? ''}", which is not a table in this vault.`,
+		);
+	}
 	const items = Array.isArray(raw)
 		? raw
 		: asText(raw)
@@ -500,22 +775,15 @@ function relationCell(
 	return { ids, unknown };
 }
 
-/**
- * One value into one cell. A relation is resolved separately because the column's own
- * text parser refuses it: in the grid a row is picked from a list, never typed.
- */
 function writeCell(
 	doc: LayerDoc,
 	recordId: string,
 	field: Field,
 	raw: unknown,
+	others: Map<string, LayerDoc>,
 ): { ok: boolean; unknown: string[] } {
-	/*
-	 * Nothing to write is a clear, not a refusal. `null` says so outright, and an
-	 * empty string means it too — which is what emptying a cell in the app does.
-	 * Without this a number column refused `""` (its parser has no empty number) and
-	 * a cell of that type could not be emptied from here at all.
-	 */
+	// Nothing to write is a clear, not a refusal: a number parser has no empty number, so
+	// without this a cell of that type could not be emptied from here.
 	if (raw === null || raw === undefined || asText(raw) === '') {
 		return {
 			ok: setCellValue(doc, recordId, field, emptyValueFor(field)),
@@ -523,7 +791,7 @@ function writeCell(
 		};
 	}
 	if (field.type === 'relation') {
-		const { ids, unknown } = relationCell(doc, field, raw);
+		const { ids, unknown } = relationCell(doc, field, raw, others);
 		if (unknown.length > 0) {
 			return { ok: false, unknown };
 		}
@@ -532,11 +800,7 @@ function writeCell(
 	return { ok: setCellFromText(doc, recordId, field, asText(raw)), unknown: [] };
 }
 
-/**
- * Why a value cannot be stored in this column, and the sentence the caller owes the
- * reader about it. A write that is refused without saying why teaches a reader to
- * distrust the table, so every one of these travels with something to pass on.
- */
+/** Why a value cannot be stored, and the sentence the caller owes the reader. */
 function unwritable(field: Field): { reason: string; tellUser: string } {
 	switch (field.type) {
 		case 'noteProp':
@@ -577,7 +841,6 @@ function unwritable(field: Field): { reason: string; tellUser: string } {
 	}
 }
 
-/** A caller's list of names, trimming and dropping anything that is not one. */
 function asTextList(raw: unknown): string[] {
 	return Array.isArray(raw)
 		? raw
@@ -587,7 +850,6 @@ function asTextList(raw: unknown): string[] {
 		: [];
 }
 
-/** A caller's list of objects, dropping anything else rather than failing. */
 function asList(raw: unknown): Record<string, unknown>[] {
 	return Array.isArray(raw)
 		? raw.filter(
@@ -597,92 +859,42 @@ function asList(raw: unknown): Record<string, unknown>[] {
 		: [];
 }
 
-/**
- * Why a computed column's value is not in the answer, and the sentence the caller
- * owes the reader about it.
- *
- * A numbering column is the exception, and it is reported: its value is a position
- * this side can count as well as the grid can. The rest are computed by the app from
- * things this process does not walk — an expression, a relation's other table, a
- * note's frontmatter. A missing key reads as "empty column", which is a wrong answer
- * to give silently, so each one says why and what to pass on.
- */
-function unreadable(field: Field): { reason: string; tellUser: string } {
-	switch (field.type) {
-		case 'formula':
-			return {
-				reason:
-					'a formula is computed by Obsidian from its expression and is not stored in the file',
-				tellUser:
-					'A formula column is computed by Obsidian, so its values cannot be read from here. Open the table in Obsidian to see them.',
-			};
-		case 'rollup':
-			return {
-				reason:
-					'a rollup totals the rows reached through a relation, which Obsidian computes',
-				tellUser:
-					'A rollup total is computed by Obsidian from the related rows, so it cannot be read from here. Open the table in Obsidian to see it.',
-			};
-		case 'lookup':
-			return {
-				reason:
-					'a lookup shows a column of the rows a relation points at, which Obsidian computes',
-				tellUser:
-					'A lookup value comes from the related rows and is computed by Obsidian, so it cannot be read from here. Open the table in Obsidian to see it.',
-			};
-		case 'relationBack':
-			return {
-				reason:
-					'a backlink column lists the rows of another table that point here, which Obsidian computes',
-				tellUser:
-					'A backlink column is computed by Obsidian from the other table, so its values cannot be read from here. Open the table in Obsidian to see them.',
-			};
-		case 'noteProp':
-			return {
-				reason:
-					"a note property lives in the note's frontmatter, which needs Obsidian's note index",
-				tellUser:
-					"A note property lives in the note's frontmatter and cannot be read from here. Open the table in Obsidian to see it.",
-			};
-		default:
-			return {
-				reason: `a ${field.type} column computes its own value`,
-				tellUser: 'This column is computed and cannot be read from here.',
-			};
-	}
-}
-
-/** Whether the caller mentioned an argument, which is what "change only this" turns on. */
+/** Whether the caller named the argument, even as null: that is what lets a setting be cleared. */
 function given(args: Record<string, unknown>, key: string): boolean {
 	return Object.prototype.hasOwnProperty.call(args, key);
 }
 
-/** The table a relation, backlink or nothing of the sort points at. */
-function linkedTable(doc: LayerDoc, sourceFieldId: string | undefined): LayerDoc {
+function linkedTable(
+	doc: LayerDoc,
+	sourceFieldId: string | undefined,
+	others: Map<string, LayerDoc>,
+): LayerDoc {
 	const source = doc.fields.find((one) => one.id === sourceFieldId);
 	if (!source) {
 		return doc;
 	}
-	if (source.type === 'relation' && source.linkPath) {
-		return loadTable(source.linkPath).doc;
+	const path =
+		source.type === 'relation'
+			? source.linkPath
+			: source.type === 'relationBack'
+				? source.backPath
+				: undefined;
+	if (!path) {
+		return doc;
 	}
-	if (source.type === 'relationBack' && source.backPath) {
-		return loadTable(source.backPath).doc;
+	const table = tableAt(doc, path, others);
+	if (!table) {
+		throw new Error(
+			`The column "${source.name}" points at "${path}", which is not a table in this vault.`,
+		);
 	}
-	return doc;
+	return table;
 }
 
 /**
- * The settings one column type carries, applied from whatever the caller passed.
- *
- * One function, two callers: a type that starts here — a column being made, or a
- * column being turned into another type — demands the settings it cannot work
- * without, and an existing type applies only what it was given. A rule copied into
- * two tools is a rule with a mistake in it somewhere, so both come here.
- *
- * A type change has already dropped the settings of the type the column no longer
- * is, so switching to a computed type without its settings would leave a column
- * that can never compute anything — the state `add_field` refuses to create.
+ * The settings one column type carries, applied from whatever the caller passed. A new column
+ * or a changed type must be given what it cannot work without; an existing type applies only
+ * what it was given.
  */
 function applyFieldSettings(
 	doc: LayerDoc,
@@ -690,6 +902,7 @@ function applyFieldSettings(
 	args: Record<string, unknown>,
 	file: string,
 	requireSettings: boolean,
+	others: Map<string, LayerDoc>,
 ): string[] {
 	const changed: string[] = [];
 	const type = field.type;
@@ -704,8 +917,7 @@ function applyFieldSettings(
 				);
 			}
 		} else {
-			// The same file means this table, which is what a self-reference is; loading
-			// it again would give the column a second copy of the document to read.
+			// The same file means this table; loading it again would give a second copy of the document.
 			const elsewhere = targetPath !== '' && vaultFile(targetPath) !== file;
 			const other = elsewhere ? loadTable(targetPath).doc : doc;
 			field.linkFieldId = fieldOf(other, shown).id;
@@ -719,19 +931,20 @@ function applyFieldSettings(
 	}
 
 	if (type === 'relationBack') {
-		/*
-		 * The column that names a pointing row. The backlink itself still cannot be
-		 * created here — it needs the relation on the other side — but once the app has
-		 * made one, the column it reads is an ordinary setting.
-		 */
+		/* The server cannot create a backlink, but the column naming a pointing row is an ordinary setting. */
 		if (given(args, 'backTitleField')) {
 			const titleName = asText(args.backTitleField).trim();
 			if (titleName === '') {
 				delete field.backTitleFieldId;
 			} else {
 				const source = field.backPath
-					? loadTable(field.backPath).doc
+					? tableAt(doc, field.backPath, others)
 					: doc;
+				if (!source) {
+					throw new Error(
+						`This backlink column points at "${field.backPath}", which is not a table in this vault.`,
+					);
+				}
 				field.backTitleFieldId = fieldOf(source, titleName).id;
 			}
 			changed.push('backTitleField');
@@ -806,7 +1019,7 @@ function applyFieldSettings(
 			}
 		} else {
 			field.rollupFieldId = fieldOf(
-				linkedTable(doc, field.rollupSourceFieldId),
+				linkedTable(doc, field.rollupSourceFieldId, others),
 				readName,
 			).id;
 			changed.push('rollupField');
@@ -838,7 +1051,7 @@ function applyFieldSettings(
 			}
 		} else {
 			field.lookupFieldId = fieldOf(
-				linkedTable(doc, field.lookupSourceFieldId),
+				linkedTable(doc, field.lookupSourceFieldId, others),
 				readName,
 			).id;
 			changed.push('lookupField');
@@ -940,18 +1153,18 @@ function applyFieldSettings(
 }
 
 /**
- * A record with its cells keyed by column name, which is what a caller reads.
- *
- * `numbering` carries what the numbering columns read. Those cells hold nothing,
- * but their value is a position in the table, which this side can count as well
- * as the grid can — so it is reported rather than left out of the answer.
+ * A record with cells keyed by column name. Numbering columns store nothing but read as a
+ * position, and every other computed value comes through the grid's own `CellReader`, so it
+ * arrives as the screen shows it.
  */
 function shownRecord(
 	doc: LayerDoc,
 	record: LayerRecord,
+	reader: CellReader,
 	numbering?: ReadonlyMap<string, ReadonlyMap<string, string>>,
 ): Record<string, unknown> {
 	const cells: Record<string, CellValue> = {};
+	const notes: Record<string, string> = {};
 	for (const field of doc.fields) {
 		if (field.type === 'autoNumber') {
 			const text = numbering?.get(field.id)?.get(record.id);
@@ -960,8 +1173,14 @@ function shownRecord(
 			}
 			continue;
 		}
-		// A derived column has nothing stored; reporting a value would invent one.
 		if (isDerived(field.type)) {
+			const reading = reader.reading(doc, field, record);
+			if (reading !== null) {
+				cells[field.name] = reading.text;
+				if (reading.hint !== undefined && reading.hint !== '') {
+					notes[field.name] = reading.hint;
+				}
+			}
 			continue;
 		}
 		const value = record.cells[field.id];
@@ -969,10 +1188,13 @@ function shownRecord(
 			cells[field.name] = shownValue(field, value);
 		}
 	}
-	return { id: record.id, cells };
+	return {
+		id: record.id,
+		cells,
+		...(Object.keys(notes).length > 0 ? { notes } : {}),
+	};
 }
 
-/** The number every row shows, per numbering column. */
 function numberingOf(doc: LayerDoc): Map<string, Map<string, string>> {
 	const all = new Map<string, Map<string, string>>();
 	for (const field of doc.fields) {
@@ -993,10 +1215,8 @@ function newId(prefix: string, taken: readonly string[]): string {
 }
 
 /**
- * A caller's value as the text a column parses.
- *
- * Anything that is not a scalar or a list of scalars reads as nothing rather than as
- * `[object Object]`, which a column would then refuse with a confusing message.
+ * Anything that is not a scalar reads as nothing rather than `[object Object]`, which a column
+ * would then refuse with a confusing message.
  */
 function asText(value: unknown): string {
 	if (typeof value === 'string') {
@@ -1064,7 +1284,7 @@ const tools = [
 		description:
 			`Read a table: its columns, its views, and its rows. Cells are keyed by column name and select values read as option names, so what comes back can be sent straight to update_cells or add_records. Every view is reported with its own filter, sorts and hidden columns — read them before changing a view, because a view is named, not "the one on screen".
 
-A computed column's value is not in the file. Numbering is the exception and is reported, because this side can count a row's position too; every other computed column (formula, rollup, lookup, backlinks, note property) carries an \`unreadable\` note with a \`tellUser\` sentence — pass that on rather than reporting the column as empty.`,
+A computed column is read back as the value its cell shows. Each field reports \`readable\`, \`writable\`, and — when a value has a limit — \`readLimit\` or \`writeLimit\`. A value that comes from another table — a rollup, lookup or relation showing a computed column — carries \`computedFrom\` with that table, column and type, so you can explain where it came from; it is computed, not stored here. A note property is read from the note's frontmatter through a small top-level YAML subset; nested mappings read as empty and are called out in that row's \`notes\`. A formula error also appears in \`notes\` rather than being mistaken for a value.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1078,7 +1298,8 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	{
 		name: 'add_records',
 		description:
-			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property, numbering) is skipped. A value the column cannot hold comes back in `refused` instead of being written.',
+			'Append rows. Each row is an object of column name to value. Values are text as a person would type them: a number is "42", a checkbox is "true" or "false", a date is "2026-01-31", a date and time is "2026-01-31 09:30", a select is the option name, a multi-select is "Red, Blue" or an array of names, and a note column is a vault path like "Folder/Note". A computed column (formula, rollup, lookup, backlinks, note property, numbering) is skipped. A value the column cannot hold comes back in `refused` instead of being written.' +
+			WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1095,7 +1316,8 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	{
 		name: 'update_cells',
 		description:
-			'Set individual cells. A record id comes from read_table; a column may be named or given by id. Values follow the same rules as add_records, and a value the column cannot hold is reported in `refused` rather than written. A computed column cannot be written.',
+			'Set individual cells. A record id comes from read_table; a column may be named or given by id. Values follow the same rules as add_records, and a value the column cannot hold is reported in `refused` rather than written. A computed column cannot be written.' +
+			WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1118,7 +1340,7 @@ A computed column's value is not in the file. Numbering is the exception and is 
 	},
 	{
 		name: 'delete_records',
-		description: 'Remove rows by id.',
+		description: 'Remove rows by id.' + WRITE_REVISION_NOTE,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1137,7 +1359,7 @@ Choosing the type is the part that goes wrong, so read this before deciding:
 - When a cell holds a reference to *another row* — a dependency, an owner, a parent, a related item — the type is \`relation\`. That holds even when the rows live in the same table, and even when the text looks like a plain label. A value that is itself a row, with its own columns, is a row reference.
 - \`select\` and \`multiSelect\` are for a fixed list of labels that exist only inside this column, typed or picked by hand. If the choices are rows of a table that also has a name, an id and other columns, it is \`relation\`, not \`multiSelect\`.
 - \`select\` holds one label; \`multiSelect\` holds several.
-- \`note\` holds a vault path to a note; \`noteProp\` reads or writes one frontmatter key of the note a \`note\` column points at.
+- \`note\` holds a vault path to a note; \`noteProp\` reads one frontmatter key of the note a \`note\` column points at. This server cannot write a \`noteProp\` value.
 - \`formula\` computes from other columns; \`rollup\` totals a related table through a relation column; \`relationBack\` lists the rows that point back here; \`lookup\` shows one column of those rows as it reads over there, without totalling anything.
 
 Every type that computes from something else needs that something named, and the call fails rather than storing a column that cannot work: \`relation\` needs \`linkField\` (plus \`targetTable\` when the rows are in another file), \`formula\` needs \`formula\`, \`rollup\` needs \`rollupSource\`, \`rollupField\` and \`rollupAggregate\`, \`lookup\` needs \`lookupSource\` and \`lookupField\`, \`noteProp\` needs \`noteField\`.
@@ -1150,7 +1372,7 @@ Two limits you have to pass on rather than work around:
 
 - **Dates have no format setting in this plugin.** A date always reads as YYYY-MM-DD and a date-time as YYYY-MM-DD HH:mm. If the reader asks for another format, tell them it is not available; do not silently produce something else.
 - **A numbering column is a position, not a stored value.** Each row is counted within its group, in the order the rows sit in the file, so inserting, deleting or regrouping rows renumbers the ones after them. Do not describe it as a permanent id: tell the reader to build a stable id with a formula if they need one.
-- **A \`noteProp\` column's values cannot be written from here**, and cannot be read either: they live in the frontmatter of the note a \`note\` column points at, and reading them needs the app. Create the column if it helps, but tell the reader that filling it in happens in the app.`,
+- **A \`noteProp\` column's values cannot be written from here**, but they can be read: they live in the frontmatter of the note a \`note\` column points at. Create the column if it helps, but tell the reader that filling it in happens in the app. Only top-level scalar frontmatter values are read; nested mappings read as empty.`,
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -1571,9 +1793,8 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 			const given = typeof args.name === 'string' ? args.name.trim() : '';
 			const tableName = given === '' ? basename(file, '.layer') : given;
-			// Named after the table rather than a fixed word: this process has no interface
-			// language, and the app's own default ("表格" or "Table") would be wrong in one
-			// of them. The table's name reads correctly either way, and update_view renames it.
+			// Named after the table: this process has no interface language, so a fixed word would
+			// be wrong in one of them.
 			const view: GridView = {
 				id: newId('v', []),
 				name: tableName,
@@ -1592,15 +1813,23 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				views: [view],
 			};
 			mkdirSync(dirname(file), { recursive: true });
-			writeFileSync(file, serializeLayerDoc(doc), 'utf8');
+			try {
+				createFileText(file, serializeLayerDoc(doc));
+			} catch (error) {
+				// The path was absent a moment ago, but a sync pull can take it between the check
+				// and the create; anything else is the real failure.
+				if (existsSync(file)) {
+					throw new Error(
+						`Something is already at "${String(args.path)}"; choose another path. Nothing was written.`,
+					);
+				}
+				throw error;
+			}
 			return { path: args.path, name: doc.name, fields: 0, records: 0, views: 1 };
 		}
 
 		case 'list_tables': {
-			/*
-			 * A table this build cannot read must not hide the ones it can: it is
-			 * listed with the reason instead of failing the whole answer.
-			 */
+			// An unreadable table is listed with its reason rather than failing the whole answer.
 			const unreadable: { path: string; why: string }[] = [];
 			const tables = tableFiles().flatMap((path) => {
 				try {
@@ -1622,7 +1851,6 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					return [];
 				}
 			});
-			// The vault is named in the answer so every path below reads as what it is.
 			return unreadable.length > 0
 				? { vault: VAULT, tables, unreadable }
 				: { vault: VAULT, tables };
@@ -1632,28 +1860,71 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			const { doc } = loadTable(args.path);
 			// Loaded at most once per table, however many columns point at it.
 			const otherTables = new Map<string, LayerDoc>();
+			const tablePaths = tableFiles();
+			// Cached for this call only: text kept longer would be what the note held when it was
+			// first read.
+			const noteTexts = new Map<string, string | null>();
+			const noteText = (notePath: string): string | null => {
+				const cached = noteTexts.get(notePath);
+				if (cached !== undefined) {
+					return cached;
+				}
+				const file = resolveNoteFile(notePath);
+				let text: string | null = null;
+				if (file !== null) {
+					try {
+						text = readFileText(file);
+					} catch {
+						text = null;
+					}
+				}
+				noteTexts.set(notePath, text);
+				return text;
+			};
+			const reader = new CellReader({
+				table: (field, from, direction) => {
+					const path = direction === 'back' ? field.backPath : field.linkPath;
+					if (!path) {
+						return from;
+					}
+					const resolved = tablePathForRead(path, tablePaths);
+					if (!resolved) {
+						return null;
+					}
+					// Read and parsed once per table for the whole answer.
+					const cached = otherTables.get(resolved);
+					if (cached) {
+						return cached;
+					}
+					try {
+						const loaded = loadTable(resolved).doc;
+						otherTables.set(resolved, loaded);
+						return loaded;
+					} catch {
+						return null;
+					}
+				},
+				noteProperty: (notePath, key) => {
+					const text = noteText(notePath);
+					return text === null ? '' : frontmatterValue(text, key);
+				},
+				notePropertyHint: () =>
+					'This frontmatter value is nested or otherwise too complex to read; only top-level scalar values and simple arrays can be read.',
+				formulaError: (error) => ({
+					text: `#${error.code}`,
+					hint: error.detail ?? error.code,
+				}),
+			});
 			const offset = typeof args.offset === 'number' ? Math.max(0, args.offset) : 0;
 			const limit = typeof args.limit === 'number' ? Math.max(0, args.limit) : 100;
-			// A relation cell holds row ids, which mean nothing on their own. Every table
-			// a relation points at is listed here once, so a caller can read the rows and
-			// still know which is which.
+			// A relation cell holds row ids, which mean nothing on their own; list the labels so a
+			// caller knows which row is which.
 			const rowLabels: Record<string, string> = {};
 			for (const field of doc.fields) {
 				if (field.type !== 'relation') {
 					continue;
 				}
-				const target = field.linkPath
-					? (otherTables.get(field.linkPath) ??
-						(() => {
-							try {
-								const loaded = loadTable(field.linkPath).doc;
-								otherTables.set(field.linkPath, loaded);
-								return loaded;
-							} catch {
-								return null;
-							}
-						})())
-					: doc;
+				const target = tableAt(doc, field.linkPath, otherTables);
 				if (!target) {
 					continue;
 				}
@@ -1665,32 +1936,38 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					continue;
 				}
 				for (const record of target.records) {
-					rowLabels[record.id] = formatCell(shown, record.cells[shown.id] ?? '');
+					rowLabels[record.id] = reader.displayText(target, shown, record);
 				}
 			}
 
-			// A numbering column stores nothing, but what it reads is the row's
-			// position, which this side can work out too — so it is still reported.
+			// A numbering column stores nothing, but its position is reported all the same.
 			const numbering = numberingOf(doc);
 			return {
 				path: args.path,
 				name: doc.name,
 				fields: doc.fields.map((field) => {
 					const config = fieldConfig(doc, field, otherTables);
+					const origin = computedFrom(doc, field, otherTables);
+					const limit = readLimit(field);
 					return {
 						id: field.id,
 						name: field.name,
 						type: field.type,
+						readable: true,
+						writable: !isDerived(field.type),
+						...(limit ? { readLimit: limit } : {}),
+						...(field.type === 'noteProp'
+							? {
+									writeLimit:
+										'Frontmatter values can only be edited in the note or the app; MCP cannot write them.',
+								}
+							: {}),
 						...(field.options
 							? { options: field.options.map((option) => option.name) }
 							: {}),
 						...(Object.keys(config).length > 0 ? { config } : {}),
 						...(isDerived(field.type) ? { computed: true } : {}),
-						// A computed column has nothing in the file to read. Saying so beats
-						// a missing key, which a caller reads as an empty column.
-						...(field.type !== 'autoNumber' && isDerived(field.type)
-							? { unreadable: unreadable(field) }
-							: {}),
+						...(origin ? { computedFrom: origin } : {}),
 					};
 				}),
 				views: doc.views.map((view) => shownView(doc, view)),
@@ -1698,12 +1975,13 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				...(Object.keys(rowLabels).length > 0 ? { rowLabels } : {}),
 				records: doc.records
 					.slice(offset, offset + limit)
-					.map((record) => shownRecord(doc, record, numbering)),
+					.map((record) => shownRecord(doc, record, reader, numbering)),
 			};
 		}
 
 		case 'add_records': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
+			const others = new Map<string, LayerDoc>();
 			const rows = Array.isArray(args.records) ? args.records : [];
 			const added: string[] = [];
 			const refused: Array<{ field: string; value: unknown }> = [];
@@ -1737,7 +2015,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					if (empty) {
 						continue;
 					}
-					const result = writeCell(doc, record.id, field, value);
+					const result = writeCell(doc, record.id, field, value, others);
 					if (!result.ok) {
 						refused.push({
 							field: column,
@@ -1750,12 +2028,13 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 				added.push(record.id);
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { added, refused, skipped };
 		}
 
 		case 'update_cells': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
+			const others = new Map<string, LayerDoc>();
 			const updates = Array.isArray(args.updates) ? args.updates : [];
 			const refused: Array<{
 				recordId: string;
@@ -1780,7 +2059,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					refused.push({ recordId, field: field.name, value: item.value, ...unwritable(field) });
 					continue;
 				}
-				const result = writeCell(doc, recordId, field, item.value);
+				const result = writeCell(doc, recordId, field, item.value, others);
 				if (result.ok) {
 					updated += 1;
 				} else {
@@ -1792,22 +2071,22 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					});
 				}
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { updated, refused };
 		}
 
 		case 'delete_records': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const ids = Array.isArray(args.recordIds)
 				? args.recordIds.filter((id): id is string => typeof id === 'string')
 				: [];
 			const removed = removeRecords(doc, ids);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed };
 		}
 
 		case 'add_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const name = typeof args.name === 'string' ? args.name.trim() : '';
 			const type = args.type as FieldType;
 			if (name === '') {
@@ -1828,10 +2107,8 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				const names = Array.isArray(args.options)
 					? args.options.filter((one): one is string => typeof one === 'string')
 					: [];
-				// Collected as they are made: reading `field.options` here would still be
-				// empty, and two options could be handed the same id. Each takes the colour
-				// the app gives a new option — the palette stepped by how many there are —
-				// rather than `default`, which draws an unstyled pill.
+				// Collected as they are made: reading `field.options` here would still be empty,
+				// and each takes the palette colour the app gives a new option, not `default`.
 				const taken: string[] = [];
 				const options: SelectOption[] = [];
 				for (const optionName of names) {
@@ -1851,11 +2128,8 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 
 			if (args.required === true) {
-				/*
-				 * Required is a promise the reader makes about their own typing, so it is
-				 * offered only where the reader is the one filling the cell in — the same
-				 * rule the field panel follows.
-				 */
+				// Required is a promise about the reader's own typing, so it is offered only where
+				// the reader fills the cell in — the same rule the field panel follows.
 				if (!canBeRequired(type)) {
 					throw new Error(
 						`A ${type} column cannot be marked required: the table computes it, so it is never the reader's to leave empty.`,
@@ -1865,12 +2139,12 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 
 			// Everything the type carries, refused rather than stored half-built.
-			applyFieldSettings(doc, field, args, file, true);
+			applyFieldSettings(doc, field, args, file, true, new Map());
 
 			addField(doc, field);
-			saveTable(file, doc);
-			// The column exists but cannot be filled from here; the caller owes the reader
-			// that sentence now, not after they have typed the first value into it.
+			saveTable(file, doc, text);
+			// The column exists but cannot be filled from here; the caller owes the reader that
+			// sentence now, not after the first value.
 			if (field.type === 'noteProp') {
 				return {
 					id: field.id,
@@ -1884,7 +2158,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'update_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const field = fieldOf(doc, args.field);
 			const changed: string[] = [];
 			let droppedCells = 0;
@@ -1900,11 +2174,8 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				if (!FIELD_TYPES.includes(nextType as FieldType)) {
 					throw new Error(`Unknown column type: ${nextType}`);
 				}
-				/*
-				 * The old values are the wrong shape for the new type, so they go: keeping
-				 * them would show one type's data in another type's cells. The count travels
-				 * back so the caller can own that loss rather than discover it.
-				 */
+				// The old values are the wrong shape for the new type, so they go; the count
+				// travels back so the caller can own that loss.
 				droppedCells = changeFieldType(doc, field.id, nextType as FieldType);
 				typeChanged = true;
 				changed.push('type');
@@ -1924,11 +2195,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				changed.push('required');
 			}
 
-			/*
-			 * A computed column is never the reader's to leave empty, so the flag goes
-			 * with the type that took it — the app's own editor does the same, and the
-			 * loader would drop it on the next read anyway.
-			 */
+			// A computed column is never the reader's to leave empty, so the flag goes with the type.
 			if (field.required === true && !canBeRequired(field.type)) {
 				delete field.required;
 				changed.push('required');
@@ -1973,13 +2240,8 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					changed.push(`colour:${name}`);
 				}
 				if (Array.isArray(args.orderOptions)) {
-					/*
-					 * A whole order rather than a move, because a partial order is
-					 * ambiguous about what happens to the options it leaves out. Every
-					 * existing option has to be named exactly once, and the list is
-					 * applied after any option this call added, so the caller can add
-					 * and place in one go.
-					 */
+					// A whole order, not a move: a partial one is ambiguous about the options it leaves
+					// out. Applied after this call's additions, so add and place can go together.
 					const names = asTextList(args.orderOptions);
 					const current = field.options ?? [];
 					if (names.length !== current.length) {
@@ -2009,7 +2271,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 			}
 
-			changed.push(...applyFieldSettings(doc, field, args, file, typeChanged));
+			changed.push(...applyFieldSettings(doc, field, args, file, typeChanged, new Map()));
 
 			if (changed.length === 0) {
 				return {
@@ -2021,7 +2283,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				};
 			}
 
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return {
 				id: field.id,
 				name: field.name,
@@ -2037,15 +2299,15 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 		}
 
 		case 'delete_field': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const field = fieldOf(doc, args.field);
 			const removed = removeField(doc, field.id);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed, name: field.name };
 		}
 
 		case 'add_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const name = typeof args.name === 'string' ? args.name.trim() : '';
 			if (name === '') {
 				throw new Error('A view name is required');
@@ -2057,17 +2319,16 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			if (typeof args.groupByField === 'string' && args.groupByField !== '') {
 				view.groupByFieldId = fieldOf(doc, args.groupByField).id;
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { id: view.id, name: view.name, groupByFieldId: view.groupByFieldId };
 		}
 
 		case 'update_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const view = viewOf(doc, args.view);
 			if (typeof args.name === 'string' && args.name.trim() !== '') {
 				renameView(doc, view.id, args.name.trim());
 			}
-			// Shared by every view type: what it shows and in what order.
 			if (args.filter !== undefined) {
 				view.filter = filterOf(doc, args.filter);
 			}
@@ -2077,9 +2338,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			if (args.hiddenFields !== undefined) {
 				view.hiddenFieldIds = fieldIdsOf(doc, args.hiddenFields);
 			}
-			// Table-only settings, refused on a board for the same reason boards are
-			// refused on a table: a setting stored for a view that cannot show it is a
-			// setting nobody can see or change.
+			// A setting stored for a view that cannot show it is one nobody can see or change.
 			const tableOnly =
 				args.rowHeight !== undefined ||
 				args.wrap !== undefined ||
@@ -2144,15 +2403,15 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					view.showEmptyColumns = args.showEmptyColumns;
 				}
 			}
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return shownView(doc, view);
 		}
 
 		case 'delete_view': {
-			const { doc, file } = loadTable(args.path);
+			const { doc, file, text } = loadTable(args.path);
 			const view = viewOf(doc, args.view);
 			const removed = removeView(doc, view.id);
-			saveTable(file, doc);
+			saveTable(file, doc, text);
 			return { removed, name: view.name };
 		}
 
@@ -2184,9 +2443,8 @@ function handle(request: Request): void {
 						? params.protocolVersion
 						: '2024-11-05',
 				capabilities: { tools: {} },
-				// Read by a client showing which build it is talking to. `check-version`
-				// keeps it equal to manifest.json, so a release cannot leave it behind.
-				serverInfo: { name: 'layer-base', version: '0.1.2' },
+				// `check-version` keeps this equal to manifest.json, so a release cannot leave it behind.
+				serverInfo: { name: 'layer-base', version: '0.2.0' },
 			});
 			return;
 		case 'notifications/initialized':

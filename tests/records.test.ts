@@ -138,7 +138,6 @@ describe('addRecordAtTop', () => {
 	});
 
 	it('starts each insertion above the last one', () => {
-		// Repeated use should stack upwards, the way the toolbar action reads.
 		const doc = newDoc();
 		const existing = addRecord(doc);
 
@@ -315,11 +314,7 @@ describe('duplicateField', () => {
 
 		const copy = duplicateField(doc, source.id) as Field;
 
-		/*
-		 * Without the source column the copy reads nothing at all. With the key it
-		 * would write over the original's value, which lives in a note both columns
-		 * would be editing.
-		 */
+		// Without the source column the copy reads nothing; with the key it would write over the original's value in the same note.
 		expect(copy.noteFieldId).toBe('f_notes');
 		expect(copy.frontmatterKey).toBeUndefined();
 	});
@@ -349,7 +344,6 @@ describe('duplicateField', () => {
 describe('moveFieldBefore', () => {
 	it('moves a column to sit before another', () => {
 		const doc = newDoc();
-		// fields are [TITLE, STATUS]; move STATUS to the front.
 		expect(moveFieldBefore(doc, STATUS.id, TITLE.id)).toBe(true);
 
 		expect(doc.fields.map((f) => f.id)).toEqual([STATUS.id, TITLE.id]);
@@ -367,7 +361,6 @@ describe('moveFieldBefore', () => {
 		const hidden: Field = { id: 'f_hidden', name: 'Hidden', type: 'text' };
 		doc.fields.splice(1, 0, hidden);
 
-		// Visible order is [TITLE, STATUS, hidden]; drag STATUS before TITLE.
 		expect(moveFieldBefore(doc, STATUS.id, TITLE.id)).toBe(true);
 
 		expect(doc.fields.map((f) => f.id)).toEqual([

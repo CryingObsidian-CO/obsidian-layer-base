@@ -1,12 +1,8 @@
 import { readFileSync } from 'node:fs';
 
-/*
- * Every copy of the version has to agree — manifest.json, package.json, versions.json
- * and the MCP server's own announcement — and the release tag has to match them:
- * Obsidian refuses a release whose tag differs from the manifest, a stale
- * versions.json leaves users on an update that never arrives, and a stale MCP line
- * ships a server that calls itself older than the plugin it came with.
- */
+/* Every copy of the version must agree — manifest.json, package.json, versions.json and
+ * the MCP server's announcement — and the release tag must match: Obsidian refuses a
+ * mismatched tag, and a stale versions.json leaves users on an update that never arrives. */
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
 const manifest = read('manifest.json');
@@ -30,11 +26,7 @@ if (mapped === undefined) {
 	);
 }
 
-/*
- * The MCP server announces its own version in `initialize`, and that copy lives in
- * source rather than in a version file. Matched loosely, so the line may be
- * reformatted over time; only the announced version has to agree.
- */
+/* The server announces its version in source; matched loosely so the line may be reformatted. */
 const mcpServer = readFileSync('mcp/server.ts', 'utf8');
 const announced = /serverInfo:\s*\{[^}]*\bversion:\s*'([^']+)'/.exec(mcpServer);
 if (announced === null) {
@@ -47,10 +39,8 @@ if (announced === null) {
 	);
 }
 
-// EXPECTED_TAG lets a workflow started by hand say which tag it means; otherwise a
-// tag push supplies it. `||`, not `??`: a variable that is set but empty is not an
-// answer, and treating it as one would skip the comparison below and let a release
-// built from the wrong commit through.
+// `||`, not `??`: a variable set but empty is not an answer, and treating it as one
+// would skip the comparison below and let a release from the wrong commit through.
 const isTag = (process.env.GITHUB_REF ?? '').startsWith('refs/tags/');
 const tag = process.env.EXPECTED_TAG || (isTag ? process.env.GITHUB_REF_NAME : '');
 if (tag !== '' && tag !== manifest.version) {

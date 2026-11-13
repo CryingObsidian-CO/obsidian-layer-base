@@ -10,15 +10,8 @@ import {
 } from './node-api';
 
 /**
- * Where a path really is, following every link on its way there.
- *
- * The `native` form and not the plain one: on Windows the JavaScript version
- * does not follow a junction, and a junction is exactly the link a user can make
- * without administrator rights.
- *
- * A path that does not exist yet — the writer's case — is measured from its
- * nearest existing ancestor, so a link higher up the path is still followed
- * rather than skipped.
+ * `.native` follows a junction on Windows (the plain version does not), and a path that
+ * does not exist yet is resolved from its nearest existing ancestor so links higher up count.
  */
 export function realPath(path: string): string {
 	let head = path;
@@ -30,7 +23,6 @@ export function realPath(path: string): string {
 		} catch {
 			const parent = dirname(head);
 			if (parent === head) {
-				// Nothing on this path exists; the answer cannot be improved.
 				return path;
 			}
 			tail.unshift(basename(head));
@@ -39,12 +31,7 @@ export function realPath(path: string): string {
 	}
 }
 
-/**
- * Whether a path relative to some root stays under it.
- *
- * `..` alone is the root's parent; `..notes` is an ordinary name that merely
- * begins with two dots, and refusing those would refuse real files.
- */
+/** `..` alone is the parent; `..notes` is an ordinary name and refusing it would refuse real files. */
 export function staysInside(relPath: string): boolean {
 	return (
 		relPath === '' ||
@@ -53,12 +40,8 @@ export function staysInside(relPath: string): boolean {
 }
 
 /**
- * A guard for one vault: resolves a vault-relative path, or refuses it.
- *
- * Two questions, because either alone is not enough. The first is about the words
- * in the path — the one that catches `../elsewhere`. The second is about where the
- * file really is: a link inside the vault can point out of it, and every read and
- * write that follows the path follows that link too.
+ * Resolves a vault-relative path or refuses it: once lexically (the `../elsewhere` case) and
+ * once by real location, because a link inside the vault can point out of it.
  */
 export function vaultGuard(vaultRoot: string): (path: unknown) => string {
 	const root = resolve(vaultRoot);

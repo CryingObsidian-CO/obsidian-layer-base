@@ -17,6 +17,11 @@ export default defineConfig(
 		'tsconfig.json',
 		// Local maintenance scripts; not part of the plugin bundle.
 		'scripts',
+		// Session and Agent Teams scratch directories; never shipped.
+		'.dsh-*/**',
+		'.agent-teams/**',
+		// A local code-review export, not part of the plugin.
+		'review.html',
 	]),
 	{
 		languageOptions: {
@@ -34,11 +39,8 @@ export default defineConfig(
 	},
 	...obsidianmd.configs.recommended,
 	{
-		/*
-		 * The MCP server is a standalone Node program: it runs outside Obsidian, so the
-		 * plugin's rules about mobile support and the config folder do not apply to it.
-		 * Last on purpose — the shared rules would otherwise switch them back on.
-		 */
+		/* The MCP server runs outside Obsidian, so the rules about mobile support and the
+		 * config folder do not apply. Last, or the shared rules switch them back on. */
 		files: ['mcp/**/*.ts'],
 		languageOptions: {
 			globals: {
@@ -51,10 +53,8 @@ export default defineConfig(
 		},
 	},
 	{
-		/*
-		 * The tests run in Node too: reading a temporary folder is how a rule about
-		 * files can be tested at all. None of it reaches the bundle that ships.
-		 */
+		/* Tests run in Node too: reading a temporary folder is how a rule about files can be
+		 * tested at all. None of it reaches the bundle. */
 		files: ['tests/**/*.ts'],
 		languageOptions: {
 			globals: {

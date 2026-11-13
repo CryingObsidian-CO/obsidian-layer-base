@@ -25,10 +25,7 @@ describe('resizeSizeAt', () => {
 	});
 
 	it('measures from the size given for this gesture, not a stored one', () => {
-		// The regression this guards: a column resized twice, with the second
-		// gesture measuring from the width captured when the grid was built
-		// rather than from the width the first gesture left behind. The column
-		// snapped back to the stale value before following the pointer.
+		// Measure from the size this gesture started with: using the width captured when the grid was built snapped the column back first.
 		const builtAt = 180;
 		const afterFirstDrag = 260;
 
@@ -75,7 +72,6 @@ describe('the classes and listeners a resize leaves behind', () => {
 
 	type Listener = (event: unknown) => void;
 
-	/** Something that keeps the listeners added to it, the way document does. */
 	function fakeTarget() {
 		const listeners = new Map<string, Set<Listener>>();
 		return {
@@ -161,9 +157,8 @@ describe('the classes and listeners a resize leaves behind', () => {
 		env.document.fire('mouseup', {});
 
 		/*
-		 * The axis class asked for the cursor for the length of the gesture. Left
-		 * behind, it outlived the drag — a later column drag then carried both classes,
-		 * and the rule further down the sheet kept the row cursor.
+		 * Left behind, the axis class outlives the drag: a later column drag then carries
+		 * both classes and the row cursor wins.
 		 */
 		expect(env.body.has('is-row-resize')).toBe(false);
 		expect(env.body.has('layer-grid-resizing')).toBe(false);
@@ -206,7 +201,6 @@ describe('the classes and listeners a resize leaves behind', () => {
 		attachRowResize(handle as unknown as HTMLElement, rowHandlers([]));
 
 		handle.press();
-		// A second press with no mouseup between: the first gesture must be gone.
 		handle.press();
 
 		expect(env.document.count('mousemove')).toBe(1);

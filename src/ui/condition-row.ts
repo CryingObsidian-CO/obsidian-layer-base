@@ -3,7 +3,6 @@ import { needsValue, operatorsFor } from '../model/filter';
 import { shownNumber, storedNumber } from '../model/number';
 import type { Field, FilterCondition, FilterOperator } from '../types';
 
-/** What one operator is called in the reader's language. */
 export function operatorLabel(operator: FilterOperator): string {
 	switch (operator) {
 		case 'is':
@@ -30,27 +29,17 @@ export function operatorLabel(operator: FilterOperator): string {
 }
 
 export interface ConditionRowOptions {
-	/** The columns that may be named, in the order the table shows them. */
 	fields: readonly Field[];
 	/** Edited in place; the caller owns the copy it passed in. */
 	condition: FilterCondition;
 	/**
-	 * Called after an edit. `redraw` says the row changed shape — a new column
-	 * brings new operators with it, and an operator may want a value where the
-	 * previous one did not. A caller must not redraw while the reader is typing,
-	 * or the caret is lost mid-word, which is why typing reports false.
+	 * `redraw` says the row changed shape. Typing passes false: redrawing mid-word
+	 * loses the caret.
 	 */
 	onChange: (redraw: boolean) => void;
 }
 
-/**
- * Draws the three controls of one condition into `row`: this column, this
- * comparison, this value.
- *
- * Shared by the filter panel and the colour rules because they ask the same
- * question of the same columns — and a colour rule that offered a different set
- * of comparisons than the filter would be a second, quietly diverging opinion.
- */
+/** Shared with the colour rules, so both offer the same operators for the same column. */
 export function renderConditionRow(
 	row: HTMLElement,
 	options: ConditionRowOptions,
@@ -84,12 +73,8 @@ export function renderConditionRow(
 		});
 		option.value = operator;
 	}
-	/*
-	 * A saved comparison the column cannot answer is replaced, not just hidden. The
-	 * select can only show what it has an option for, so a stale operator would leave
-	 * the panel saying "is" while the rule kept "is ticked" — a comparison the value
-	 * box is then hidden for, and one the filter answers "no" to on every row.
-	 */
+	// A saved operator the column cannot answer is replaced, not just hidden: the select
+	// can only show what it has an option for, so a stale one leaves the panel lying.
 	if (!allowed.includes(condition.operator)) {
 		condition.operator = allowed[0] ?? 'is';
 	}
@@ -99,13 +84,11 @@ export function renderConditionRow(
 		onChange(true);
 	});
 
-	// A value is only asked for when the operator needs one.
 	if (field && needsValue(condition.operator)) {
 		renderValue(row, field, condition, onChange);
 	}
 }
 
-/** The value input, shaped for what the column holds. */
 function renderValue(
 	row: HTMLElement,
 	field: Field,
@@ -113,7 +96,6 @@ function renderValue(
 	onChange: (redraw: boolean) => void,
 ): void {
 	if (field.type === 'select' || field.type === 'multiSelect') {
-		// A choice is picked from the names the cell shows, not typed from memory.
 		const select = row.createEl('select', { cls: 'layer-condition-value' });
 		const any = select.createEl('option', { text: t().filterAnyValue });
 		any.value = '';
@@ -138,16 +120,10 @@ function renderValue(
 		input.type = 'text';
 	}
 	if (field.type === 'relation') {
-		// The names a relation shows live in another table, which this panel cannot
-		// read, so the placeholder says what is expected rather than offering a list
-		// it would have to guess at.
+		// The names live in another table this panel cannot read, so there is nothing to list.
 		input.placeholder = t().filterRelationPlaceholder;
 	}
-	/*
-	 * A number condition counts in the units the cells show: a percent column's
-	 * cells read "15%", so the box beside them takes 15 rather than 0.15, and the
-	 * comparison is made on the number the cell stores.
-	 */
+	// Counts in the units the cells show: a percent column reads "15%", so the box takes 15, stored 0.15.
 	const counts = field.type === 'number' || field.type === 'autoNumber';
 	const shown =
 		counts && typeof condition.value === 'number'
@@ -161,9 +137,8 @@ function renderValue(
 			return;
 		}
 		const raw = input.value.trim();
-		// A cleared box names no number — storing the zero an empty input reads as
-		// would turn "no value yet" into a filter on 0 — and neither does an entry
-		// no one can read as one. Both are "no value", which is a missing key here.
+		// A cleared box names no number — storing the zero it reads as would turn "no value
+		// yet" into a filter on 0 — and neither does an entry no one can read as one.
 		const parsed = raw === '' ? Number.NaN : Number(raw);
 		if (Number.isFinite(parsed)) {
 			condition.value = storedNumber(parsed, field.numberFormat);

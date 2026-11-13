@@ -7,7 +7,7 @@ export function normaliseFormat(format: NumberFormat | undefined): NumberFormat 
 	return format === 'percent' ? 'percent' : 'plain';
 }
 
-/** A valid decimals setting, or `null` for "as typed". */
+/** Non-finite and missing decimals mean "as typed". */
 export function normaliseDecimals(decimals: number | undefined): number | null {
 	if (decimals === undefined || !Number.isFinite(decimals)) {
 		return null;
@@ -15,11 +15,7 @@ export function normaliseDecimals(decimals: number | undefined): number | null {
 	return Math.min(MAX_DECIMALS, Math.max(0, Math.round(decimals)));
 }
 
-/**
- * Keeps only what can belong to a number: digits, one decimal point, and a minus
- * sign at the front. Applied while typing so a stray letter never appears in the
- * cell; the value is still parsed strictly on commit.
- */
+/** Keeps digits, one decimal point and a leading minus while typing; the commit still parses strictly. */
 export function sanitizeNumericInput(text: string): string {
 	const negative = text.trimStart().startsWith('-');
 	let digits = '';
@@ -32,12 +28,10 @@ export function sanitizeNumericInput(text: string): string {
 			digits += char;
 		}
 	}
-	// A lone '-' or '.' is not a number yet, but it is a number being typed, so it
-	// is kept and only rejected when the edit ends.
+	// A lone '-' is kept: it is a number still being typed, rejected only on commit.
 	return negative ? `-${digits}` : digits;
 }
 
-/** The number a cell's text means, or `null` when it means no number. */
 export function parseNumber(text: string): number | null {
 	const trimmed = text.trim().replace(/%$/, '').trim();
 	if (trimmed === '') {
@@ -48,37 +42,25 @@ export function parseNumber(text: string): number | null {
 }
 
 /**
- * How many of the units a reader sees make one stored unit.
- *
- * A percent field stores a proportion: `0.15` is fifteen percent, so a hundred of
- * the reader's units is one of the file's. Every conversion in the app goes
+ * A percent field stores a proportion (`0.15` is fifteen percent); every conversion goes
  * through here, so a cell, a bound and a filter cannot disagree about the scale.
  */
 function scaleOf(format: NumberFormat | undefined): number {
 	return normaliseFormat(format) === 'percent' ? 100 : 1;
 }
 
-/** A stored number in the units the reader types and sees. */
 export function shownNumber(value: number, format: NumberFormat | undefined): number {
-	// Rounded because fifty percent cannot always be multiplied back exactly:
 	// 0.15 * 100 is 15.000000000000002, which is not what the reader typed.
 	return Number((value * scaleOf(format)).toPrecision(12));
 }
 
-/** The number to store for what the reader typed in those units. */
 export function storedNumber(value: number, format: NumberFormat | undefined): number {
 	const scale = scaleOf(format);
-	// Divided down and tidied: 12.3 / 100 is 0.12300000000000001 in binary, and that
-	// is not a number any reader would recognise in the file.
+	// 12.3 / 100 is 0.12300000000000001 in binary.
 	return scale === 1 ? value : Number((value / scale).toPrecision(12));
 }
 
-/**
- * The number a piece of display text stands for.
- *
- * A trailing `%` makes it a hundredth: `50%` is 0.5, which is what a percent
- * field stores and what arithmetic on the value works in.
- */
+/** A trailing `%` makes it a hundredth: `50%` is 0.5, which is what a percent field stores. */
 export function parseShownNumber(text: string): number | null {
 	const trimmed = text.trim();
 	const parsed = parseNumber(trimmed);
@@ -89,11 +71,8 @@ export function parseShownNumber(text: string): number | null {
 }
 
 /**
- * The number to store for text typed into a cell of this field.
- *
- * The sign always means percent; inside a percent field the number does too, so
- * `100`, `100%` and `1` beside it are all one hundred percent depending on where
- * they were typed — and only the first two are what the cell holds.
+ * A trailing `%` always means percent; in a percent field a bare number is percent too, so
+ * `100` and `100%` both store 1.
  */
 export function parseNumberIn(field: Field, text: string): number | null {
 	const trimmed = text.trim();
@@ -108,15 +87,9 @@ export function parseNumberIn(field: Field, text: string): number | null {
 }
 
 /**
- * The value a field will actually store: rounded to its precision, then held
- * inside its bounds.
- *
- * The precision counts the digits the reader sees, not the digits in the file: a
- * percent field with one decimal keeps 12.5% (0.125), and rounding the stored
- * number to one place would have thrown that away as 0.1.
- *
- * Clamped rather than refused, so a value outside the range lands visibly on the
- * bound instead of silently not being saved.
+ * Rounding happens in the reader's units, not the stored ones: a percent field with one
+ * decimal keeps 0.125. A value outside the bounds is clamped rather than refused, so it
+ * lands visibly on the bound instead of silently not being saved.
  */
 export function constrainNumber(value: number, field: Field): number {
 	const decimals = normaliseDecimals(field.decimals);
@@ -134,7 +107,6 @@ export function constrainNumber(value: number, field: Field): number {
 	return result;
 }
 
-/** A settings box: an empty value means "no setting", not zero. */
 export function parseOptionalNumber(text: string): number | null {
 	const trimmed = text.trim();
 	if (trimmed === '') {
@@ -144,7 +116,6 @@ export function parseOptionalNumber(text: string): number | null {
 	return Number.isFinite(value) ? value : null;
 }
 
-/** The text a number shows as: the reader's units, with `%` for a percent field. */
 export function formatNumber(value: number, field: Field): string {
 	const decimals = normaliseDecimals(field.decimals);
 	const shown = shownNumber(value, field.numberFormat);
@@ -152,7 +123,7 @@ export function formatNumber(value: number, field: Field): string {
 	return normaliseFormat(field.numberFormat) === 'percent' ? `${body}%` : body;
 }
 
-/** Whether a value sits inside the field's bounds. Out-of-range is stored clamped. */
+/** Out-of-range values are not rejected on the way in; they are stored clamped. */
 export function isWithinBounds(value: number, field: Field): boolean {
 	if (typeof field.min === 'number' && value < field.min) {
 		return false;

@@ -67,11 +67,7 @@ describe('the capability table', () => {
 		expect(typesWhere(usesOptions)).toEqual(['select', 'multiSelect']);
 	});
 
-	/*
-	 * The one question every reader asks before it falls back to the stored value.
-	 * A relation is the interesting row: its value is stored, so it is not
-	 * "computed", yet the document still cannot say what the cell reads as.
-	 */
+	// A relation is stored, yet reads from the view: the document cannot say what the cell shows.
 	it('names the types whose text only the view can read', () => {
 		expect(typesWhere(readsFromView)).toEqual([
 			'relation',

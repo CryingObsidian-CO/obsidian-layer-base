@@ -40,6 +40,11 @@ const en = {
 		}
 		return `${cells.length} cells held values their columns could not read, so they were cleared: ${list}. The next save writes the file without them.`;
 	},
+	noticeExternalChangePending:
+		'The file changed on disk. Your unsaved changes will be kept as a conflict copy when this view saves.',
+	noticeConflictSaved: (path: string) => `Your unsaved changes were saved to ${path}`,
+	noticeConflictFailed:
+		'Could not save a conflict copy, so the file on disk was left untouched. Copy your work before reopening.',
 	settingFolderName: 'Default folder for new boards',
 	settingFolderDesc: 'Leave empty to create in the vault root.',
 	settingFileNameName: 'Default file name',
@@ -398,6 +403,7 @@ const en = {
 	fieldRelationPick: 'Pick a source table',
 	fieldBackLabel: 'Backlinks',
 	relationBroken: 'Some references are missing',
+	notePropUnreadable: 'This value is nested or too complex to read; only a top-level value or a simple list can be shown.',
 	fieldNumberLabel: 'Number',
 	fieldNumberFormatLabel: 'Format',
 	fieldNumberFormatPlain: 'Number',
@@ -449,6 +455,11 @@ const zh = {
 		}
 		return `有 ${cells.length} 格的值读不懂，已经清空：${list}。下次保存就不在文件里了。`;
 	},
+	noticeExternalChangePending:
+		'文件已在外部修改。保存时，你这份未保存的改动会另存为一份冲突副本。',
+	noticeConflictSaved: (path: string) => `你未保存的改动已另存到 ${path}`,
+	noticeConflictFailed:
+		'保存冲突副本失败，磁盘上的文件没有被覆盖。请先复制你的改动再重新打开。',
 	settingFolderName: '新建文件的默认目录',
 	settingFolderDesc: '留空则创建在仓库根目录。',
 	settingFileNameName: '新建文件的默认名称',
@@ -804,6 +815,7 @@ const zh = {
 	fieldRelationPick: '请选择来源表',
 	fieldBackLabel: '反向关联',
 	relationBroken: '部分引用已失效',
+	notePropUnreadable: '这个值是嵌套的或太复杂，读不出来；只能显示顶层的值或简单列表。',
 	fieldNumberLabel: '数字',
 	fieldNumberFormatLabel: '格式',
 	fieldNumberFormatPlain: '原始数字',
@@ -855,6 +867,11 @@ const zhTW = {
 		}
 		return `有 ${cells.length} 格的值讀不懂，已經清空：${list}。下次儲存就不在檔案裡了。`;
 	},
+	noticeExternalChangePending:
+		'檔案已在外部修改。儲存時，你這份未儲存的改動會另存為一份衝突副本。',
+	noticeConflictSaved: (path: string) => `你未儲存的改動已另存到 ${path}`,
+	noticeConflictFailed:
+		'儲存衝突副本失敗，磁碟上的檔案沒有被覆蓋。請先複製你的改動再重新開啟。',
 	settingFolderName: '新建檔案的預設目錄',
 	settingFolderDesc: '留空則建立在儲存庫根目錄。',
 	settingFileNameName: '新建檔案的預設名稱',
@@ -1208,6 +1225,7 @@ const zhTW = {
 	fieldRelationPick: '請選擇來源表',
 	fieldBackLabel: '反向關聯',
 	relationBroken: '部分引用已失效',
+	notePropUnreadable: '這個值是嵌套的或太複雜，讀不出來；只能顯示頂層的值或簡單列表。',
 	fieldNumberLabel: '數字',
 	fieldNumberFormatLabel: '格式',
 	fieldNumberFormatPlain: '原始數字',
@@ -1255,7 +1273,7 @@ function resolveLocale(): Locale {
 	return 'en';
 }
 
-let active: Strings = catalogues[resolveLocale()];
+const active: Strings = catalogues[resolveLocale()];
 
 /** Default field, option and view names for a newly created board. */
 export function seedLabels(): SeedLabels {
@@ -1271,12 +1289,6 @@ export function seedLabels(): SeedLabels {
 	};
 }
 
-/** Current catalogue for the app language. */
 export function t(): Strings {
 	return active;
-}
-
-/** Re-reads the app language. Call when a settings change may alter it. */
-export function refreshLocale(): void {
-	active = catalogues[resolveLocale()];
 }

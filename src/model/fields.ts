@@ -11,7 +11,6 @@ export interface FieldTypeSpec {
 
 	fromText(field: Field, text: string): TextParseResult;
 
-	/** Whether this type's cells hold nothing. Every type answers for itself. */
 	isEmpty(value: CellValue): boolean;
 }
 
@@ -28,30 +27,25 @@ function optionByName(field: Field, name: string): SelectOption | undefined {
 	return field.options?.find((o) => o.name.trim().toLowerCase() === wanted);
 }
 
-/** The stored value read as a list of option ids, whatever shape it arrived in. */
 export function optionIds(value: CellValue): string[] {
 	return Array.isArray(value) ? value.filter((id) => typeof id === 'string') : [];
 }
 
-/** The row ids a relation cell holds. */
 export function relationIds(value: CellValue): string[] {
 	return optionIds(value);
 }
 
-/** The names a `multiSelect` value shows, in the field's own option order. */
 function multiNames(field: Field, value: CellValue): string {
 	return optionsOf(field, value)
 		.map((option) => option.name)
 		.join(', ');
 }
 
-/** The options a value selects, in the field's order. Ids with no option are stale. */
 export function optionsOf(field: Field, value: CellValue): SelectOption[] {
 	const ids = optionIds(value);
 	return (field.options ?? []).filter((option) => ids.includes(option.id));
 }
 
-/** Option names, comma separated — and parseable back into ids by `parseMulti`. */
 function parseMulti(field: Field, text: string): TextParseResult {
 	const trimmed = text.trim();
 	if (trimmed === '') {
@@ -91,11 +85,7 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
-	/*
-	 * A link to a note in the vault, held as its path. It reads and writes like text
-	 * because the value is a path; what earns it a type of its own is that the view
-	 * offers a picker and can open the note it names.
-	 */
+	// Held as a vault path and read like text; the type exists so the view can offer a picker and open the note.
 	note: {
 		type: 'note',
 		icon: 'file-text',
@@ -104,12 +94,8 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 		isEmpty: (value) => value === '',
 	},
 
-	/*
-	 * A value that lives in another file's frontmatter. Nothing is stored in the table:
-	 * the view reads it from the note the row's `note` column names, and writes an edit
-	 * back to that file. So this type answers text with nothing and refuses text, and
-	 * every cell of it is empty as far as the document is concerned.
-	 */
+	// Nothing is stored in the table: the value lives in another file's frontmatter,
+	// read and written through the row's `note` column.
 	noteProp: {
 		type: 'noteProp',
 		icon: 'file-cog',
@@ -128,7 +114,7 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 			const parsed = parseNumberIn(field, text);
 			return parsed === null ? REFUSED : accept(constrainNumber(parsed, field));
 		},
-		// A cell with no number holds `''`, like text. Zero is a value.
+		// Zero is a value; a cell with no number holds `''`.
 		isEmpty: (value) => value === '',
 	},
 
@@ -149,7 +135,6 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	datetime: {
 		type: 'datetime',
 		icon: 'calendar-clock',
-		// Shown with a space, which is how a date and a time read together.
 		toText: (_field, value) =>
 			typeof value === 'string' && value !== ''
 				? displayDateTime(value)
@@ -167,11 +152,9 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	relation: {
 		type: 'relation',
 		icon: 'link',
-		// Ids are a fallback only: what a relation reads as needs the other table,
-		// which the caller has and this module does not.
+		// Ids only: the names need the other table, which this module cannot see.
 		toText: (_field, value) => relationIds(value).join(', '),
-		// A relation cannot be typed in as text, so a paste into it is refused
-		// rather than turned into references to nothing.
+		// Refused rather than parsed: an id typed as text would point at nothing.
 		fromText: () => REFUSED,
 		isEmpty: (value) => relationIds(value).length === 0,
 	},
@@ -179,34 +162,22 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	lookup: {
 		type: 'lookup',
 		icon: 'search',
-		// Nothing to read: the values are gathered from other rows, which this
-		// module cannot see.
 		toText: () => '',
 		fromText: () => REFUSED,
-		// Always "empty": it stores nothing, so there is nothing here to be full.
 		isEmpty: () => true,
 	},
 
 	relationBack: {
 		type: 'relationBack',
 		icon: 'git-fork',
-		// Nothing to read: the values are derived from the other table, and this
-		// module cannot see it.
 		toText: () => '',
 		fromText: () => REFUSED,
-		// Always "empty": it stores nothing, so there is nothing here to be full.
 		isEmpty: () => true,
 	},
 
 	autoNumber: {
 		type: 'autoNumber',
 		icon: 'hash',
-		/*
-		 * Nothing to read, like the other computed types: the number is counted from
-		 * the row's position and never stored. Reading the stored cell gave `0` for
-		 * a column that has no stored value, which is an answer invented out of an
-		 * absent one — the view says what this cell is.
-		 */
 		toText: () => '',
 		fromText: () => REFUSED,
 		isEmpty: () => true,
@@ -215,8 +186,6 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	rollup: {
 		type: 'rollup',
 		icon: 'calculator',
-		// Nothing to read: the value is gathered from other rows, which this module
-		// cannot see.
 		toText: () => '',
 		fromText: () => REFUSED,
 		isEmpty: () => true,
@@ -225,20 +194,15 @@ const SPECS: Record<FieldType, FieldTypeSpec> = {
 	formula: {
 		type: 'formula',
 		icon: 'sigma',
-		// Nothing to read: the value is computed from the row, which this module
-		// cannot see.
 		toText: () => '',
 		fromText: () => REFUSED,
-		// Always "empty": it stores nothing, so there is nothing here to be full.
 		isEmpty: () => true,
 	},
 
 	select: {
 		type: 'select',
 		icon: 'circle',
-		// A stale id stays visible rather than vanishing from the grid: an id with no
-		// option is still what the cell holds, and hiding it would look like data
-		// loss rather than a deleted choice.
+		// A stale id shows as itself rather than vanishing, which would look like data loss.
 		toText: (field, value) => {
 			const name = field.options?.find((o) => o.id === value)?.name;
 			return name ?? (typeof value === 'string' ? value : '');
@@ -306,66 +270,42 @@ export function specFor(type: FieldType): FieldTypeSpec {
 	return SPECS[type];
 }
 
-/** Whether a type's cells choose from the field's option list. */
 export function usesOptions(type: FieldType): boolean {
 	return capabilityOf(type).options;
 }
 
-/**
- * The value that means "nothing" for a field's type: clearing is `[]` or `false`,
- * not `''`, wherever the shape matters.
- */
+/** The value clearing a cell writes: `[]` or `false`, not `''`, wherever the shape matters. */
 export function emptyValueFor(field: Field): CellValue {
 	return capabilityOf(field.type).empty();
 }
 
 export function isEmptyCell(value: CellValue): boolean {
-	// A value with no field to interpret it is empty only when it holds nothing.
 	if (Array.isArray(value)) {
 		return value.length === 0;
 	}
 	return value === '' || value === false;
 }
 
-/**
- * A required field whose cell holds nothing — the state the grid warns about.
- *
- * Lives here rather than in the grid so it can be unit tested: the grid imports
- * `obsidian`, which ships types only.
- */
 export function isMissingRequired(field: Field, value: CellValue): boolean {
-	// A derived cell holds nothing by definition, so it can never be the thing a
-	// required field is waiting for.
+	// A derived cell holds nothing by definition, so it can never satisfy `required`.
 	if (isDerived(field.type)) {
 		return false;
 	}
 	return field.required === true && isEmptyCell(value);
 }
 
-/**
- * Whether a type's values are computed rather than stored.
- *
- * An `autoNumber` counts its position in the table, so it belongs here: nothing is
- * written down, and the number moves when the rows around it move. The answer is
- * in the capability table, which is the one place a per-type yes or no is decided.
- */
+/** Computed rather than stored; an `autoNumber` counts its position, so it moves when the rows around it move. */
 export function isDerived(type: FieldType): boolean {
 	return capabilityOf(type).derived;
 }
 
-/** Whether the table fills this cell in, so nothing here can be typed into. */
 export function isReadOnly(type: FieldType): boolean {
 	return capabilityOf(type).readOnly;
 }
 
 /**
- * Whether a column may be marked required.
- *
- * The flag means "this cell must not be left empty", so it only makes sense where
- * the reader is the one filling the cell in. The table answers a derived column
- * itself, and an auto number counts its own rows; neither is the reader's to leave
- * empty. A `noteProp` is editable but reads another file's frontmatter, so its
- * emptiness is not this table's to enforce — the warning would never fire.
+ * Only where the reader fills the cell in: a derived column or a `noteProp` reading
+ * another file's frontmatter would never fire the warning.
  */
 export function canBeRequired(type: FieldType): boolean {
 	return capabilityOf(type).required;
@@ -379,17 +319,7 @@ export function cellFromText(field: Field, text: string): TextParseResult {
 	return SPECS[field.type].fromText(field, text);
 }
 
-/**
- * What a cell reads as.
- *
- * A lookup into `SPECS` rather than a chain of type tests: the chain had to be
- * edited by hand whenever a type was added, and `tsc` cannot see a missing branch
- * in an `if` — an unhandled type silently rendered as an empty cell. Through the
- * table, a type with no `toText` fails to compile.
- *
- * An empty value reads as nothing whatever its type, which is what lets an
- * unticked box show a box in the grid and still copy as empty text.
- */
+/** An empty value reads as nothing whatever its type, so an unticked box copies as empty text. */
 export function formatCell(field: Field, value: CellValue): string {
 	if (isEmptyCell(value)) {
 		return '';
@@ -397,11 +327,7 @@ export function formatCell(field: Field, value: CellValue): string {
 	return SPECS[field.type].toText(field, value);
 }
 
-/**
- * A cell value as one string, for the places that carry text only — a cell's
- * `dataset`, notably. JSON, not a join: a set and the string of its ids must not
- * read back as the same value.
- */
+/** JSON rather than a join: a set and the string of its ids must not read back the same. */
 export function serializeCellValue(value: CellValue): string {
 	if (typeof value === 'string') {
 		return value;
@@ -410,12 +336,8 @@ export function serializeCellValue(value: CellValue): string {
 }
 
 /**
- * Ids read from text that is meant to be a list.
- *
- * The stored form is a JSON array; anything else is a hand-written or legacy
- * string. Text that parses but is not an array — `"5"`, `"true"`, `"{}"` — is one
- * of those strings, not an empty cell: answering [] would empty the cell and lose
- * what was written there, which is the one thing a repair must not do.
+ * Text that parses to something other than an array (`"5"`, `"true"`, `"{}"`) is a
+ * hand-written list, not an empty cell: answering [] would lose what was written.
  */
 function parseIds(raw: string): string[] {
 	try {
@@ -432,7 +354,6 @@ function parseIds(raw: string): string[] {
 		.filter((part) => part !== '');
 }
 
-/** The inverse of `serializeCellValue`, read back for a specific field. */
 export function deserializeCellValue(raw: string, field: Field): CellValue {
 	if (field.type === 'multiSelect' || field.type === 'relation') {
 		return parseIds(raw);
@@ -447,14 +368,7 @@ export function deserializeCellValue(raw: string, field: Field): CellValue {
 	return raw;
 }
 
-/**
- * What copying a cell should put on the clipboard.
- *
- * A cell the document cannot read itself contributes the text its reader gave —
- * a computed column, and a relation, which stores row ids rather than the names
- * the cell shows. Everything else reads its own text. The supplied text wins
- * whenever it is there, so this cannot drift from what is on screen.
- */
+/** The text the view supplied wins when there is one, so a copy cannot drift from the screen. */
 export function copyTextFor(
 	field: Field,
 	value: CellValue,
@@ -464,8 +378,7 @@ export function copyTextFor(
 		return computed;
 	}
 	if (readsFromView(field.type)) {
-		// Nothing was able to read it, and copying the stored value would put an
-		// id — or nothing at all — on the clipboard. An empty cell is honest.
+		// Copying the stored value would put an id on the clipboard; empty is honest.
 		return '';
 	}
 	return cellToText(field, value);

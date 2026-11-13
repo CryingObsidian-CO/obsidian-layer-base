@@ -55,7 +55,6 @@ describe('removeField', () => {
 
 		expect(view.hiddenFieldIds).toEqual([]);
 		expect(view.sorts).toEqual([]);
-		// Unrelated conditions must survive the cleanup.
 		expect(view.filter.conditions).toEqual([
 			{ fieldId: 'f_title', operator: 'is', value: 'x' },
 		]);
@@ -72,7 +71,6 @@ describe('removeField', () => {
 		removeField(doc, 'f_status');
 
 		expect(view.colorRules).toBeUndefined();
-		// A footer for another column is someone's setting, not debris.
 		expect(view.summaries).toEqual({ f_title: 'unique' });
 	});
 
@@ -141,8 +139,7 @@ describe('removeField', () => {
 			type: 'select',
 			options: [],
 		});
-		// A new file opens as a table, so the board these cases are about has to be
-		// added the way a reader adds one.
+		// A new file opens as a table, so the board is added the way a reader adds one.
 		const board = addBoardView(doc, 'Board') as KanbanView;
 		board.groupByFieldId = 'f_other';
 
@@ -151,7 +148,6 @@ describe('removeField', () => {
 		const after = doc.views.find((v) => v.type === 'kanban');
 		expect(after?.type).toBe('kanban');
 		if (after?.type === 'kanban') {
-			// The seed board groups by f_status, which still exists.
 			expect(after.groupByFieldId).toBe('f_status');
 		}
 	});
@@ -288,7 +284,6 @@ describe('changeFieldType', () => {
 
 		changeFieldType(doc, 'f_status', 'text');
 
-		// Both belong to that type alone; kept, they name a source nothing reads.
 		expect(field.noteFieldId).toBeUndefined();
 		expect(field.frontmatterKey).toBeUndefined();
 	});
@@ -318,19 +313,12 @@ describe('changeFieldType', () => {
 
 		changeFieldType(doc, 'f_status', 'text');
 
-		/*
-		 * "Is ticked" is not a comparison a text column offers, so the rule starts
-		 * over on one it does — a stale operator answered "no" to every row and hid
-		 * the whole table while the panel showed a different comparison.
-		 */
 		expect(view.filter.conditions[0]).toEqual({ fieldId: 'f_status', operator: 'is' });
-		// A comparison the new type still offers keeps its value.
 		expect(view.filter.conditions[1]).toEqual({
 			fieldId: 'f_status',
 			operator: 'is',
 			value: 'o_1',
 		});
-		// A rule about another column is not this change's business.
 		expect(view.filter.conditions[2]).toEqual({
 			fieldId: 'f_title',
 			operator: 'checked',

@@ -14,27 +14,14 @@ export interface CellEditOptions {
 	value: CellValue;
 	commit: (value: CellValue) => void;
 	restore: () => void;
-	/** Creates the option a typed name asks for; `null` when it cannot. */
 	createOption: (name: string) => SelectOption | null;
-	/** The rows a relation cell may point at, resolved by the caller. */
 	relationCandidates?: () => readonly RelationCandidate[];
-	/**
-	 * Called once when the edit ends, however it ends — Enter, Escape, blur, or a
-	 * panel picking or closing.
-	 *
-	 * An editor ends itself, so without this the caller keeps a handle for an edit
-	 * that is already over; a grid that does so answers "still editing" forever and
-	 * then drops the repaints it was deferring.
-	 */
+	// An editor ends itself, so without this the caller holds a handle for an edit that is over —
+	// and a grid that thinks it is still editing drops every repaint it defers.
 	onFinished?: () => void;
 }
 
-/**
- * A live cell edit, so the grid can end one from the outside.
- *
- * `commit` keeps what the editor holds; `cancel` throws it away. A teardown
- * needs the first — text in an open editor has not reached the document yet.
- */
+/** `commit` keeps what the editor holds: text in an open editor has not reached the document. */
 export interface CellEditHandle {
 	cancel(): void;
 	commit(): void;
@@ -45,16 +32,9 @@ export function beginCellEdit(
 	options: CellEditOptions,
 ): CellEditHandle | null {
 	const { field } = options;
-	/*
-	 * Some types have no editor at all, and say so by answering null rather than
-	 * handing back a handle that does nothing: a handle nobody can use is still an
-	 * edit as far as the grid is concerned, and it would keep the cell "being
-	 * edited" forever, which blocks every later repaint.
-	 *
-	 * A derived field stores nothing, so an edit would have nowhere to write; a
-	 * checkbox toggles on one press. Both are answered before `cell.empty()`, so
-	 * neither can fall through to the text editor below.
-	 */
+	// No editor, so no handle: one nobody can use still counts as an edit to the grid and keeps
+	// the cell "being edited" forever, blocking every later repaint. A derived field stores
+	// nothing and a checkbox toggles on one press; both are answered before `cell.empty()`.
 	if (isReadOnly(field.type) || field.type === 'checkbox') {
 		return null;
 	}
@@ -110,7 +90,6 @@ export function beginCellEdit(
 				dropdown.close();
 				finish(undefined);
 			},
-			// Each toggle was committed as it happened.
 			commit: () => {
 				dropdown.close();
 				finish(undefined);
@@ -158,11 +137,8 @@ export function beginCellEdit(
 	if (field.type === 'date' || field.type === 'datetime') {
 		const input = attachDateInput(cell, field, options.value, finish);
 		if (input === null) {
-			/*
-			 * The control could not show the stored value, so there is no edit to
-			 * keep. Ending it here restores the cell as it was, rather than letting
-			 * a change or blur commit the empty string the control fell back to.
-			 */
+			// The control could not show the stored value, so there is no edit to keep: end it
+			// rather than let a change or blur commit the empty string it fell back to.
 			finish(undefined);
 			return null;
 		}
@@ -182,13 +158,8 @@ export function beginCellEdit(
 
 type Finish = (value: CellValue | undefined) => void;
 
-/**
- * What a numeric input means: a number held inside the field's bounds, `''` when
- * the box was emptied, and `undefined` when the text is not a number at all.
- *
- * Empty and invalid are kept apart on purpose — clearing a cell must clear it,
- * while unparseable text is refused so nothing wrong reaches the document.
- */
+// Empty and invalid are kept apart: clearing a cell must clear it, while unparseable text is
+// refused so nothing wrong reaches the document. `''` empties, `undefined` refuses.
 function numberFromInput(
 	input: HTMLInputElement,
 	field: Field,
@@ -200,14 +171,8 @@ function numberFromInput(
 	return parsed === null ? undefined : constrainNumber(parsed, field);
 }
 
-/**
- * The editor for `number`: a text box that only ever holds what can be a number.
- *
- * Not an `<input type="number">`, because its spinner and its own notion of a
- * valid value would disagree with the field's bounds and precision. Characters
- * that cannot be part of a number are dropped as they are typed, and the text is
- * still parsed strictly when the edit ends.
- */
+// Not `<input type="number">`: its spinner and its own notion of a valid value would disagree
+// with the field's bounds and precision. Characters that cannot be in a number are dropped.
 function attachNumberInput(
 	cell: HTMLElement,
 	field: Field,
@@ -217,8 +182,7 @@ function attachNumberInput(
 	const input = cell.createEl('input', { cls: 'layer-grid-input' });
 	input.type = 'text';
 	input.inputMode = 'decimal';
-	// The bare number, not its display text: the `%` of a percent field is not
-	// something to select and delete before typing.
+	// The bare number, not its display text: the `%` of a percent field is not there to delete.
 	input.value = typeof value === 'number' ? String(value) : '';
 
 	input.focus();
@@ -256,14 +220,7 @@ function attachNumberInput(
 	return input;
 }
 
-/**
- * The editor for `date` and `datetime`: the browser's own control, which brings
- * a calendar (and a time field) along with it.
- *
- * Its value is already the stored form — `YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` for
- * `datetime-local` — so nothing has to be parsed or converted here, and an empty
- * control means an empty cell.
- */
+/** The native control's value is already the stored form; an empty control means an empty cell. */
 function attachDateInput(
 	cell: HTMLElement,
 	field: Field,
@@ -274,13 +231,9 @@ function attachDateInput(
 	input.type = field.type === 'datetime' ? 'datetime-local' : 'date';
 	const stored = typeof value === 'string' ? value : '';
 	input.value = stored;
-	/*
-	 * A native date control silently empties itself when it is handed text it
-	 * cannot represent, and the model accepts a wider range than the control does
-	 * (a year of 0000, for one). Answering null says the edit never began: the
-	 * change and blur handlers below would otherwise commit '' over a value the
-	 * reader never touched, erasing it without a word.
-	 */
+	// A native date control silently empties itself on text it cannot represent, and the model
+	// accepts a wider range (year 0000). Null says the edit never began — the change and blur
+	// handlers would otherwise commit '' over a value the reader never touched.
 	if (stored !== '' && input.value === '') {
 		return null;
 	}
@@ -288,8 +241,7 @@ function attachDateInput(
 	input.focus();
 	openPicker(input);
 
-	// A picker reports a choice through `input`/`change`; the edit ends on the
-	// same gesture rather than making the user click away from the calendar.
+	// A pick reports through `change`; the edit ends there rather than on a later click away.
 	input.addEventListener('change', () => {
 		finish(input.value);
 	});
@@ -312,14 +264,8 @@ function attachDateInput(
 	return input;
 }
 
-/**
- * Opens the control's calendar straight away, so a double-click edits a date by
- * picking one instead of hunting for the small button at the input's edge.
- *
- * Called synchronously from the double-click, which is what makes it allowed:
- * `showPicker` refuses to open without a user gesture. A browser that refuses
- * anyway is not a reason to fail the edit — the button still works.
- */
+// Called synchronously from the double-click: `showPicker` needs a user gesture. A browser that
+// refuses is no reason to fail the edit, since the control's own button still works.
 function openPicker(input: HTMLInputElement): void {
 	const picker = input as HTMLInputElement & { showPicker?: () => void };
 	if (typeof picker.showPicker !== 'function') {
@@ -362,13 +308,8 @@ function attachTextInput(
 	return input;
 }
 
-/**
- * The editor for `longtext`: a box several lines tall, opened over the cell.
- *
- * Enter inserts a newline here — the point of the type — so `Ctrl/Cmd+Enter`
- * commits. Its height is CSS's (`min-height`, `resize: vertical`), not a `rows`
- * attribute, because CSS also takes it out of flow so it cannot push the row.
- */
+// Enter inserts a newline — the point of the type — so Ctrl/Cmd+Enter commits. Height is CSS's
+// (`min-height`, `resize: vertical`) rather than `rows`, because CSS also takes it out of flow.
 function attachLongText(
 	cell: HTMLElement,
 	value: CellValue,
@@ -400,12 +341,7 @@ function attachLongText(
 	return area;
 }
 
-/**
- * Opens the option list on the cell and hands its outcome straight to `finish`.
- *
- * The panel owns the whole interaction — a pick, Escape, an outside click — and
- * reports exactly one of the two outcomes, so nothing here listens for blur.
- */
+/** The panel owns the interaction and reports exactly one outcome, so nothing here listens for blur. */
 function attachSelect(
 	cell: HTMLElement,
 	field: Field,
@@ -423,15 +359,9 @@ function attachSelect(
 	});
 }
 
-/**
- * The multi-select editor: a list that stays open while choices accumulate.
- *
- * Each toggle commits through `commit` rather than `finish`, so the cell behind
- * the panel keeps showing the run of pills as it will look when closed. Safe
- * because the panel hangs off `document.body`, so repainting the cell cannot
- * take it down. The edit ends when the panel closes, which reports a cancel —
- * by then there is nothing left to commit.
- */
+// Each toggle commits rather than finishes, so the cell behind keeps showing its pills; safe
+// because the panel hangs off `document.body`, so repainting the cell cannot take it down. The
+// edit ends when the panel closes, which reports a cancel — by then nothing is left to commit.
 function attachMultiSelect(
 	cell: HTMLElement,
 	field: Field,
@@ -447,21 +377,14 @@ function attachMultiSelect(
 		selectedId: serializeCellValue(value),
 		onCreateOption: (name) => createOption(name),
 		onPick: () => {
-			// Never reached in multiple mode: every path reports through
-			// `onPickMany`. Kept so the core's callback is always satisfied.
+			// Never reached in multiple mode; kept so the core's callback is always satisfied.
 		},
 		onPickMany: (optionIds) => commit(optionIds),
 		onCancel: () => finish(undefined),
 	});
 }
 
-/**
- * The relation editor: the source table's rows that have a value to offer,
- * toggled as a set.
- *
- * The same shape as the multi-select — each toggle commits immediately and the
- * panel stays open, so the cell behind it keeps showing what it will hold.
- */
+/** Toggles commit immediately, like the multi-select: the panel stays open. */
 function attachRelation(
 	cell: HTMLElement,
 	value: CellValue,

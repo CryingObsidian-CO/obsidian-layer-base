@@ -7,42 +7,27 @@ import {
 import type { Field, SelectOption } from '../types';
 import { SearchableDropdown, type DropdownItem } from './searchable-dropdown';
 
-/** Everything the cell editor hands over to open the option list. */
 export interface OptionDropdownConfig {
 	anchor: HTMLElement;
 	field: Field;
 	selectedId: string;
-	/** Multi-select mode: rows toggle, the panel stays open, picks report the set. */
+	/** Rows toggle and the panel stays open; picks report the whole set. */
 	multiple?: boolean;
-	/** Creates the typed option; without it the create row only cancels. */
+	/** Without this, the create row only cancels. */
 	onCreateOption?: (name: string) => SelectOption | null;
-	/** An option was chosen; `''` clears the cell. */
 	onPick: (optionId: string) => void;
-	/** The whole chosen set, in multi-select mode. */
 	onPickMany?: (optionIds: string[]) => void;
-	/** The list was closed without a pick. */
+	/** Closed without a pick. */
 	onCancel: () => void;
 }
 
-/**
- * The option list for a select cell: the field's options, a way to clear the
- * cell, and a way to create an option by typing one that does not exist yet.
- *
- * Rows are rebuilt for every query, and the offer is narrowed down to what
- * makes sense for it: clearing belongs to the untouched list, and creating
- * belongs to a query that matches nothing — offering it while the cell is
- * still untouched would create an option out of nothing.
- *
- * In multi-select mode the same list behaves like a set of toggles, and stays
- * open, because the next click is another choice rather than a dismissal.
- */
+/** Clearing belongs to the untouched list; creating to a query that matches nothing. */
 export function openOptionDropdown(config: OptionDropdownConfig): {
 	close: () => void;
 } {
 	const { field, selectedId } = config;
 	const multiple = config.multiple === true;
-	// Whether this dropdown already reported an outcome, so the close that
-	// follows a pick never also reads as a cancel.
+	// So the close that follows a pick never also reads as a cancel.
 	let settled = false;
 	// `selectedId` is a snapshot; each toggle replaces the working set.
 	let chosen: string[] = multiple ? splitIds(selectedId) : [];
@@ -66,10 +51,7 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 
 	const rowsFor = (query: string): DropdownItem[] => {
 		const rows: DropdownItem[] = [];
-		// An untouched query is the whole list, which is the only place clearing
-		// makes sense. Any typing at all drops it, even a query the option list
-		// still shows in full: from then on the user is searching, not choosing
-		// between the current value and nothing.
+		// Untouched query only: any typing means searching, even when the list still shows in full.
 		const showClear =
 			query === '' && (multiple ? chosen.length > 0 : selectedId !== '');
 		const clearRow: DropdownItem = {
@@ -78,12 +60,8 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 			icon: 'eraser',
 			modifier: 'is-clear',
 		};
-		/*
-		 * Sited by whether the panel closes on a pick. A single choice closes, so
-		 * its clear row sits at the top. A set stays open and the row APPEARS on
-		 * the first choice — at the top that would shove every option down under
-		 * the pointer mid-gesture, so it goes last, where it moves nothing.
-		 */
+		// Sited by whether a pick closes the panel. In multi-select it appears on the first
+		// choice, and at the top that would shove rows down under the pointer mid-gesture.
 		if (showClear && !multiple) {
 			rows.push(clearRow);
 		}
@@ -95,10 +73,8 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 				key: option.id,
 				label: option.name,
 				pillColor: option.color,
-				// Unmarked rows leave the icon unset: the core draws the slot
-				// either way, so the labels stay aligned. A set uses a filled
-				// square so "listed" and "chosen" stay distinguishable; a single
-				// choice needs no third state, so it keeps a tick.
+				// Unmarked rows leave the icon unset so the core still draws the slot and the
+				// labels stay aligned. A set uses a square, so "listed" and "chosen" differ.
 				...(marked
 					? { icon: multiple ? 'check-square' : 'check' }
 					: multiple
@@ -130,7 +106,6 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 			? t().optionSearchNoMatch
 			: t().optionEmptyHint,
 		items: rowsFor,
-		// A single choice marks one row; a set marks a list of them.
 		...(multiple
 			? { selectedKeys: (): readonly string[] => chosen }
 			: { selectedKey: (): string | null => selectedId }),
@@ -146,8 +121,7 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 			if (item.key === 'create') {
 				const created = config.onCreateOption?.(normaliseOptionName(query));
 				if (!created) {
-					// Nothing was created, so there is no option to pick: report a
-					// cancel rather than strand the cell in its editing state.
+					// No option to pick, so report a cancel rather than strand the cell editing.
 					cancel();
 					return;
 				}
@@ -177,7 +151,7 @@ export function openOptionDropdown(config: OptionDropdownConfig): {
 	};
 }
 
-/** The ids in a `multiSelect` value, however it was handed over. */
+/** A multiSelect value is JSON, or a comma list written by something older. */
 function splitIds(value: string): string[] {
 	if (value === '') {
 		return [];

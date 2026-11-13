@@ -4,51 +4,37 @@ import type { View } from '../types';
 
 export interface ShellHandlers {
 	onAddRecord(): void;
-	/** Opens whatever chooses this view's columns. */
 	onOpenViewFields(anchor: HTMLElement): void;
 	onAddRecordAtTop(): void;
 	onSelectView(viewId: string): void;
-	/** Adds a board view to this table. */
 	onAddView(): void;
-	/** Renames a view. */
 	onRenameView(viewId: string, name: string): void;
-	/** Whether this view may be removed, which the table may not. */
+	/** The table view is the data's own and cannot be removed; a board can. */
 	canDeleteView(viewId: string): boolean;
-	/** Removes a view. */
 	onDeleteView(viewId: string): void;
-	/** Writes the table out as CSV beside the board. */
 	onExportCsv(): void;
-	/** Opens the sort rules panel, anchored to the button that asked for it. */
 	onOpenSort(anchor: HTMLElement): void;
-	/** Opens the row height panel, for a view whose rows have a height. */
 	onOpenRowHeight(anchor: HTMLElement): void;
-	/** Opens the colour rules panel, for a view whose rows can be coloured. */
 	onOpenColorRules(anchor: HTMLElement): void;
-	/** Opens the filter rules panel, anchored to the button that asked for it. */
 	onOpenFilter(anchor: HTMLElement): void;
-	/** Whether there is a step to take back. */
 	canUndo(): boolean;
-	/** Whether there is a step to take forward. */
 	canRedo(): boolean;
-	/** Takes one edit back. */
 	onUndo(): void;
-	/** Puts back what was taken back. */
 	onRedo(): void;
 }
 
-/** What the toolbar says about the current order, if there is one. */
 export interface SortState {
-	/** The column names in the order the rules apply; empty when unsorted. */
+	/** Column names in the order the rules apply; empty when unsorted. */
 	columns: readonly string[];
-	/** Whether the first rule runs descending, for the arrow on the button. */
+	/** Whether the first rule runs descending. */
 	descending: boolean;
 }
 
 export interface ToolbarState {
 	sort: SortState;
-	/** How many conditions are active, for the filter button's badge. */
+	/** Active conditions, for the filter button's badge. */
 	filterCount: number;
-	/** Whether this view draws rows, and so has a height and a colour to choose. */
+	/** Whether this view draws rows, and so has a height and colours to choose. */
 	isGrid: boolean;
 }
 
@@ -75,9 +61,7 @@ export class BoardShell {
 	renderToolbar(state: ToolbarState): HTMLElement {
 		const bar = this.host.createDiv({ cls: 'layer-shell-toolbar' });
 
-		// A split control: the label does the common thing, the arrow offers the
-		// rest. Two buttons rather than one that opens a menu, because appending a
-		// row is the action wanted nearly every time.
+		// Split control: the label appends, the arrow offers top and bottom.
 		const split = bar.createDiv({ cls: 'layer-shell-split' });
 
 		const add = split.createEl('button', {
@@ -100,16 +84,6 @@ export class BoardShell {
 			this.showAddRecordMenu(more);
 		});
 
-		/*
-		 * The button keeps one name. What it is sorting is shown beside it rather
-		 * than in place of the name: a button whose label turns into a column name
-		 * stops reading as an action and starts looking like a value.
-		 */
-		/*
-		 * What this view shows, beside the button that adds a row: one place for the
-		 * shape of the view, whichever kind it is. In a table it chooses which columns
-		 * are visible, on a board which column groups and what a card carries.
-		 */
 		const fieldsButton = bar.createEl('button', { cls: 'layer-shell-button' });
 		setIcon(
 			fieldsButton.createSpan({ cls: 'layer-shell-button-icon' }),
@@ -122,11 +96,7 @@ export class BoardShell {
 			this.handlers.onOpenViewFields(fieldsButton);
 		});
 
-		/*
-		 * A table's rows have a height and a colour, so it gets the buttons that
-		 * choose them. A board's rows do not: its columns are the grouped values and
-		 * a card grows on its own, so offering either there would promise nothing.
-		 */
+		// A board's rows have no height or colour of their own, so it gets neither button.
 		if (state.isGrid) {
 			const heightButton = bar.createEl('button', { cls: 'layer-shell-button' });
 			setIcon(
@@ -170,7 +140,6 @@ export class BoardShell {
 			this.handlers.onOpenSort(sortButton);
 		});
 
-		// What the current order is, next to the button rather than inside it.
 		const summary = this.sortSummary(state.sort);
 		if (summary !== '') {
 			bar.createSpan({ cls: 'layer-shell-sort-summary', text: summary });
@@ -207,13 +176,7 @@ export class BoardShell {
 		return bar;
 	}
 
-	/**
-	 * What the order is, shown beside the button.
-	 *
-	 * One column reads as its name; several read as the first name and a count,
-	 * because a summary long enough to hold them all would crowd the toolbar — the
-	 * panel is where the full list lives. Empty when nothing is sorted.
-	 */
+	/** One name, or the first name and a count; the panel holds the full list. */
 	private sortSummary(state: SortState): string {
 		const [first, ...rest] = state.columns;
 		if (first === undefined) {
@@ -222,7 +185,6 @@ export class BoardShell {
 		return rest.length === 0 ? first : `${first} +${rest.length}`;
 	}
 
-	/** The full order as one sentence, for the button's accessible name. */
 	private sortAriaLabel(state: SortState): string {
 		if (state.columns.length === 0) {
 			return t().sortButton;
@@ -232,8 +194,7 @@ export class BoardShell {
 
 	private showBoardMenu(anchor: HTMLElement): void {
 		const menu = new Menu();
-		// Undo and redo are here as well as on the keys, so the feature can be found
-		// without knowing the shortcut.
+		// Also on the keys, but here so it can be found without knowing them.
 		menu.addItem((item) =>
 			item
 				.setTitle(t().undoEdit)
@@ -256,10 +217,7 @@ export class BoardShell {
 				.onClick(() => this.handlers.onExportCsv()),
 		);
 		const box = anchor.getBoundingClientRect();
-		// Below the button, opened from its left edge: a position names the menu's
-		// own top-left corner, so the right edge of the button is not an anchor the
-		// menu can be aligned by — that would open it past the button entirely.
-		// Every other menu in the plugin opens from the left edge too.
+		// A position names the menu's own top-left corner, so align to the button's left edge.
 		menu.showAtPosition({ x: box.left, y: box.bottom });
 	}
 
@@ -278,7 +236,6 @@ export class BoardShell {
 				.onClick(() => this.handlers.onAddRecordAtTop()),
 		);
 		const box = anchor.getBoundingClientRect();
-		// Below the arrow, opened from its left edge.
 		menu.showAtPosition({ x: box.left, y: box.bottom });
 	}
 
@@ -296,11 +253,8 @@ export class BoardShell {
 				event.preventDefault();
 				this.handlers.onSelectView(view.id);
 			});
-			/*
-			 * Renaming is reached from the context menu, not from a double press: the
-			 * first press selects the view, which redraws the row, so the element the
-			 * second press would land on is gone and `dblclick` never fires.
-			 */
+			// Rename is on the context menu: a first press selects the view and redraws
+			// the tab, so `dblclick` never fires on the element the second press lands on.
 			tab.addEventListener('contextmenu', (event) => {
 				event.preventDefault();
 				this.showViewMenu(event, tab, label, view);
@@ -308,11 +262,7 @@ export class BoardShell {
 			setTooltip(tab, t().viewMenuHint);
 		}
 
-		/*
-		 * Adding a board sits at the end of the row it is added to. Only boards are
-		 * offered: a second table would differ from the first only in its filter, and
-		 * more than one place still assumes a single table.
-		 */
+		// Only boards: more than one place still assumes a single table.
 		const add = tabs.createEl('button', { cls: 'layer-shell-tab-add' });
 		setIcon(add.createSpan(), 'plus');
 		add.setAttribute('aria-label', t().addBoardView);
@@ -324,12 +274,6 @@ export class BoardShell {
 		return tabs;
 	}
 
-	/**
-	 * What a view's tab offers when pressed with the right button.
-	 *
-	 * A menu rather than a gesture, so every operation on a view has one place to
-	 * live instead of a new gesture each time.
-	 */
 	private showViewMenu(
 		event: MouseEvent,
 		tab: HTMLElement,
@@ -353,23 +297,13 @@ export class BoardShell {
 			item
 				.setTitle(t().deleteView)
 				.setIcon('trash')
-				/*
-				 * The table is the data's own view and cannot go; a board may. The rule
-				 * lives in the model, so the menu only asks rather than deciding.
-				 */
+				// The table is the data's own view and cannot go; the model decides, so this asks.
 				.setDisabled(!this.handlers.canDeleteView(view.id))
 				.onClick(() => this.handlers.onDeleteView(view.id)),
 		);
 		menu.showAtMouseEvent(event);
 	}
 
-	/**
-	 * Turns a tab's label into an input, and back again.
-	 *
-	 * Renaming happens in place rather than in a dialog: the label is short, and a
-	 * window for it would be heavier than the change. Enter or leaving the field
-	 * keeps the new name, Escape puts the old one back.
-	 */
 	private beginRename(
 		tab: HTMLElement,
 		label: HTMLElement,
@@ -401,7 +335,7 @@ export class BoardShell {
 		};
 
 		input.addEventListener('keydown', (event) => {
-			// Escape leaves it as it was; Enter keeps it. Both end the edit.
+			// Escape keeps the old name, Enter the new one; either ends the edit.
 			if (event.key === 'Enter') {
 				event.preventDefault();
 				finish(true);

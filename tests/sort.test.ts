@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { sortRecords } from '../src/model/sort';
 import type { CellValue, Field, LayerRecord, Sort } from '../src/types';
 
-/** A record holding the given cells. */
 function row(id: string, cells: Record<string, CellValue>): LayerRecord {
 	return { id, created: '2026-01-01T00:00:00.000Z', cells };
 }
@@ -14,7 +13,6 @@ const datetime: Field = { id: 'f_at', name: 'At', type: 'datetime' };
 const box: Field = { id: 'f_box', name: 'Box', type: 'checkbox' };
 const serial: Field = { id: 'f_no', name: 'No', type: 'autoNumber', numberLength: 2 };
 
-/** The ids in the order they came out, which is what the assertions care about. */
 function orderOf(
 	rows: readonly LayerRecord[],
 	fields: readonly Field[],
@@ -31,12 +29,7 @@ describe('ordering by a column', () => {
 			row('c', { f_text: '1.25' }),
 		];
 
-		/*
-		 * The defect this pins: a mixed pair went to the collator, which compares
-		 * digit runs rather than values. `1.25 < 1.5` (both numbers), `1.5 < 1.5a`
-		 * (a prefix) and `1.5a < 1.25` (`5` < `25`) together make a cycle, and a
-		 * comparator with no order in it leaves `sort` to answer at random.
-		 */
+		// Mixed number/word pairs must not reach the collator: `1.25 < 1.5 < 1.5a < 1.25` is a cycle.
 		expect(orderOf(rows, [text], [{ fieldId: 'f_text', order: 'asc' }])).toEqual([
 			'c',
 			'b',
@@ -58,7 +51,6 @@ describe('ordering by a column', () => {
 	});
 
 	it('sorts text the way a reader reads it, digits included', () => {
-		// `item 2` before `item 10`: plain text order would put 10 first.
 		const rows = [
 			row('a', { f_text: 'item 10' }),
 			row('b', { f_text: 'item 2' }),
@@ -85,7 +77,6 @@ describe('ordering by a column', () => {
 			row('a', { f_at: '2026-10-18T23:00' }),
 			row('b', { f_at: '2026-10-18' }),
 		];
-		// Same day: the date-only value carries no time to push it later.
 		expect(orderOf(rows, [datetime], [{ fieldId: 'f_at', order: 'asc' }])).toEqual([
 			'b',
 			'a',
@@ -104,8 +95,7 @@ describe('ordering by a column', () => {
 	});
 
 	it('keeps the minute of a value written with seconds', () => {
-		// Seconds are not stored, so 23:00:59 is the minute 23:00 — but it is still
-		// a real moment and must not fall in with the unreadable ones.
+		// Seconds are not stored, but a value written with them is still a real moment.
 		const rows = [
 			row('sometime', { f_at: '2026-10-18T23:00:59' }),
 			row('earlier', { f_at: '2026-10-18T22:00' }),
@@ -117,11 +107,7 @@ describe('ordering by a column', () => {
 	});
 
 	it('keeps a value it cannot read as a date with the empty ones', () => {
-		/*
-		 * A hand-edited file can hold `2026-13-45`. It is not a very late date: the
-		 * editor refuses it, the formula engine cannot read it and the loader drops
-		 * it, so sorting gives it no place among real dates either.
-		 */
+		// A hand-edited file can hold `2026-13-45`; the loader drops it, so it sorts with the empty cells.
 		const rows = [
 			row('bad', { f_at: '2026-13-45' }),
 			row('real', { f_at: '2026-10-18' }),
@@ -137,8 +123,7 @@ describe('ordering by a column', () => {
 	});
 
 	it('does not read a value carrying a time zone as local time', () => {
-		// The format has no zones to convert between: such a value is unreadable,
-		// not midnight somewhere else.
+		// The format has no time zones: a value carrying one is unreadable, not midnight elsewhere.
 		const rows = [
 			row('zoned', { f_at: '2026-10-20T00:00+08:00' }),
 			row('plain', { f_at: '2026-10-18' }),
@@ -179,11 +164,6 @@ describe('ordering by a column', () => {
 
 describe('empty cells', () => {
 	it('sort below every value, whichever way the column runs', () => {
-		/*
-		 * An empty cell is an absence, not a small value. Putting it last on a
-		 * descending sort would be the surprising thing: it would read as the
-		 * largest number in the column.
-		 */
 		const rows = [
 			row('a', { f_num: 5 }),
 			row('empty', {}),
@@ -209,7 +189,6 @@ describe('the order that comes out', () => {
 	});
 
 	it('does not reorder the array it was given', () => {
-		// The document keeps the order rows were entered in; sorting is a view.
 		const rows = [row('a', { f_num: 2 }), row('b', { f_num: 1 })];
 		sortRecords(rows, [number], [{ fieldId: 'f_num', order: 'asc' }]);
 		expect(rows.map((record) => record.id)).toEqual(['a', 'b']);
@@ -238,11 +217,6 @@ describe('the order that comes out', () => {
 });
 
 describe('which columns may be sorted', () => {
-	/*
-	 * A computed column used to be refused here, because the model cannot work out its
-	 * value. It can now be sorted: the view hands that text in through a resolver, so
-	 * the column is no longer a column of blanks.
-	 */
 	it('sorts a computed column through the text handed in', () => {
 		const computed: Field = { id: 'f_c', name: 'C', type: 'formula' };
 		const rows = [row('r1', {}), row('r2', {})];
@@ -259,11 +233,6 @@ describe('which columns may be sorted', () => {
 });
 
 describe('several rules at once', () => {
-	/*
-	 * A rule only decides rows the rules above it left tied. That is the whole
-	 * point of listing them, and it is the part that cannot be checked on screen
-	 * without building a table by hand.
-	 */
 	const rows = [
 		row('a', { f_text: 'B', f_num: 1 }),
 		row('b', { f_text: 'A', f_num: 2 }),
@@ -281,7 +250,6 @@ describe('several rules at once', () => {
 	});
 
 	it('honours the direction of each rule separately', () => {
-		// Text ascending, then number descending within each group.
 		expect(
 			orderOf(rows, [text, number], [
 				{ fieldId: 'f_text', order: 'asc' },
@@ -313,11 +281,7 @@ describe('several rules at once', () => {
 	});
 });
 describe('the same column listed twice', () => {
-	/*
-	 * Harmless by construction: a repeated rule can only decide rows the earlier
-	 * one left tied, which by definition it cannot. Allowed because refusing it
-	 * would mean the add button sometimes does nothing unexplained.
-	 */
+	// A repeated rule can never decide anything; refusing it would leave the add button doing nothing.
 	it('changes nothing compared with one rule', () => {
 		const rows = [
 			row('a', { f_num: 2 }),
@@ -333,7 +297,6 @@ describe('the same column listed twice', () => {
 	});
 
 	it('does not fight itself when the second repeat disagrees', () => {
-		// The first rule settles every comparison, so the opposing one never runs.
 		const rows = [
 			row('a', { f_num: 2 }),
 			row('b', { f_num: 1 }),
@@ -347,11 +310,6 @@ describe('the same column listed twice', () => {
 	});
 });
 describe('a value that changes where its row belongs', () => {
-	/*
-	 * The defect this exists for: after a table was sorted, editing a value left the
-	 * rows where they were. The grid repaints the one cell it changed, so the new
-	 * value appeared in the old position.
-	 */
 	it('moves the row when the sorted column is edited', () => {
 		const rows = [
 			row('a', { f_num: 1 }),
@@ -361,14 +319,11 @@ describe('a value that changes where its row belongs', () => {
 		const sorts = [{ fieldId: 'f_num', order: 'asc' as const }];
 		expect(orderOf(rows, [number], sorts)).toEqual(['a', 'b', 'c']);
 
-		// The last row is given the smallest value, so it now belongs first.
 		rows[2]!.cells.f_num = 0;
 		expect(orderOf(rows, [number], sorts)).toEqual(['c', 'a', 'b']);
 	});
 
 	it('sorts an edited value the same way a fresh render would', () => {
-		// Sorting is worked out from the records every time, so there is no cached
-		// order to fall out of step with the values.
 		const rows = [row('a', { f_text: 'pear' }), row('b', { f_text: 'apple' })];
 		const sorts = [{ fieldId: 'f_text', order: 'asc' as const }];
 		const before = orderOf(rows, [text], sorts);
@@ -378,7 +333,6 @@ describe('a value that changes where its row belongs', () => {
 });
 
 describe('what one sort pass builds', () => {
-	/** A choice column whose option list counts its own reads. */
 	function countedSelect(): { field: Field; reads: () => number } {
 		let reads = 0;
 		const options = Array.from({ length: 4 }, (_unused, index) => ({
@@ -409,8 +363,6 @@ describe('what one sort pass builds', () => {
 
 		sortRecords(rows, [field], [{ fieldId: 'f_sel', order: 'asc' }]);
 
-		// One pass over the four options. Rebuilding the map for every comparison
-		// would read them hundreds of times for a sort this size.
 		expect(reads()).toBe(4);
 	});
 

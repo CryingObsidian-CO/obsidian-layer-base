@@ -8,20 +8,13 @@ const SORT_POPOVER_WIDTH = '22rem';
 export interface SortPopoverOptions {
 	app: AnchoredPopover['app'];
 	anchor: Anchor | null;
-	/** The columns that may be sorted, in the order the table shows them. */
 	fields: readonly Field[];
 	sorts: readonly Sort[];
 	/** Reported on every change, so the table follows the panel as it is edited. */
 	onChange: (sorts: Sort[]) => void;
 }
 
-/**
- * The sort rules of a view, in a panel beside the toolbar.
- *
- * Rules apply in the order they are listed, which is what makes a second rule mean
- * "when the first column ties": the panel is the only place that order is visible,
- * so the list is drawn as a numbered list rather than a set of independent rows.
- */
+/** Rules apply in the order listed, so a second rule only breaks the first one's ties. */
 export class SortPopover extends AnchoredPopover {
 	private rules: Sort[];
 
@@ -70,7 +63,6 @@ export class SortPopover extends AnchoredPopover {
 	private renderRule(host: HTMLElement, index: number, rule: Sort): void {
 		const row = host.createDiv({ cls: 'layer-sort-rule' });
 
-		// The number is the priority: rule 2 only decides rows rule 1 left tied.
 		row.createSpan({ cls: 'layer-sort-rank', text: String(index + 1) });
 
 		const select = row.createEl('select', { cls: 'layer-sort-field' });
@@ -114,7 +106,7 @@ export class SortPopover extends AnchoredPopover {
 		});
 	}
 
-	/** The columns this panel may offer: every one, computed ones included. */
+	/** Every column, computed ones included. */
 	private sortableFields(): readonly Field[] {
 		return this.config.fields;
 	}
@@ -124,10 +116,7 @@ export class SortPopover extends AnchoredPopover {
 		if (available.length === 0) {
 			return;
 		}
-		/*
-		 * Any column may be added again, including one already sorting: a repeat is
-		 * harmless, since it can only decide rows the earlier rule left tied.
-		 */
+		// A repeat is harmless: it can only decide rows the earlier rule left tied.
 		const first = available[0];
 		if (!first) {
 			return;
@@ -137,7 +126,6 @@ export class SortPopover extends AnchoredPopover {
 		this.render();
 	}
 
-	/** Tells the view what the rules are now, and lets it redraw the table. */
 	private emit(): void {
 		this.config.onChange(this.rules.map((rule) => ({ ...rule })));
 	}

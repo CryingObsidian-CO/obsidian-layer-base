@@ -11,7 +11,6 @@ import {
 } from '../src/model/select-options';
 import type { Field, SelectOption } from '../src/types';
 
-/** The canonical hex each palette name resolves to. */
 const HEXES: Record<string, string> = {
 	blue: '#086ddd',
 	green: '#08b94e',

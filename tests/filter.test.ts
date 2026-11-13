@@ -31,7 +31,6 @@ const rows = [
 	row('d', { f_text: '', f_num: '', f_date: '' }),
 ];
 
-/** The ids a filter keeps. */
 function keep(
 	fields: readonly Field[],
 	conditions: Parameters<typeof filterRecords>[2] extends infer F
@@ -72,7 +71,6 @@ describe('the text operators', () => {
 
 describe('the number operators', () => {
 	it('compares as numbers, not as text', () => {
-		// As text, `10` sorts before `5`.
 		expect(
 			keep([number], [{ fieldId: 'f_num', operator: 'greaterThan', value: 5 }]),
 		).toEqual(['c']);
@@ -85,22 +83,12 @@ describe('the number operators', () => {
 	});
 
 	it('does not treat an empty cell as zero', () => {
-		/*
-		 * The defect this pins: `Number('')` is 0, so an empty cell would pass
-		 * `is 0` and `is not 5` alike — an absence read as a value.
-		 */
 		expect(keep([number], [{ fieldId: 'f_num', operator: 'is', value: 0 }])).toEqual(
 			[],
 		);
 	});
 
 	it('keeps nothing when the box names no number, whichever way it asks', () => {
-		/*
-		 * A blank box read as 0 made "is" match every zero while "is not" matched
-		 * every other row: one unreadable condition, two opposite wrong answers.
-		 * Keeping no rows is the same answer from both, and says the filter is
-		 * unfinished rather than inventing a zero to compare against.
-		 */
 		for (const operator of ['is', 'isNot', 'greaterThan', 'lessThan'] as const) {
 			expect(keep([number], [{ fieldId: 'f_num', operator, value: '' }])).toEqual([]);
 			expect(keep([number], [{ fieldId: 'f_num', operator, value: 'abc' }])).toEqual([]);
@@ -132,11 +120,6 @@ describe('dates', () => {
 	});
 
 	it('matches nothing when the value written in the condition is not a date', () => {
-		/*
-		 * The panel's date picker cannot produce this, but a view written by hand or
-		 * by an older build can. A made-up day count would quietly keep the wrong
-		 * rows; refusing to compare keeps none of them.
-		 */
 		expect(
 			keep([date], [{ fieldId: 'f_date', operator: 'greaterThan', value: '2026-13-45' }]),
 		).toEqual([]);
@@ -151,7 +134,6 @@ describe('a date-time keeps the moment, a date only the day', () => {
 		row('next', { f_at: '2026-02-02T08:00' }),
 	];
 
-	/** The ids this column keeps under one ordered condition. */
 	function keepAt(
 		operator: FilterCondition['operator'],
 		value: string,
@@ -163,11 +145,6 @@ describe('a date-time keeps the moment, a date only the day', () => {
 	}
 
 	it('keeps the rest of the day when the condition names only its start', () => {
-		/*
-		 * The defect this pins: with both sides reduced to a day, "later than
-		 * 1 February" was false for everything that happened on 1 February — the
-		 * words say the opposite.
-		 */
 		expect(keepAt('greaterThan', '2026-02-01')).toEqual([
 			'morning',
 			'evening',
@@ -184,10 +161,6 @@ describe('a date-time keeps the moment, a date only the day', () => {
 	});
 
 	it('matches a day the picker named, whatever time that day holds', () => {
-		/*
-		 * The condition holds a day and no time, so text equality could never be
-		 * true — "is 1 February" matched nothing and "is not" matched everything.
-		 */
 		expect(keepAt('is', '2026-02-01')).toEqual(['morning', 'evening']);
 		expect(keepAt('isNot', '2026-02-01')).toEqual(['next']);
 	});
@@ -205,7 +178,6 @@ describe('a date-time keeps the moment, a date only the day', () => {
 
 describe('choices and checkboxes', () => {
 	it('filters a choice by the name it shows, not the id it stores', () => {
-		// Filtering on the stored id would mean nothing to whoever wrote the rule.
 		expect(
 			keep([select], [{ fieldId: 'f_sel', operator: 'is', value: 'Done' }]),
 		).toEqual(['a']);
@@ -269,7 +241,6 @@ describe('a filter that should keep everything', () => {
 	});
 
 	it('keeps every row when the column is gone', () => {
-		// A deleted column must not empty the table.
 		expect(
 			keep([text], [{ fieldId: 'gone', operator: 'is', value: 'x' }]),
 		).toEqual(['a', 'b', 'c', 'd']);
@@ -281,10 +252,6 @@ describe('a filter that should keep everything', () => {
 });
 
 describe('what may be filtered on', () => {
-	/*
-	 * A computed column used to be refused here, because the model cannot work out its
-	 * value. It can now be filtered: the view hands that text in through a resolver.
-	 */
 	it('filters a computed column through the text handed in', () => {
 		const computed: Field = { id: 'f_c', name: 'C', type: 'formula' };
 		const rows = [row('r1', {}), row('r2', {})];
@@ -305,7 +272,6 @@ describe('what may be filtered on', () => {
 	it('offers only the operators a column can answer', () => {
 		expect(operatorsFor(box)).toEqual(['checked', 'unchecked']);
 		expect(operatorsFor(text)).toContain('contains');
-		// Words have no order here, so no greater-or-less for text.
 		expect(operatorsFor(text)).not.toContain('greaterThan');
 		expect(operatorsFor(number)).toContain('greaterThan');
 	});
@@ -318,15 +284,8 @@ describe('what may be filtered on', () => {
 });
 
 describe('filtering a relation', () => {
-	/*
-	 * A relation stores row ids, which mean nothing to a reader. The names come from
-	 * the other table, so the caller supplies them — the same resolution the cell is
-	 * drawn with. Comparing the ids, which this once did, could never match
-	 * anything a person typed.
-	 */
 	const relation: Field = { id: 'f_rel', name: 'Linked', type: 'relation' };
 
-	/** A resolver standing in for the other table: ids to display names. */
 	const resolve = (_field: Field, value: CellValue): string[] => {
 		const ids = Array.isArray(value) ? value : [];
 		const names: Record<string, string> = {
@@ -358,7 +317,6 @@ describe('filtering a relation', () => {
 	});
 
 	it('treats "is" as exactly this row and nothing else', () => {
-		// `both` also points at Ann, but it is not a row about Ann alone.
 		expect(keepLinked('Ann', 'is')).not.toContain('both');
 	});
 
@@ -367,7 +325,6 @@ describe('filtering a relation', () => {
 	});
 
 	it('matches an exact name, not a prefix, for contains', () => {
-		// `Anna` is a different row, so searching Ann must not also find her.
 		expect(keepLinked('Ann', 'contains')).not.toContain('anna');
 	});
 
@@ -380,7 +337,6 @@ describe('filtering a relation', () => {
 	});
 
 	it('still answers emptiness without the resolver', () => {
-		// An id list is all it takes to know whether anything is linked.
 		expect(
 			filterRecords(
 				linked,
@@ -394,8 +350,6 @@ describe('filtering a relation', () => {
 	});
 
 	it('matches nothing when there are no names to compare', () => {
-		// Without a resolver there is nothing to match, and comparing ids would
-		// invent a match that cannot appear on screen.
 		expect(keepLinked('p1', 'contains')).toEqual([]);
 	});
 });

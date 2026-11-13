@@ -10,20 +10,13 @@ const FILTER_POPOVER_WIDTH = '26rem';
 export interface FilterPopoverOptions {
 	app: AnchoredPopover['app'];
 	anchor: Anchor | null;
-	/** The columns that may be filtered on, in the order the table shows them. */
 	fields: readonly Field[];
 	filter: Filter;
 	/** Reported on every change, so the table follows the panel as it is edited. */
 	onChange: (filter: Filter) => void;
 }
 
-/**
- * The filter rules of a view, in a panel beside the toolbar.
- *
- * Conditions are combined as a whole, not in groups: the model has one conjunction
- * and a list, so the panel offers a single choice between "all" and "any" rather
- * than inventing a tree of conditions it could not save.
- */
+/** One conjunction and a flat list; the model saves no tree, so the panel offers none. */
 export class FilterPopover extends AnchoredPopover {
 	private conjunction: 'and' | 'or';
 	private conditions: FilterCondition[];
@@ -75,7 +68,6 @@ export class FilterPopover extends AnchoredPopover {
 		this.position();
 	}
 
-	/** The single choice between requiring all conditions or any of them. */
 	private renderConjunction(host: HTMLElement): void {
 		const row = host.createDiv({ cls: 'layer-filter-conjunction' });
 		for (const option of ['and', 'or'] as const) {
@@ -127,8 +119,7 @@ export class FilterPopover extends AnchoredPopover {
 		if (!first) {
 			return;
 		}
-		// Repeats are allowed for the same reason as in the sort panel: they are
-		// harmless, and refusing them makes the button look broken.
+		// Repeats are harmless, as in the sort panel, and refusing them makes the button look broken.
 		this.conditions = [
 			...this.conditions,
 			{ fieldId: first.id, operator: operatorsFor(first)[0] ?? 'is', value: '' },
@@ -145,15 +136,9 @@ export class FilterPopover extends AnchoredPopover {
 	}
 
 	/**
-	 * Keeps a condition pointing at a column that is still here.
-	 *
-	 * Nothing is pruned against an empty column list: that list is taken when the
-	 * panel opens, and an empty one means the columns are not known yet — opening and
-	 * closing the panel would then erase every saved condition and dirty the file with
-	 * no edit behind it.
-	 *
-	 * The kept set is put back into this panel's own copy rather than only reported,
-	 * so a later change cannot re-emit the rows the prune just dropped.
+	 * Pruned only when the column list is known: an empty list means "not loaded yet", and
+	 * pruning against it would erase every condition and dirty the file with no edit behind it.
+	 * The kept set goes back into this copy, so a later change cannot re-emit the dropped rows.
 	 */
 	override onClose(): void {
 		super.onClose();

@@ -46,22 +46,14 @@ import {
 	relationIds,
 	usesOptions,
 } from '../model/fields';
-import {readsFromView} from '../model/capabilities';
-import {computeFormulaWithReader, type FormulaValue} from '../model/formula';
-import {aggregateRollup, type RollupValue} from '../model/rollup';
-import {numberTexts} from '../model/numbering';
 import {noteLabel} from '../model/note-path';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
 import {filterRecords} from '../model/filter';
 import {formulaErrorShort, formulaErrorMessage} from '../ui/formula-text';
+import { CellReader as CellTableReader } from '../model/cell-reader';
 import {
-	relationBackIndex,
-	relationBackRows,
-	type BacklinkRow,
-	lookupChips,
 	relationCandidates as candidatesOf,
-	relationText as textOf,
 	repairRelationPaths,
 	type RelationCandidate,
 	type CellReader,
@@ -125,42 +117,33 @@ import {ColorRulesPopover} from '../ui/color-rules-popover';
 import {redrawOnce} from './redraw-guard';
 import {scopeLedger} from './scope-ledger';
 
+/** How long a failed conflict copy waits before its one automatic retry. */
+const CONFLICT_RETRY_DELAY_MS = 30_000;
+
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
-	/** The format version of a file this build refuses to read, if this is one. */
+	/** The format version of a file this build refuses to read. */
 	private unsupported: number | null = null;
 	/** That file's text, so a save writes back exactly what was read. */
 	private unsupportedText = '';
 	/** The text handed to the file on the last save, to recognise its echo. */
 	private lastSaved = '';
+	/** The text this view believes the file on disk holds. */
+	private lastDisk = '';
+	private unsaved = false;
+	private pendingExternal: string | null = null;
+	private conflictRetryTimer: number | null = null;
+	private conflictRetries = 0;
+	/** Reads cannot be cancelled, so a stale answer carries its number and is dropped. */
+	private loadSeq = 0;
 	private activeViewId: string | null = null;
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
 	private readonly history = new History();
-	/** The copy taken before an edit, waiting to be recorded once it lands. */
+	private readonly reader: CellTableReader;
 	private pendingEdit: { label: string; before: Snapshot } | null = null;
-	/** How deep a cell is being read through other tables; stops a cycle. */
-	private readDepth = 0;
 	private grid: GridRenderer | null = null;
 	private kanban: KanbanRenderer | null = null;
-	/** Reverse lookups for the current render pass, per source column. */
-	private readonly backIndexes = new Map<
-		string,
-		Map<string, string[]> | null
-	>();
-	/** The pointing rows themselves, per source column, for the current render pass. */
-	private readonly backRows = new Map<
-		string,
-		Map<string, BacklinkRow[]> | null
-	>();
-	/**
-	 * The number each row shows, per numbering column, for the current render pass.
-	 *
-	 * Counted once rather than per cell: the count walks every row in the group, and
-	 * asking that per cell would make a table cost its own square.
-	 */
-	private readonly numbers = new Map<string, Map<string, string>>();
-	/** A repaint is already scheduled, so a burst of changes paints once. */
 	private repaintQueued = false;
 	/** Guards a redraw so a commit that triggers one cannot re-enter it. */
 	private readonly redraw = {busy: false};
@@ -168,6 +151,18 @@ export class LayerView extends TextFileView {
 
 	constructor(leaf: WorkspaceLeaf, private readonly plugin: LayerBasePlugin) {
 		super(leaf);
+		this.reader = new CellTableReader({
+			table: (field, from, direction) =>
+				direction === 'back'
+					? this.sourceDoc(field, from)
+					: this.targetDoc(field, from),
+			noteProperty: (path, key) => this.notePropertyValue(path, key),
+			notePropertyHint: () => t().notePropUnreadable,
+			formulaError: (error) => ({
+				text: formulaErrorShort(error),
+				hint: formulaErrorMessage(error),
+			}),
+		});
 	}
 
 	getViewType(): string {
@@ -187,9 +182,14 @@ export class LayerView extends TextFileView {
 	}
 
 	async onLoadFile(file: TFile): Promise<void> {
+		this.loadSeq++;
+		this.cancelConflictRetry();
+		this.conflictRetries = 0;
 		this.lastSaved = '';
-		// Another file is another document: steps taken in the old one must not be
-		// replayed onto this one.
+		this.lastDisk = '';
+		this.unsaved = false;
+		this.pendingExternal = null;
+		// Another file is another document; steps from the old one must not replay here.
 		this.history.clear();
 		await super.onLoadFile(file);
 	}
@@ -197,40 +197,37 @@ export class LayerView extends TextFileView {
 	onload(): void {
 		super.onload();
 		/*
-		 * Undo and redo belong to this view, so they are bound to a scope of its own that
-		 * sits on the key stack only while the view has focus. Binding them as a
-		 * command's default hotkey did not work out: a hotkey is global, and Obsidian
-		 * takes the key before it decides the command is unavailable — so Ctrl+Z in a
-		 * note stopped reaching the editor.
+		 * A hotkey set on a command is global, and Obsidian takes the key before deciding
+		 * whether the command applies, so this view gets a scope of its own instead.
 		 */
 		this.registerUndoScope();
 
 		/*
-		 * The last edit has to survive the app closing.
-		 *
-		 * A save is debounced by two seconds (see `TextFileView.requestSave`), so a
-		 * change made just before quitting is still waiting when the app tears
-		 * down — and an editor that is still open is worse off, because its
-		 * contents have not reached the document at all. Obsidian hands the quit
-		 * event a task list it waits for, which is the only place a write can be
-		 * finished at that point.
+		 * Saves are debounced by two seconds, so the last edit is still pending at quit;
+		 * the quit event's task list is the only place it can be finished.
 		 */
 		this.registerEvent(
 			this.app.workspace.on('quit', (tasks) => {
 				tasks.add(async () => {
 					this.commitOpenEdit();
-					// Never saved with no document: `getViewData` answers an empty
-					// string there, and writing that would empty the file.
+					// Never saved with no document: `getViewData` answers '', which would empty the file.
 					if (this.doc) {
 						await this.save();
 					}
 				});
 			}),
 		);
-		// A linked table arriving or changing has to reach the cells that read it.
+		/* Another process (MCP server, sync client) can write this file while it is open;
+		 * setViewData decides whether it can replace the document. */
+		this.registerEvent(
+			this.app.vault.on('modify', (file) => {
+				if (file instanceof TFile && file.path === this.file?.path) {
+					void this.reloadFromDisk();
+				}
+			}),
+		);
 		this.register(this.plugin.tables.onChange(() => this.onTargetLoaded()));
-		// A rename carries the exact old-and-new pair, which is the only way to
-		// follow a table that was renamed rather than merely moved.
+		// A rename carries the old and new path, the only way to follow a redirected table.
 		this.register(
 			this.plugin.tables.onRename((oldPath, newPath) =>
 				this.repairLinks(oldPath, newPath),
@@ -238,7 +235,6 @@ export class LayerView extends TextFileView {
 		);
 	}
 
-	/** Rewrites this document's links to a table that was renamed or moved. */
 	private repairLinks(oldPath: string, newPath: string): void {
 		if (!this.doc) {
 			return;
@@ -248,66 +244,156 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * Ends an edit still open in a cell, keeping what it holds.
-	 *
-	 * The editor's contents live in a DOM input until they are committed, so
-	 * tearing the view down without this drops the last thing typed.
-	 */
+	/** An open editor's text is still in the DOM, so a teardown commits it first. */
 	private commitOpenEdit(): void {
 		this.grid?.commitOpenEdit();
 	}
 
-	/**
-	 * The base class "saves any unsaved changes first", so the pending write is
-	 * flushed here — but only after an open editor has been committed, or the
-	 * value being flushed would not include it.
-	 */
+	/** The base class flushes a pending save; the open editor has to be committed into it first. */
 	async onUnloadFile(file: TFile): Promise<void> {
 		this.commitOpenEdit();
+		this.cancelConflictRetry();
 		await super.onUnloadFile(file);
 	}
 
 	getViewData(): string {
 		if (this.unsupported !== null) {
-			/*
-			 * A file this build cannot read is handed back exactly as it arrived.
-			 * Anything else — the empty string, or a document rebuilt from what this
-			 * build understands — would be a write that loses data the moment the
-			 * base class saves.
-			 */
+			/* Hand back the exact text: anything else would lose what a newer build wrote. */
 			return this.unsupportedText;
 		}
 		if (!this.doc) {
 			return '';
 		}
 		const text = serializeLayerDoc(this.doc);
-		// Remembered so the file echoing this save can be told from a real outside
-		// change. Comparing the stored document instead would not work: reading a file
-		// normalises it — a primary flag added, a created stamp filled in — so the
-		// text that comes back is never byte-equal to what the document would write.
+		// Remembered to recognise this save echoing back: reading normalises a file
+		// (a primary flag added, a created stamp filled in), so a re-read differs.
 		this.lastSaved = text;
 		return text;
 	}
 
+	/** An outside writer touched the file; `setViewData` sorts out whether the local edit wins. */
+	private async reloadFromDisk(): Promise<void> {
+		const file = this.file;
+		if (file === null) {
+			return;
+		}
+		const seq = ++this.loadSeq;
+		let text: string;
+		try {
+			text = await this.app.vault.read(file);
+		} catch {
+			return;
+		}
+		/* The read may have outlived the file: another one opened, or a later read landed first. */
+		if (this.file !== file || seq !== this.loadSeq || text === this.lastDisk) {
+			return;
+		}
+		this.setViewData(text, false);
+	}
+
+	/** TextFileView debounces saves, so an outside write can land after the edit; keep the
+	 * local copy as a conflict file. */
+	async save(clear = false): Promise<void> {
+		const file = this.file;
+		const entryText = this.localText();
+		if (file !== null && entryText !== '' && this.lastDisk !== '') {
+			let disk: string | null;
+			try {
+				disk = await this.app.vault.read(file);
+			} catch {
+				// A file that cannot be read is left to the base class, which reports the failure.
+				disk = null;
+			}
+			// A cell edit can commit while the file is read, so compare against what is held now.
+			const current = this.localText();
+			if (disk !== null && disk !== this.lastDisk && disk !== current) {
+				this.pendingExternal = disk;
+				this.unsaved = true;
+			}
+		}
+
+		const incoming = this.pendingExternal;
+		if (incoming !== null) {
+			// An open editor holds text the document does not have yet; the copy has to include it.
+			this.commitOpenEdit();
+			const copyText = this.localText();
+			if (copyText !== '' && file !== null) {
+				try {
+					const copy = await this.plugin.store.writeConflictCopy(file, copyText);
+					new Notice(t().noticeConflictSaved(copy.path));
+				} catch (error) {
+					console.error('[layer-base] Could not save a conflict copy:', error);
+					new Notice(t().noticeConflictFailed);
+					this.scheduleConflictRetry();
+					return;
+				}
+				if (this.localText() !== copyText) {
+					// The document changed while the copy was written; adopting the outside
+					// version now would drop that edit.
+					this.requestSave();
+					return;
+				}
+			}
+			this.cancelConflictRetry();
+			this.conflictRetries = 0;
+			this.pendingExternal = null;
+			this.unsaved = false;
+			this.setViewData(incoming, false);
+			return;
+		}
+
+		// Read right before the write: the document may change while the write is in flight.
+		const written = this.localText();
+		await super.save(clear);
+		if (!clear) {
+			this.lastDisk = written;
+			// Only an unchanged document means the dirty flag describes what was saved.
+			if (this.localText() === written) {
+				this.unsaved = false;
+			}
+		}
+	}
+
+	private localText(): string {
+		if (this.doc === null) {
+			return this.unsupported !== null ? this.unsupportedText : '';
+		}
+		return serializeLayerDoc(this.doc);
+	}
+
+	/* A lock held for a moment (sync client, scanner) clears on its own, so one retry
+	 * after a pause; a lasting failure stays with the reader. */
+	private scheduleConflictRetry(): void {
+		if (this.conflictRetryTimer !== null || this.conflictRetries > 0) {
+			return;
+		}
+		this.conflictRetries = 1;
+		this.conflictRetryTimer = window.setTimeout(() => {
+			this.conflictRetryTimer = null;
+			this.requestSave();
+		}, CONFLICT_RETRY_DELAY_MS);
+	}
+
+	private cancelConflictRetry(): void {
+		if (this.conflictRetryTimer !== null) {
+			window.clearTimeout(this.conflictRetryTimer);
+			this.conflictRetryTimer = null;
+		}
+	}
+
 	setViewData(data: string, _clear: boolean): void {
 		/*
-		 * Whether this is the file echoing our own save. Two tests, either of which is
-		 * enough:
-		 *
-		 * 1. The text is exactly what we last wrote.
-		 * 2. Reading the text yields the rows and columns we already hold — the same
-		 *    change said differently, which happens when the write is normalised on the
-		 *    way to disk.
-		 *
-		 * Both are needed because clearing the undo steps is destructive: a wrong
-		 * "this came from outside" throws away everything the reader could have taken
-		 * back, and it is invisible when it happens.
+		 * An echo of our own save: the same text, or the same content once reading has
+		 * normalised it. Clearing history on a false positive is destructive and silent.
 		 */
 		if (this.lastSaved !== '' && data === this.lastSaved) {
 			this.lastSaved = '';
+			this.lastDisk = data;
 			return;
 		}
+
+		// An open cell edit lives in the DOM; commit it before comparing with the outside text.
+		this.commitOpenEdit();
 
 		let parsed: ReturnType<typeof parseLayerDoc>;
 		try {
@@ -321,6 +407,22 @@ export class LayerView extends TextFileView {
 		}
 
 		if (data !== '' && this.doc && this.sameContent(parsed.doc)) {
+			this.lastDisk = data;
+			return;
+		}
+
+		/*
+		 * An outside write while an unsaved edit is held: keep the local document and let
+		 * save() copy it aside. A truncated file counts too, and `doc === null` is what
+		 * tells a first load apart from an outside write.
+		 */
+		if (this.doc !== null && this.unsaved) {
+			if (this.pendingExternal === null) {
+				new Notice(t().noticeExternalChangePending);
+				// A different outside change gets its own single retry.
+				this.conflictRetries = 0;
+			}
+			this.pendingExternal = data;
 			return;
 		}
 
@@ -329,11 +431,8 @@ export class LayerView extends TextFileView {
 		this.unsupported = null;
 		this.unsupportedText = '';
 		this.lastSaved = '';
-		/*
-		 * The document was replaced from outside — synced in, or edited elsewhere. The
-		 * steps recorded against the previous contents no longer describe it, and
-		 * replaying one would write stale rows over what just arrived.
-		 */
+		this.lastDisk = data;
+		/* Steps recorded against the previous contents no longer describe what just arrived. */
 		this.history.clear();
 
 		if (warnings.length > 0) {
@@ -345,11 +444,7 @@ export class LayerView extends TextFileView {
 		}
 
 		if (dropped.length > 0) {
-			/*
-			 * A value that was there is gone now, so the reader gets the column and the
-			 * value itself rather than a count: that is what they would have to put
-			 * back. Shown longer than a passing note, since it is a loss.
-			 */
+			/* A value is gone, so the notice names the column and value; a loss stays up longer. */
 			new Notice(t().noticeCellsCleared(dropped), 12000);
 			console.warn(
 				`[layer-base] Cleared ${dropped.length} cell(s) that held a value their column cannot take, in "${this.file?.path ?? 'unknown'}":`,
@@ -361,33 +456,29 @@ export class LayerView extends TextFileView {
 	}
 
 	clear(): void {
+		this.loadSeq++;
+		this.cancelConflictRetry();
+		this.conflictRetries = 0;
 		this.doc = null;
 		this.unsupported = null;
 		this.unsupportedText = '';
 		this.lastSaved = '';
+		this.lastDisk = '';
+		this.unsaved = false;
+		this.pendingExternal = null;
 		this.contentEl.empty();
 	}
-	/**
-	 * Applies an edit to the in-memory document and asks Obsidian to persist it.
-	 *
-	 * A label marks the edit as one worth being able to undo, and names the kind so a
-	 * run of the same kind collapses into one step. Edits that leave the data alone —
-	 * a column widened, a filter changed — pass no label and never take a step.
-	 */
+	/** Marks the document dirty and schedules a save; it records no undo step. */
 	markDirty(): void {
 		if (!this.doc) {
 			return;
 		}
+		this.unsaved = true;
 		this.requestSave();
 	}
 
-	/**
-	 * Takes a copy of the data before an edit, for undoing it later.
-	 *
-	 * Called before the change is made, because the copy has to hold the table as it
-	 * was. An edit that turns out to change nothing never calls `commitEdit`, so no
-	 * step is left behind for a delete that matched no rows.
-	 */
+	/* Snapshot taken before the edit; nothing is recorded unless `commitEdit` follows,
+	 * so an edit that changed nothing leaves no step. */
 	private beginEdit(label: string): string {
 		this.pendingEdit = this.doc
 			? { label, before: this.history.snapshot(this.doc) }
@@ -395,7 +486,6 @@ export class LayerView extends TextFileView {
 		return label;
 	}
 
-	/** Records the copy taken by `beginEdit`, now that the edit has happened. */
 	private commitEdit(): void {
 		const pending = this.pendingEdit;
 		this.pendingEdit = null;
@@ -406,33 +496,21 @@ export class LayerView extends TextFileView {
 		this.markDirty();
 	}
 
-	/** Takes one edit back, for the plugin's command. */
 	runUndo(): void {
 		this.handleUndo();
 	}
 
-	/** Puts back what the last undo took back, for the plugin's command. */
 	runRedo(): void {
 		this.handleRedo();
 	}
 
-	/**
-	 * Puts undo and redo on the key stack while this view has focus, and takes them off
-	 * again when it does not.
-	 *
-	 * A scope of the view's own rather than the view's `this.scope`: that property is
-	 * null until something creates a scope, and a binding made against it never fires.
-	 * Push and pop matter as much as the binding — a scope left on the stack would keep
-	 * swallowing the key for every other tab.
+	/*
+	 * `ItemView.scope` is null until something creates one, and a binding made against
+	 * it never fires. Popped as well as pushed, or a leftover scope swallows the key.
 	 */
 	private registerUndoScope(): void {
 		const scope = new Scope(this.app.scope);
-		/*
-		 * A text field keeps an undo of its own, over the characters being typed. Taking
-		 * the key there left the text alone and took back an earlier row instead, which
-		 * is not what someone halfway through editing a cell is asking for. Handing the
-		 * key back is enough for the browser to do its own thing.
-		 */
+		/* A text field keeps its own undo, so the key has to reach the browser there. */
 		const undo = (event: KeyboardEvent): false | undefined => {
 			if (isTextEntry(event.target)) {
 				return undefined;
@@ -454,40 +532,29 @@ export class LayerView extends TextFileView {
 		// Ctrl+Y redoes too, the habit on Windows.
 		scope.register(['Mod'], 'y', redo);
 
-		// Focus is what decides ownership: the view that was last clicked owns the key,
-		// and a view that merely exists in a background tab owns nothing.
+		// The last-clicked view owns the key; one in a background tab owns nothing.
 		const ledger = scopeLedger(
 			scope,
 			(inner) => this.app.keymap.pushScope(inner),
 			(inner) => this.app.keymap.popScope(inner),
 		);
-		// A click fires `pointerdown`, and the first one also fires `focusin`: the
-		// ledger turns that pair into one scope on the stack.
+		// A click fires `pointerdown` and the first also `focusin`; the ledger makes that one scope.
 		this.registerDomEvent(this.contentEl, 'focusin', () => ledger.acquire());
 		this.registerDomEvent(this.contentEl, 'pointerdown', () => ledger.acquire());
 		this.registerDomEvent(this.contentEl, 'focusout', (event) => {
-			// Only when focus leaves the view entirely, not when it moves between two
-			// cells inside it.
+			// Only when focus leaves the view, not when it moves between two cells inside it.
 			const next = event.relatedTarget as Node | null;
 			if (next && this.contentEl.contains(next)) {
 				return;
 			}
-			/*
-			 * An editor that ends takes its input out of the page, and the browser
-			 * drops the focus to nowhere instead of handing it on. Releasing there
-			 * took undo with it: the table still looked active but stopped answering
-			 * the key until it had been clicked again.
-			 */
+			/* An editor that ends takes its input out of the page and focus lands nowhere;
+			 * releasing there leaves the table looking active but deaf to the key. */
 			if (!next) {
 				return;
 			}
 			ledger.release();
 		});
-		/*
-		 * Keeping the scope through "the focus went nowhere" means a press anywhere
-		 * else has to give it up, or the key would stay swallowed while another pane
-		 * is in use. Inside the view the press is what the ledger acquires on.
-		 */
+		/* Focus may have gone nowhere, so a press outside the view still has to release the scope. */
 		this.registerDomEvent(
 			document,
 			'pointerdown',
@@ -503,7 +570,6 @@ export class LayerView extends TextFileView {
 		this.register(() => ledger.release());
 	}
 
-	/** Takes one edit back. */
 	private handleUndo(): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -516,7 +582,6 @@ export class LayerView extends TextFileView {
 		this.restoreData(restored);
 	}
 
-	/** Puts back what was taken back. */
 	private handleRedo(): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -529,13 +594,8 @@ export class LayerView extends TextFileView {
 		this.restoreData(restored);
 	}
 
-	/**
-	 * Replaces the rows and columns, leaving the views alone.
-	 *
-	 * The views are the reader's current way of looking at the table; undoing a row's
-	 * deletion should not also put a column width or a filter back. Saving is asked
-	 * for without a label, so the restoration is not itself a step to undo.
-	 */
+	/* Fields and records only: undoing a deleted row should not also put a column
+	 * width or a filter back, and the restore takes no undo step of its own. */
 	private restoreData(restored: { fields: Field[]; records: LayerRecord[] }): void {
 		if (!this.doc) {
 			return;
@@ -548,46 +608,27 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * Whether the text just read gives the document already held.
-	 *
-	 * Compared as a whole: a rename of the document or of a view, a changed filter or
-	 * a board setting is the reader's too. Reading one of those as an echo of our own
-	 * save is what threw the incoming copy away and then wrote ours back over it.
-	 */
+	/* Compared as a whole document: a rename, a filter or a board setting is the reader's
+	 * too, so an echo test that ignored one would write ours back over theirs. */
 	private sameContent(incoming: LayerDoc): boolean {
 		const doc = this.doc;
 		return doc !== null && sameDocument(incoming, doc);
 	}
 
-	/**
-	 * Leaves a file written by a newer build closed, holding its text unchanged.
-	 *
-	 * The document is dropped rather than replaced with an empty one: an empty board
-	 * would be an editable table, and every edit would be a write over data this
-	 * build does not understand.
-	 */
+	/* The document is dropped rather than replaced with an empty board, which would be
+	 * an editable table writing over data this build does not understand. */
 	private refuseVersion(version: number, text: string): void {
 		this.doc = null;
 		this.unsupported = version;
 		this.unsupportedText = text;
 		this.lastSaved = '';
+		this.lastDisk = text;
 		this.history.clear();
 		this.selection = null;
 		this.render();
 	}
 
-	getDocument(): LayerDoc | null {
-		return this.doc;
-	}
-
-	/**
-	 * Opens the note a value names, making the file when the vault has none.
-	 *
-	 * Creating rather than refusing is the point of the field: a path typed into a cell
-	 * says where a note should live, and an empty note that opens is more useful than an
-	 * error that leaves the reader to make it by hand.
-	 */
+	/** A path in a cell says where a note belongs, so it is created when missing. */
 	private openNotePath(path: string): void {
 		const existing = this.resolveNote(path);
 		if (existing) {
@@ -598,13 +639,7 @@ export class LayerView extends TextFileView {
 		void this.createNote(target, path);
 	}
 
-	/**
-	 * Shows the file, reusing the tab that already holds it.
-	 *
-	 * A new tab rather than this one: the table is what the reader was looking at, and
-	 * replacing it would cost them their place. Reusing an open tab keeps repeated
-	 * clicks from stacking copies of the same note.
-	 */
+	/** A new tab, never this one; an existing tab already showing it is revealed instead. */
 	private showFile(file: TFile): void {
 		const shown = this.app.workspace.getLeavesOfType('markdown').find((leaf) => {
 			const view = leaf.view;
@@ -617,7 +652,6 @@ export class LayerView extends TextFileView {
 		void this.app.workspace.getLeaf(true).openFile(file);
 	}
 
-	/** Makes the note, reporting what happened, and answers the file or null. */
 	private async createNoteFile(target: string, shown: string): Promise<TFile | null> {
 		try {
 			const slash = target.lastIndexOf('/');
@@ -640,7 +674,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/** Makes every folder along a path, so a note can land where none exists yet. */
 	private async ensureFolder(path: string): Promise<void> {
 		let current = '';
 		for (const part of path.split('/')) {
@@ -651,13 +684,7 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * The file a stored value names.
-	 *
-	 * A path is written by hand as often as it is picked, so every form a link may take
-	 * is tried — with and without the extension, and finally as a link that resolves
-	 * against the vault rather than the filesystem.
-	 */
+	/** A path may be typed by hand, so both extension forms and a link resolution are tried. */
 	private resolveNote(path: string): TFile | null {
 		for (const candidate of [path, `${path}.md`]) {
 			const file = this.app.vault.getAbstractFileByPath(candidate);
@@ -669,12 +696,7 @@ export class LayerView extends TextFileView {
 	}
 
 
-	/**
-	 * Asks where the export goes, then writes it, and says where it landed.
-	 *
-	 * The text is built from the view rather than the stored document so it holds
-	 * what is on screen: a computed column has no stored value to copy.
-	 */
+	/** The text is built from the view, not the stored document: a computed column stores nothing. */
 	private async handleExportCsv(): Promise<void> {
 		const built = this.buildCsv();
 		const file = this.file;
@@ -709,14 +731,8 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * The current table as CSV text, or null when there is nothing open.
-	 *
-	 * Columns follow the grid rather than the file: a hidden column is not exported,
-	 * because the reader hid it and an export is a copy of what they are looking at.
-	 * Rows follow the rows on screen, so a hand-reordered table exports in that
-	 * order.
-	 */
+	/* What is on screen: hidden columns are left out and rows keep the view's order,
+	 * since an export is a copy of what the reader is looking at. */
 	buildCsv(): { text: string; name: string } | null {
 		const doc = this.doc;
 		if (!doc) {
@@ -730,24 +746,15 @@ export class LayerView extends TextFileView {
 			fields.map((field) => this.displayText(field, record)),
 		);
 		return {
-			// The file is for a spreadsheet, so a value one would evaluate is written as
-			// text rather than left to run when the file is opened.
 			text: toCsv(header, rows, {guardFormulas: true}),
-			/*
-			 * The base name only: the dialog shows it as a name and the writer adds
-			 * `.csv`, so a reader never ends up with a file called `x.csv.csv`.
-			 */
+			/* Base name only: the writer adds `.csv`, so this must not end up as `x.csv.csv`. */
 			name: csvFileName(doc.name).replace(/\.csv$/, ''),
 		};
 	}
 
 	private render(): void {
-		/*
-		 * A redraw replaces the tree an open editor lives in, and the editor's text is
-		 * still in the DOM rather than the document. So the edit is committed first or
-		 * it is lost — and a commit can itself ask for a redraw, which `redrawOnce`
-		 * folds into this one pass.
-		 */
+		/* A redraw replaces the tree an open editor lives in, so commit it first; a commit
+		 * that asks for a redraw itself is folded into this one pass. */
 		redrawOnce(
 			this.redraw,
 			() => this.commitOpenEdit(),
@@ -755,24 +762,13 @@ export class LayerView extends TextFileView {
 		);
 	}
 
-	/**
-	 * Draws the view from the current document.
-	 *
-	 * Go through `render()` instead of calling this: it ends any open edit first, so
-	 * the text the reader typed is not thrown away with the tree this rebuilds.
-	 */
+	/** Go through `render()`: it commits an open edit before the tree this rebuilds. */
 	private draw(): void {
-		/*
-		 * Where the table was scrolled to, read before the tree is torn down. The
-		 * renderer is built fresh on every redraw, so it cannot carry this itself: the
-		 * instance that knows the offset is the one being discarded.
-		 */
+		/* Read before the tree goes: the renderer that knows the offset is the one being discarded. */
 		const offset = this.grid?.offset() ?? { left: 0, top: 0 };
 
 		// The reverse lookups belong to the tree about to be thrown away.
-		this.backIndexes.clear();
-		this.backRows.clear();
-		this.numbers.clear();
+		this.reader.reset();
 		this.contentEl.empty();
 		this.contentEl.addClass('layer-base-container');
 
@@ -839,8 +835,6 @@ export class LayerView extends TextFileView {
 				this.openFilterPanel(anchor);
 			},
 		});
-		// Top to bottom: actions on the data, then the projection of it, then a
-		// read-only summary.
 		shell.renderToolbar(this.toolbarState(view));
 		shell.renderTabs({
 			views: this.doc.views,
@@ -863,8 +857,7 @@ export class LayerView extends TextFileView {
 					this.handleDuplicateRecords(recordIds);
 				},
 				onEditField: (field, at) => {
-					// Keyboard activation gives no coordinates; the column header
-					// stands in as the anchor.
+					// Keyboard activation gives no coordinates, so the column header stands in as anchor.
 					const el = this.grid?.headerFor(field.id) ?? null;
 					const anchor: Anchor | null = at
 						? {kind: 'point', x: at.x, y: at.y}
@@ -967,7 +960,6 @@ export class LayerView extends TextFileView {
 		this.renderStatus(shell);
 	}
 
-	/** Status row: what is on screen, and what is selected. */
 	private renderStatus(shell: BoardShell): void {
 		const doc = this.doc;
 		const view = this.activeView();
@@ -976,11 +968,8 @@ export class LayerView extends TextFileView {
 		}
 		const columns = view.type === 'grid' ? this.visibleColumnCount(view) : null;
 
-		/*
-		 * A filtered table reports both numbers. Showing only the visible count would
-		 * look like rows had been lost, and showing only the total would hide that a
-		 * filter is on.
-		 */
+		/* Both numbers: the visible count alone looks like rows were lost, the total alone
+		 * hides that a filter is on. */
 		const total = doc.records.length;
 		const visible = this.orderedRecords(doc, view).length;
 		this.statusEl = shell.renderStatusBar({
@@ -999,9 +988,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * What the status row says about the selection.
-	 */
 	private selectionLabel(): string {
 		const selection = this.selection;
 		const doc = this.doc;
@@ -1036,13 +1022,8 @@ export class LayerView extends TextFileView {
 		return t().selectionRange(size.rows, size.columns);
 	}
 
-	/**
-	 * The row's position in the view, not in the file.
-	 *
-	 * The numbers beside the table count what is on screen, so the label has to
-	 * count the same way: once the view is sorted or filtered, the file's own order
-	 * points at a row the reader cannot see.
-	 */
+	/* The numbers beside the table count what is on screen: once sorted or filtered,
+	 * the file's own order points at a row the reader cannot see. */
 	private displayRowIndexOf(recordId: string): number {
 		const doc = this.doc;
 		if (!doc) {
@@ -1061,7 +1042,6 @@ export class LayerView extends TextFileView {
 		return this.doc.fields.filter((f) => !hidden.has(f.id)).length;
 	}
 
-	/** Appends a row and re-renders so it appears immediately. */
 	private handleAddRecord(): void {
 		if (!this.doc) {
 			return;
@@ -1072,7 +1052,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Inserts a row above everything else. */
 	private handleAddRecordAtTop(): void {
 		if (!this.doc) {
 			return;
@@ -1114,8 +1093,7 @@ export class LayerView extends TextFileView {
 			return;
 		}
 
-		// A field edit can add a column or change a type, which clears the column,
-		// so the whole application is one step to take back.
+		// Adding a column or changing a type clears it, so the whole application is one step.
 		this.beginEdit(field === null ? 'add-field' : 'field-edit');
 
 		let written: Field;
@@ -1148,8 +1126,7 @@ export class LayerView extends TextFileView {
 			if (usesOptions(result.type)) {
 				field.options = result.options;
 			}
-			// Removed rather than set to false, so a cleared checkbox leaves no
-			// dead key behind in the file.
+			// Removed rather than set to false, so a cleared flag leaves no dead key in the file.
 			if (result.required) {
 				field.required = true;
 			} else {
@@ -1161,8 +1138,7 @@ export class LayerView extends TextFileView {
 					new Notice(t().fieldConverted(dropped));
 				}
 			}
-			// After the type change, which clears these when the field stops being
-			// a number.
+			// After the type change, which clears these when the field stops being a number.
 			this.applyNumberSettings(field, result.number);
 			this.applyRelationSettings(doc, field, result.relation);
 			this.applyAutoNumberSettings(field, result.autoNumber);
@@ -1174,9 +1150,7 @@ export class LayerView extends TextFileView {
 			written = field;
 		}
 
-		// The panel stops offering the flag for a column the table fills in itself,
-		// so this is a guard rather than the mechanism: a flag that never fires
-		// would leave the reader waiting for a warning that is not coming.
+		// A computed column is never offered the flag; this guard covers a stale panel.
 		if (!canBeRequired(written.type)) {
 			delete written.required;
 		}
@@ -1185,13 +1159,7 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * Writes a numbering column's padding and grouping.
-	 *
-	 * Nothing is numbered here: the number is counted from the row order as the
-	 * table is drawn, so changing either setting changes what every cell reads
-	 * without touching a single row.
-	 */
+	/* The number is counted from the row order at draw time, so no cell is written here. */
 	private applyAutoNumberSettings(field: Field, settings: AutoNumberSettings): void {
 		if (field.type !== 'autoNumber') {
 			delete field.numberLength;
@@ -1206,10 +1174,7 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * Writes a rollup's three settings. It stores no values, so there is nothing to
-	 * clear: every cell is gathered again from the other table on each render.
-	 */
+	/* Stores no values: every cell is gathered from the other table on each render. */
 	private applyRollupSettings(field: Field, settings: RollupSettings): void {
 		if (field.type !== 'rollup') {
 			delete field.rollupSourceFieldId;
@@ -1230,7 +1195,6 @@ export class LayerView extends TextFileView {
 		field.rollupAggregate = settings.aggregate;
 	}
 
-	/** Writes a lookup's two settings. Like a rollup, it stores no values. */
 	private applyLookupSettings(field: Field, settings: LookupSettings): void {
 		if (field.type !== 'lookup') {
 			delete field.lookupSourceFieldId;
@@ -1249,11 +1213,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * Writes a formula's expression and how its result is presented. It stores no
-	 * values, so there are no cells to clear when either changes — every cell is
-	 * recomputed, and only its dressing follows the declared kind.
-	 */
 	private applyFormulaSettings(
 		field: Field,
 		formula: string,
@@ -1277,14 +1236,8 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * Writes the relation's source, keeping "this table" out of the file entirely.
-	 *
-	 * Pointing the field at a different table or column clears the cells it held:
-	 * the stored row ids no longer mean what they did, and carrying them over
-	 * would show one column's values where another was asked for. Same rule as
-	 * changing a field's type.
-	 */
+	/* Pointing at another table or column clears the cells: the stored row ids no
+	 * longer mean what they did. Same rule as changing a field's type. */
 	private applyRelationSettings(
 		doc: LayerDoc,
 		field: Field,
@@ -1323,10 +1276,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * Writes a reverse relation's source. It stores no values, so there are no
-	 * cells to clear when the source changes — only the flag it cannot carry.
-	 */
 	private applyBackSettings(
 		field: Field,
 		settings: BackSettings,
@@ -1417,7 +1366,6 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/** Inserts as many blank rows as were asked for, below the given one. */
 	private handleInsertRecordsBelow(recordId: string, count: number): void {
 		if (!this.doc || count < 1) {
 			return;
@@ -1428,7 +1376,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Copies the selected rows, each copy landing below its source. */
 	private handleDuplicateRecords(recordIds: string[]): void {
 		if (!this.doc) {
 			return;
@@ -1448,8 +1395,6 @@ export class LayerView extends TextFileView {
 		if (!view || view.type !== 'grid') {
 			return;
 		}
-		// Removed rather than stored as 'none', so a column that was never touched
-		// leaves no entry in the file.
 		const summaries = view.summaries ?? {};
 		if (kind === 'none') {
 			delete summaries[fieldId];
@@ -1496,11 +1441,7 @@ export class LayerView extends TextFileView {
 		this.markDirty();
 	}
 
-	/**
-	 * Opens the height list beside the button that asked for it.
-	 *
-	 * Only a table has rows to set a height for, so only a table is offered it.
-	 */
+	/** Only a table has rows to give a height to. */
 	private openRowHeightPanel(anchor: HTMLElement): void {
 		const doc = this.doc;
 		const view = doc ? findGridView(doc, this.activeView()?.id ?? '') : null;
@@ -1520,12 +1461,7 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * Puts every row on one height.
-	 *
-	 * This is also the undo for a dragged row: choosing a height says something
-	 * about the whole table, so the rows that were dragged away come back.
-	 */
+	/* This is also the undo for a dragged row: choosing a height speaks for the whole table. */
 	private handleRowHeightPreset(view: GridView, preset: RowHeightPreset): void {
 		setRowHeightPreset(view, preset);
 		this.markDirty();
@@ -1538,7 +1474,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Opens the colour rules beside the button that asked for them. */
 	private openColorRulesPanel(anchor: HTMLElement): void {
 		const doc = this.doc;
 		const view = doc ? findGridView(doc, this.activeView()?.id ?? '') : null;
@@ -1562,13 +1497,8 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * The wash this row wears, resolved the same way the filter resolves a row.
-	 *
-	 * Both answers have to come from the same place: a colour rule that disagreed
-	 * with the filter about what a cell says would tint rows the filter had just
-	 * hidden, or leave plain ones it kept.
-	 */
+	/* Resolved the same way the filter resolves a row: a colour rule that disagreed
+	 * would tint rows the filter had just hidden. */
 	private rowTintOf(view: GridView, record: LayerRecord): string | null {
 		const doc = this.doc;
 		if (!doc) {
@@ -1584,14 +1514,8 @@ export class LayerView extends TextFileView {
 		return color === null ? null : rowTint(color);
 	}
 
-	/**
-	 * Copies a rectangle.
-	 *
-	 * The text comes from `displayText`, not from the stored cell, because a derived
-	 * column stores nothing: copying the stored value gave an empty string where the
-	 * screen showed a total. The stored value still travels alongside it, so pasting
-	 * back into the same table keeps what the cells actually hold.
-	 */
+	/* The text comes from `displayText`: a derived column stores nothing, so copying the
+	 * stored value gives an empty string where the screen shows a total. */
 	private async handleCopy(recordIds: string[], fields: Field[]): Promise<void> {
 		const doc = this.doc;
 		if (!doc) {
@@ -1629,16 +1553,11 @@ export class LayerView extends TextFileView {
 		new Notice(t().noticeCopied);
 	}
 
-	/**
-	 * The rows and columns currently on screen, in order.
-	 */
 	private renderedOrder(): { recordIds: string[]; fields: Field[] } {
 		return this.grid?.renderedOrder() ?? {recordIds: [], fields: []};
 	}
 
-	/**
-	 * Grows the selected rectangle to fit the clipboard, as a spreadsheet does.
-	 */
+	/** Grows the target rectangle to the clipboard's shape, as a spreadsheet does. */
 	private growToFit(
 		recordIds: string[],
 		fields: Field[],
@@ -1665,9 +1584,6 @@ export class LayerView extends TextFileView {
 		return {recordIds: grownRows, fields: grownFields};
 	}
 
-	/**
-	 * Pastes the clipboard, starting at the selection's top-left corner.
-	 */
 	private async handlePaste(recordIds: string[], fields: Field[]): Promise<void> {
 		const doc = this.doc;
 		if (!doc) {
@@ -1736,7 +1652,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Empties the selected rectangle. */
 	private handleClearCells(recordIds: string[], fields: Field[]): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -1751,7 +1666,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Empties a row's cells but keeps the row itself. */
 	private handleClearRecord(recordId: string): void {
 		if (!this.doc) {
 			return;
@@ -1795,24 +1709,14 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * Creates a select option from a name typed into a cell, and hands it back so
-	 * the cell can be set to it.
-	 *
-	 * Nothing else is written here on purpose: the cell editor drives the value
-	 * through the usual `onCellCommit` path after this returns, so the option
-	 * exists before the value that names it. `markDirty` only schedules a save —
-	 * it does not re-render — and the commit that follows edits the same
-	 * in-memory document. The name arrives already trimmed and non-empty; the
-	 * dropdown only offers to create when there is something to create.
-	 */
+	/* The option has to exist before the value that names it: the cell editor commits
+	 * the value afterwards, through `onCellCommit`. */
 	private handleCreateOption(field: Field, name: string): SelectOption | null {
 		const doc = this.doc;
 		if (!doc) {
 			return null;
 		}
-		// Re-resolved by id rather than trusted: the grid was built from an
-		// earlier render, and the caller's field may be a stale copy.
+		// Re-resolved by id: the caller's field may be a stale copy from an earlier render.
 		const target = doc.fields.find((candidate) => candidate.id === field.id);
 		if (!target) {
 			return null;
@@ -1822,14 +1726,8 @@ export class LayerView extends TextFileView {
 		return option;
 	}
 
-	/**
-	 * The document a relation field reads, or null while it is not to hand.
-	 *
-	 * A field with no path links to this table; anything else goes through the
-	 * vault index, which is also what a renamed table is found by. A miss is not
-	 * an error: the index is asked to read it, and the repaint that follows a
-	 * finished read is what fills the cell in.
-	 */
+	/* A field with no path links to this table; anything else goes through the vault
+	 * index. A miss is not an error: the read is started and a repaint fills the cell. */
 	private targetDoc(field: Field, doc: LayerDoc | null): LayerDoc | null {
 		const path = field.linkPath;
 		if (!path) {
@@ -1840,15 +1738,9 @@ export class LayerView extends TextFileView {
 			return null;
 		}
 		if (resolved !== path) {
-			/*
-			 * The table was renamed or moved and found again by its filename. The
-			 * correction is kept on the field, so the next save of THIS document
-			 * writes it down — the plugin never writes a file it was not asked to
-			 * edit, and that is the only way the repair reaches the disk.
-			 *
-			 * Mutating during a paint is safe here: the value it would repaint is
-			 * unchanged, so no second render is asked for.
-			 */
+			/* Renamed or moved and found again by filename: the correction stays on the field,
+			 * so the next save of this document writes it down. The plugin never writes a file
+			 * it was not asked to edit, which is the only road the repair has to the disk. */
 			field.linkPath = resolved;
 			this.markDirty();
 		}
@@ -1859,13 +1751,8 @@ export class LayerView extends TextFileView {
 		return target;
 	}
 
-	/**
-	 * A linked table finished loading or changed: paint again, once.
-	 *
-	 * Several tables can land together, and a repaint while a cell is open would
-	 * throw the editor away, so the work is deferred and coalesced — a burst of
-	 * changes costs one render rather than one each.
-	 */
+	/* Deferred and coalesced: several tables can land together, and a repaint while a
+	 * cell is open would throw the editor away. */
 	private onTargetLoaded(): void {
 		if (this.grid?.isEditing() || this.repaintQueued) {
 			return;
@@ -1878,12 +1765,6 @@ export class LayerView extends TextFileView {
 	}
 
 
-	/**
-	 * What the toolbar should say about the current order.
-	 *
-	 * Read from the view rather than remembered here, so it cannot drift from what
-	 * the rows are actually doing.
-	 */
 	private toolbarState(view: View): ToolbarState {
 		const columns: string[] = [];
 		let descending = false;
@@ -1907,12 +1788,7 @@ export class LayerView extends TextFileView {
 		};
 	}
 
-	/**
-	 * Opens the filter rules beside the button that asked for them.
-	 *
-	 * Every change is reported as it is made, so the rows follow the rules while
-	 * they are still being written.
-	 */
+	/** Every change is applied as it is made, so the rows follow while the rules are written. */
 	private openFilterPanel(anchor: HTMLElement): void {
 		const view = this.activeView();
 		if (!view) {
@@ -1935,12 +1811,6 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * Opens the sort rules beside the button that asked for them.
-	 *
-	 * The panel reports every change, so the table follows it as the rules are
-	 * edited rather than waiting for the panel to be dismissed.
-	 */
 	private openSortPanel(anchor: HTMLElement): void {
 		const view = this.activeView();
 		if (!view) {
@@ -1963,20 +1833,8 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * The rows in the order this view asks for.
-	 *
-	 * One place answers this so the grid and the export cannot disagree: a table
-	 * sorted one way on screen and written out another would be worse than no sort.
-	 * The document itself is left alone, so the stored order survives.
-	 */
-	/**
-	 * The row names a relation cell points at, for filtering to compare against.
-	 *
-	 * Reuses the same resolution the cell itself is drawn with, so what is filtered
-	 * on cannot differ from what is on screen. An unreadable table answers with no
-	 * names, which is honest: there is nothing to compare yet.
-	 */
+	/* The resolution the cell itself is drawn with, so filtering cannot disagree with
+	 * what is on screen. An unreadable table answers with no names. */
 	private relationNames(field: Field, value: CellValue): readonly string[] {
 		const doc = this.doc;
 		if (doc === null) {
@@ -1986,8 +1844,7 @@ export class LayerView extends TextFileView {
 	}
 
 	private orderedRecords(doc: LayerDoc, view: View | null): readonly LayerRecord[] {
-		// Filtering first, then ordering: sorting rows that are about to be hidden is
-		// work nobody sees, and it keeps "the visible rows" as one idea.
+		// Filter first, then sort: no point ordering rows that are about to be hidden.
 		const visible = filterRecords(
 			doc.records,
 			doc.fields,
@@ -2000,14 +1857,8 @@ export class LayerView extends TextFileView {
 		);
 	}
 
-	/**
-	 * What a cell reads as when two rows are compared: filtering, ordering, tinting.
-	 *
-	 * A note column shows the file's name or its path, by the reader's setting, so
-	 * comparing has to follow that text — a list sorted by a path nobody sees would
-	 * disagree with the column beside it. Copying and the CSV export still carry the
-	 * path, because a copied cell has to be the value the file holds.
-	 */
+	/* A note column compares by the text it shows (name or path, per the setting), so a
+	 * sort agrees with the column. Copy and the CSV export still carry the path. */
 	private compareTextOf(field: Field, record: LayerRecord): string | null {
 		if (field.type === 'note') {
 			const value = record.cells[field.id] ?? '';
@@ -2018,95 +1869,27 @@ export class LayerView extends TextFileView {
 		return this.cellTextOf(field, record);
 	}
 
-	/**
-	 * Reads a cell the document cannot read by itself.
-	 *
-	 * A note property lives in another file; a relation stores row ids and the names
-	 * are in another table; a computed column stores nothing at all. Answering null
-	 * leaves every other type to the plain rules, so this switch is the whole of
-	 * "this column needs the view".
-	 *
-	 * `doc` is the table the cell belongs to, which is not always the open one: a
-	 * lookup reads a column of the table it points at, and that column may itself be
-	 * a formula. Taking the document as an argument is what lets one answer serve
-	 * every table — the open one and the ones it points at.
-	 */
+	/* Null leaves the type to the plain rules. `doc` is the table the cell belongs to,
+	 * which is not always the open one: a lookup reads a column of another table. */
 	private cellTextIn(
 		doc: LayerDoc,
 		field: Field,
 		record: LayerRecord,
 	): string | null {
-		/*
-		 * Two tables can point at each other, and a formula that reads a lookup into
-		 * the table pointing back would otherwise ask forever. Past a few hops the
-		 * answer falls back to the stored value, which is what a column that cannot be
-		 * read shows anyway.
-		 */
-		if (this.readDepth > 8) {
-			return null;
-		}
-		this.readDepth += 1;
-		try {
-			return this.readCellTextIn(doc, field, record);
-		} finally {
-			this.readDepth -= 1;
-		}
+		return this.reader.reading(doc, field, record)?.text ?? null;
 	}
 
-	private readCellTextIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-	): string | null {
-		switch (field.type) {
-			case 'noteProp':
-				return this.notePropValueIn(doc, field, record.id);
-			case 'autoNumber':
-				return this.autoNumberTextIn(doc, field, record.id);
-			case 'relation':
-				return this.relationTextIn(doc, field, record.cells[field.id] ?? '')
-					.text;
-			case 'relationBack':
-				return this.backTextIn(doc, field, record.id).text;
-			case 'formula':
-				return this.formulaTextIn(doc, field, record.id).text;
-			case 'rollup':
-				return this.rollupTextIn(doc, field, record.id).text;
-			case 'lookup':
-				return this.lookupTextIn(doc, field, record.id).text;
-			default:
-				// Every stored type is read by the document itself.
-				return null;
-		}
-	}
-
-	/** The same question, asked of the table that is open. */
 	private cellTextOf(field: Field, record: LayerRecord): string | null {
 		const doc = this.doc;
 		return doc === null ? null : this.cellTextIn(doc, field, record);
 	}
 
-	/**
-	 * How another table's cells read, for the columns that table cannot read itself.
-	 *
-	 * The same answer this table's cells get, asked of the table they live in. That
-	 * is what lets a relation show a formula, a lookup show a rollup and a backlink
-	 * title a numbering column — one answer, every table.
-	 */
 	private readerIn(doc: LayerDoc): CellReader {
-		return (field, record) =>
-			this.cellTextIn(doc, field, record) ??
-			formatCell(field, record.cells[field.id] ?? '');
+		return this.reader.readerIn(doc);
 	}
 
-	/**
-	 * What one cell reads as, whoever is asking.
-	 *
-	 * The grid and the CSV export both come through here, so what is written to a
-	 * file cannot disagree with what the screen showed. One question, asked of one
-	 * switch: `cellTextOf` answers the types that need the view, and everything
-	 * else reads its own stored value.
-	 */
+	/* The grid and the CSV export both come through here, so a file cannot disagree with
+	 * the screen. `cellTextOf` answers the types that need the view. */
 	private displayText(field: Field, record: LayerRecord): string {
 		const read = this.cellTextOf(field, record);
 		if (read !== null) {
@@ -2115,12 +1898,8 @@ export class LayerView extends TextFileView {
 		return formatCell(field, record.cells[field.id] ?? emptyValueFor(field));
 	}
 
-	/**
-	 * Stores where a note property reads from.
-	 *
-	 * Both parts are removed when the type is anything else, so a column that stopped
-	 * being a note property does not keep pointing into someone's frontmatter.
-	 */
+	/* Both parts are dropped for any other type, so a column that stopped being a note
+	 * property does not keep pointing into frontmatter. */
 	private applyNotePropSettings(
 		field: Field,
 		settings: { sourceFieldId: string; key: string },
@@ -2143,8 +1922,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/** The cell reading of a note property, in the shape the grid asks for. */
-	/** The same answer for the table that is open. */
 	private notePropValue(field: Field, recordId: string): string {
 		const doc = this.doc;
 		return doc === null ? '' : this.notePropValueIn(doc, field, recordId);
@@ -2154,45 +1931,26 @@ export class LayerView extends TextFileView {
 		return { text: this.notePropValue(field, recordId), broken: 0 };
 	}
 
-	/**
-	 * The value a note property row reads.
-	 *
-	 * It is not in this document: it lives in the frontmatter of the note the row's note
-	 * column names. A row with no note, a note that is not there, or a note without that
-	 * key all read as nothing, which is what an empty cell already means.
-	 */
+	/* Not in this document: it lives in the frontmatter of the note the row's note column
+	 * names. */
 	private notePropValueIn(
 		doc: LayerDoc,
 		field: Field,
 		recordId: string,
 	): string {
-		const record = findRecord(doc, recordId);
-		if (!record) {
-			return '';
-		}
-		const source = doc.fields.find((candidate) => candidate.id === field.noteFieldId);
-		if (!source || source.type !== 'note') {
-			return '';
-		}
-		const path = record.cells[source.id];
-		if (typeof path !== 'string' || path === '') {
-			return '';
-		}
+		return this.reader.notePropReading(doc, field, recordId).text;
+	}
+
+	private notePropertyValue(path: string, key: string): string | null {
 		const file = this.resolveNote(path);
 		if (!file) {
 			return '';
 		}
-		const key = field.frontmatterKey ?? field.name;
 		return frontmatterText(this.app.metadataCache.getFileCache(file)?.frontmatter?.[key]);
 	}
 
-	/**
-	 * Writes a value into the note a row names, making the note when it is missing.
-	 *
-	 * Deliberately outside the undo steps: those hold a copy of this document, and the
-	 * value being changed lives in another file. An undo would restore the table and
-	 * leave the note as it now is.
-	 */
+	/* Deliberately outside the undo steps: those hold a copy of this document, while the
+	 * value being changed lives in another file. */
 	private writeNoteProp(field: Field, recordId: string, value: CellValue): void {
 		const doc = this.doc;
 		const record = doc ? findRecord(doc, recordId) : undefined;
@@ -2231,59 +1989,12 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * What a formula row computes to.
-	 *
-	 * The columns are re-read from the open document rather than trusted from the
-	 * cell that asked: the grid was built from an earlier render, and a formula
-	 * must read the values as they are now.
-	 */
+	/* Re-read from the open document rather than trusted from the cell that asked: the
+	 * grid was built from an earlier render. */
 	private formulaTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!record || !target) {
-			return {text: '', broken: 0};
-		}
-		/*
-		 * A column with no expression yet is not an error, it is a column waiting to
-		 * be set up, so it reads as empty rather than reporting a failure in every
-		 * row of a field that was just created.
-		 */
-		if ((target.formula ?? '').trim() === '') {
-			return {text: '', broken: 0};
-		}
-		const result = computeFormulaWithReader(doc, record, target, (other) =>
-			this.formulaCellValueIn(doc, other, record, recordId),
-		);
-		if (result.ok) {
-			/*
-			 * The text is always what was computed; only the dressing follows the
-			 * column's declared kind. Coercing here would quietly change a result
-			 * the reader can see, which is worse than presenting it plainly.
-			 */
-			return {
-				text: result.text,
-				broken: 0,
-				kind: target.formulaType ?? result.kind,
-				ticked: result.truthy,
-			};
-		}
-		/*
-		 * A broken formula says so in the cell, and is marked so it reads as a
-		 * problem rather than as a value that happens to start with `#`.
-		 *
-		 * The cell names the KIND of mistake — a raw code like `trailing-text` tells
-		 * a reader nothing — and the sentence explaining it travels as the hover and
-		 * the accessible name.
-		 */
-		return {
-			text: formulaErrorShort(result.error),
-			broken: 1,
-			hint: formulaErrorMessage(result.error),
-		};
+		return this.reader.formulaReading(doc, field, recordId);
 	}
 
-	/** The same answer for the table that is open. */
 	private formulaText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		return doc === null
@@ -2291,78 +2002,14 @@ export class LayerView extends TextFileView {
 			: this.formulaTextIn(doc, field, recordId);
 	}
 
-	/**
-	 * What one column hands a formula.
-	 *
-	 * Asked only for the columns the document cannot read on its own: a relation
-	 * keeps row ids where the grid shows names, and a lookup, rollup, reverse
-	 * relation, note property or numbering keeps nothing at all. Every other type
-	 * answers `undefined` and is read from its stored cell — which matters, because
-	 * a number column must arrive as a number or `+` would join it as text instead
-	 * of adding it.
-	 *
-	 * A rollup's total goes back to being a number for that same reason: on screen
-	 * it is dressed text, but a formula that adds to it means arithmetic.
-	 *
-	 * A numbering cell answers with the padded text the cell shows, not with the
-	 * bare number: what a reader builds from it is an identifier — `{Module}-{No}`
-	 * has to read `MOD-01`, not `MOD-1` — and `{No} * 1` is there for the rare
-	 * formula that means arithmetic.
-	 */
-	private formulaCellValueIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-		recordId: string,
-	): FormulaValue | undefined {
-		switch (field.type) {
-			case 'relation':
-				return this.relationTextIn(doc, field, record.cells[field.id] ?? '')
-					.text;
-			case 'relationBack':
-				return this.backTextIn(doc, field, recordId).text;
-			case 'lookup':
-				return this.lookupTextIn(doc, field, recordId).text;
-			case 'autoNumber':
-				return this.autoNumberTextIn(doc, field, recordId);
-			case 'rollup': {
-				const answer = this.rollupAnswerIn(doc, field, record, recordId);
-				if (answer === null) {
-					return '';
-				}
-				return answer.kind === 'number' ? Number(answer.text) : answer.text;
-			}
-			case 'noteProp':
-				return this.notePropValueIn(doc, field, recordId);
-			default:
-				return undefined;
-		}
-	}
-
-	/**
-	 * What a numbering cell reads: its position within its group, padded.
-	 *
-	 * Counted for the whole column at once and kept for this render pass, because
-	 * the count walks every row of the group — asking that per cell would make the
-	 * table cost its own square.
-	 */
 	private autoNumberTextIn(
 		doc: LayerDoc,
 		field: Field,
 		recordId: string,
 	): string {
-		let texts = this.numbers.get(field.id);
-		if (!texts) {
-			// The live column, not the copy the paint was handed, so a setting
-			// changed since the tree was built cannot be counted with.
-			const target = doc.fields.find((other) => other.id === field.id) ?? field;
-			texts = numberTexts(doc, target);
-			this.numbers.set(field.id, texts);
-		}
-		return texts.get(recordId) ?? '';
+		return this.reader.autoNumberReading(doc, field, recordId).text;
 	}
 
-	/** The same answer for the table that is open. */
 	private autoNumberText(field: Field, recordId: string): string {
 		const doc = this.doc;
 		return doc === null ? '' : this.autoNumberTextIn(doc, field, recordId);
@@ -2373,62 +2020,10 @@ export class LayerView extends TextFileView {
 		return {text: this.autoNumberText(field, recordId), broken: 0, kind: 'number'};
 	}
 
-	/**
-	 * What a rollup gathered from the rows this row is linked to.
-	 */
 	private rollupTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		if (!record) {
-			return {text: '', broken: 0};
-		}
-		const answer = this.rollupAnswerIn(doc, field, record, recordId);
-		if (answer === null) {
-			return {text: '', broken: 0};
-		}
-		return {text: answer.text, broken: 0, kind: answer.kind};
+		return this.reader.rollupReading(doc, field, recordId);
 	}
 
-	/**
-	 * The total a rollup reached, before it is dressed for the cell.
-	 *
-	 * Null covers both "this column is not set up" and "the other table cannot be
-	 * read": either way the column has nothing to show, and neither is an error.
-	 */
-	private rollupAnswerIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-		recordId: string,
-	): RollupValue | null {
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!target) {
-			return null;
-		}
-		const sourceField = doc.fields.find(
-			(candidate) => candidate.id === target.rollupSourceFieldId,
-		);
-		// Not configured yet, or pointing at a column that is gone: a column waiting
-		// to be set up reads as empty, not as a failure in every row.
-		if (!sourceField || !target.rollupFieldId) {
-			return null;
-		}
-		const gathered = this.gatheredValuesIn(
-			doc,
-			sourceField,
-			target.rollupFieldId,
-			record,
-			recordId,
-		);
-		if (gathered === null) {
-			return null;
-		}
-		return aggregateRollup(
-			gathered.map((entry) => entry.text ?? entry.value),
-			target.rollupAggregate ?? 'sum',
-		);
-	}
-
-	/** The same answer for the table that is open. */
 	private rollupText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		return doc === null
@@ -2436,141 +2031,17 @@ export class LayerView extends TextFileView {
 			: this.rollupTextIn(doc, field, recordId);
 	}
 
-	/**
-	 * What a lookup read from the rows this row is linked to.
-	 *
-	 * One chip per value, in the order the link lists the rows. Values that repeat
-	 * stay repeated: dropping one would silently forget that a linked row exists.
-	 * Nothing about it is stored, so it cannot go stale when the other table moves.
-	 */
+	/* One chip per value; repeats stay repeated, since dropping one would forget a linked
+	 * row. Nothing is stored, so it cannot go stale. */
 	private lookupTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const record = findRecord(doc, recordId);
-		const target = doc.fields.find((candidate) => candidate.id === field.id);
-		if (!record || !target) {
-			return {text: '', broken: 0};
-		}
-		const sourceField = doc.fields.find(
-			(candidate) => candidate.id === target.lookupSourceFieldId,
-		);
-		const columnId = target.lookupFieldId ?? '';
-		// Not set up yet, or pointing at a column that is gone: an unconfigured
-		// column reads as empty, not as a failure in every row.
-		if (!sourceField || columnId === '') {
-			return {text: '', broken: 0};
-		}
-		const other =
-			sourceField.type === 'relation'
-				? this.targetDoc(sourceField, doc)
-				: this.sourceDoc(sourceField, doc);
-		const gathered = this.gatheredValuesIn(
-			doc,
-			sourceField,
-			columnId,
-			record,
-			recordId,
-		);
-		if (!other || gathered === null) {
-			return {text: '', broken: 0};
-		}
-		/*
-		 * Read through the formatter of the column the values came from, not
-		 * through a link reader: a gathered value is the value itself, while a
-		 * link reader expects a cell holding a list of row ids and answers
-		 * with nothing for anything else.
-		 */
-		const column = other.fields.find(
-			(candidate) => candidate.id === columnId,
-		);
-		if (!column) {
-			return {text: '', broken: 0};
-		}
-		const chips = lookupChips(
-			column,
-			gathered.map((entry) => entry.value),
-			(linked, value) =>
-				this.relationTextIn(other, linked, value).chips ?? [],
-			gathered.map((entry) => entry.text),
-		);
-		return {text: chips.join(', '), broken: 0, chips};
+		return this.reader.lookupReading(doc, field, recordId);
 	}
 
-	/** The same answer for the table that is open. */
 	private lookupText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		return doc === null
 			? {text: '', broken: 0}
 			: this.lookupTextIn(doc, field, recordId);
-	}
-
-	/**
-	 * The values a rollup reduces, or null when the other table cannot be read.
-	 *
-	 * Null is not the same as an empty list: an empty list means the other table was
-	 * read and had nothing to contribute, which a count answers as zero.
-	 */
-	private gatheredValuesIn(
-		doc: LayerDoc,
-		sourceField: Field,
-		columnId: string,
-		record: LayerRecord,
-		recordId: string,
-	): readonly {value: CellValue; text: string | null}[] | null {
-		if (sourceField.type === 'relation') {
-			const other = this.targetDoc(sourceField, doc);
-			if (!other) {
-				return null;
-			}
-			return relationIds(record.cells[sourceField.id] ?? '').map((id) =>
-				this.gatheredIn(other, columnId, findRecord(other, id)),
-			);
-		}
-
-		if (sourceField.type === 'relationBack') {
-			const other = this.sourceDoc(sourceField, doc);
-			if (!other) {
-				return null;
-			}
-			const key = `${sourceField.id}\u0000${sourceField.backFieldId ?? ''}`;
-			let rows = this.backRows.get(key);
-			if (rows === undefined) {
-				rows = relationBackRows(other, sourceField.backFieldId ?? '');
-				this.backRows.set(key, rows);
-			}
-			if (rows === null) {
-				return null;
-			}
-			return (rows.get(recordId) ?? []).map((row) =>
-				this.gatheredIn(other, columnId, row.record),
-			);
-		}
-
-		// A source column that is neither kind is a configuration this column cannot
-		// answer, so it reads as empty rather than guessing at a direction.
-		return null;
-	}
-
-	/**
-	 * One gathered value, plus the text to use when that column computes it.
-	 *
-	 * `text` is null for every column that stores what it shows, so the caller reads
-	 * the stored value — a number column has to stay a number or a total stops being
-	 * arithmetic. A computed column has nothing stored, so what its cell reads as is
-	 * all there is; without this, a lookup or rollup over a formula gathered blanks.
-	 */
-	private gatheredIn(
-		doc: LayerDoc,
-		columnId: string,
-		record: LayerRecord | undefined,
-	): {value: CellValue; text: string | null} {
-		if (!record) {
-			return {value: '', text: null};
-		}
-		const stored = record.cells[columnId] ?? '';
-		const column = doc.fields.find((candidate) => candidate.id === columnId);
-		if (!column || !readsFromView(column.type)) {
-			return {value: stored, text: null};
-		}
-		return {value: stored, text: this.cellTextIn(doc, column, record) ?? ''};
 	}
 
 	private relationCandidates(field: Field): readonly RelationCandidate[] {
@@ -2587,24 +2058,9 @@ export class LayerView extends TextFileView {
 		field: Field,
 		value: CellValue,
 	): CellText {
-		const target = this.targetDoc(field, doc);
-		if (!target) {
-			return {text: '', broken: relationIds(value).length};
-		}
-		const resolved = textOf(
-			target,
-			field.linkFieldId ?? '',
-			value,
-			this.readerIn(target),
-		);
-		return {
-			text: resolved.texts.join(', '),
-			broken: resolved.broken,
-			chips: resolved.texts,
-		};
+		return this.reader.relationReading(doc, field, value);
 	}
 
-	/** The same answer for the table that is open. */
 	private relationText(field: Field, value: CellValue): CellText {
 		const doc = this.doc;
 		return doc === null
@@ -2612,54 +2068,17 @@ export class LayerView extends TextFileView {
 			: this.relationTextIn(doc, field, value);
 	}
 
-	/** What a reverse relation row shows: the rows elsewhere that point at it. */
 	private backTextIn(doc: LayerDoc, field: Field, recordId: string): CellText {
-		const source = this.sourceDoc(field, doc);
-		if (source === null) {
-			return {text: '', broken: 1};
-		}
-		/*
-		 * Built once per column per render, not once per cell: asking per cell
-		 * would scan the whole source table for every row of this one.
-		 */
-		const titleFieldId = field.backTitleFieldId ?? '';
-		const key = `${field.backPath ?? ''}\u0000${field.backFieldId ?? ''}\u0000${titleFieldId}`;
-		let index = this.backIndexes.get(key);
-		if (index === undefined) {
-			index = relationBackIndex(
-				source,
-				field.backFieldId ?? '',
-				titleFieldId,
-				this.readerIn(source),
-			);
-			this.backIndexes.set(key, index);
-		}
-		if (index === null) {
-			return {text: '', broken: 1};
-		}
-		const texts = index.get(recordId) ?? [];
-		return {
-			text: texts.join(', '),
-			broken: 0,
-			chips: texts,
-		};
+		return this.reader.backReading(doc, field, recordId);
 	}
 
-	/** The same answer for the table that is open. */
 	private backText(field: Field, recordId: string): CellText {
 		const doc = this.doc;
 		return doc === null ? {text: '', broken: 1} : this.backTextIn(doc, field, recordId);
 	}
 
-	/**
-	 * The table a reverse relation reads: the one whose rows point back here.
-	 *
-	 * `doc` is the table the column asking is in, used when the column names no table
-	 * of its own — a reverse relation inside one table.
-	 *
-	 * Resolved the same way a forward link is, including the filename fallback,
-	 * and repaired the same way when it turns out to have moved.
-	 */
+	/* The table whose rows point back here. `doc` is used when the column names no table
+	 * of its own; resolved and repaired the same way a forward link is. */
 	private sourceDoc(field: Field, doc: LayerDoc | null): LayerDoc | null {
 		const path = field.backPath;
 		if (!path) {
@@ -2680,13 +2099,8 @@ export class LayerView extends TextFileView {
 		return source;
 	}
 
-	/**
-	 * Moves a card to another column, by writing the value that column stands for.
-	 *
-	 * The write goes through the same `setCellValue` an edit does, so a value the
-	 * column refuses is refused here too — which is what keeps a card from landing
-	 * in a column it cannot actually belong to.
-	 */
+	/* Through `setCellValue`, like any edit, so a value the column refuses keeps a card
+	 * out of a column it cannot belong to. */
 	private handleBoardMove(
 		view: View,
 		recordId: string,
@@ -2699,14 +2113,11 @@ export class LayerView extends TextFileView {
 		const field = doc.fields.find(
 			(candidate) => candidate.id === view.groupByFieldId,
 		);
-		/*
-		 * The ungrouped column has no value, and that is what it writes: a drop there
-		 * clears the cell. It is not refused for lacking a value, since lacking one
-		 * is the whole point of it.
-		 */
 		if (!field || !column.droppable) {
 			return;
 		}
+		/* The ungrouped column has no value and that is what it writes: a drop there clears
+		 * the cell rather than being refused. */
 		const value = valueForColumn(field, column);
 		this.beginEdit('cell');
 		if (!setCellValue(doc, recordId, field, value)) {
@@ -2717,20 +2128,8 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * Opens the panel that chooses this board's columns.
-	 *
-	 * Reported on save rather than on every keystroke: the choice changes the whole
-	 * board, and applying it as each box is ticked would redraw under the reader's
-	 * cursor.
-	 */
-	/**
-	 * Opens the panel for whatever this view's columns mean.
-	 *
-	 * A table hides and shows columns; a board chooses the grouping column, the card's
-	 * title and what a card carries. One button, because both answer the same question
-	 * — what does this view show.
-	 */
+	/* One button for both: a table hides and shows columns, a board chooses its grouping
+	 * column, the card title and what a card carries. */
 	private openViewFields(anchor: HTMLElement): void {
 		const view = this.activeView();
 		if (!view) {
@@ -2755,12 +2154,8 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * Hides or shows a column, rejecting the last visible one.
-	 *
-	 * The rule lives in the model, so the panel and any other caller agree on what a
-	 * table may be reduced to.
-	 */
+	/* `setHidden` owns the rule, so the panel and any other caller agree on what a table
+	 * may hide. */
 	private handleToggleColumn(
 		view: View,
 		fieldId: string,
@@ -2776,8 +2171,7 @@ export class LayerView extends TextFileView {
 		}
 		const outcome = setHidden(view, field, doc.fields, hidden);
 		if (outcome !== 'changed') {
-			// Only a refusal is worth telling the reader about: a column already in
-			// the state asked for changed nothing, and it was not turned down.
+			// Only a refusal is worth a notice; a column already in that state changed nothing.
 			if (outcome === 'refused') {
 				new Notice(t().viewFieldsLastColumn);
 			}
@@ -2812,12 +2206,7 @@ export class LayerView extends TextFileView {
 		}).open();
 	}
 
-	/**
-	 * Adds a board view and switches to it.
-	 *
-	 * The table is left as it is: a board is another way of looking at the same
-	 * rows, so adding one changes nothing about the data.
-	 */
+	/* The table is left as it is: a board is another way of looking at the same rows. */
 	private handleAddBoardView(): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -2833,7 +2222,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Renames a view, which is only ever a change to the tab. */
 	private handleRenameView(viewId: string, name: string): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -2846,13 +2234,8 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * Removes a view and picks another to show.
-	 *
-	 * The view being removed may be the active one, so a neighbour is chosen before
-	 * the redraw: otherwise the table would fall back to the first view and lose
-	 * the reader's place.
-	 */
+	/* A neighbour is picked before the redraw: the removed view may be the active one,
+	 * and the fallback would lose the reader's place. */
 	private handleDeleteView(viewId: string): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -2863,8 +2246,7 @@ export class LayerView extends TextFileView {
 			return;
 		}
 		const target = doc.views[index];
-		// Said out loud rather than failing quietly: the menu greys the item out, but
-		// a keyboard or a stale menu can still reach this.
+		// The menu greys the item out, but a keyboard or a stale menu can still reach this.
 		if (target && !canRemoveView(target)) {
 			new Notice(t().noticeTableViewKept);
 			return;
@@ -2881,7 +2263,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Switches which column this board groups by. */
 	private handleGroupField(view: View, fieldId: string): void {
 		if (view.type !== 'kanban') {
 			return;
@@ -2891,13 +2272,10 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Stores whether this board draws columns no row uses yet. */
 	private handleShowEmptyColumns(view: View, show: boolean): void {
 		if (view.type !== 'kanban') {
 			return;
 		}
-		// Removed rather than set to false, so a board that was never changed keeps
-		// no key in the file.
 		if (show) {
 			view.showEmptyColumns = true;
 		} else {
@@ -2907,7 +2285,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/** Stores a column limit on this board, which is a property of the board. */
 	private handleColumnLimit(view: View, limit: number): void {
 		if (view.type !== 'kanban') {
 			return;
@@ -2917,13 +2294,8 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	/**
-	 * Brings a row into view.
-	 *
-	 * A card carries a title and nothing else, so editing belongs in the table. The
-	 * board switches to it rather than opening an editor over the cards: the row has
-	 * many columns, and only the table has room for them.
-	 */
+	/* Editing belongs in the table: a card shows a title and the row has many columns,
+	 * so the board switches to the grid rather than opening an editor over the cards. */
 	private revealRecord(recordId: string): void {
 		const doc = this.doc;
 		if (!doc) {
@@ -2941,9 +2313,6 @@ export class LayerView extends TextFileView {
 		}, 0);
 	}
 
-	/**
-	 * Applies an edit to the in-memory document and asks Obsidian to persist it.
-	 */
 	private handleCellCommit(
 		recordId: string,
 		field: Field,
@@ -2952,16 +2321,12 @@ export class LayerView extends TextFileView {
 		if (!this.doc) {
 			return;
 		}
-		/*
-		 * A note property is answered by another file, so an edit belongs there and not
-		 * in this document. Answered before the copy is taken: nothing here changes, so
-		 * there is no step to take back.
-		 */
+		/* A note property is answered by another file, so the edit belongs there; nothing here
+		 * changes, so there is no undo step. */
 		if (field.type === 'noteProp') {
 			this.writeNoteProp(field, recordId, value);
 			return;
 		}
-		// The copy is taken first: it has to hold the table before the edit.
 		this.beginEdit('cell');
 		if (!setCellValue(this.doc, recordId, field, value)) {
 			this.pendingEdit = null;
@@ -2975,18 +2340,10 @@ export class LayerView extends TextFileView {
 		this.refreshAfterEdit(recordId, field);
 	}
 
-	/**
-	 * Redraws whatever an edit made stale, and as little of it as it can.
-	 *
-	 * The grid repaints the one cell it edited, which is right for a value nothing
-	 * else reads. A value that is read — by the columns beside it, by a colour rule,
-	 * by the totals under it, by the filter — is another matter: those keep showing
-	 * the answer from before the edit unless they are drawn again here.
-	 *
-	 * Two paths. If an affected column takes part in the order or the filter, the
-	 * row can move or leave, and only a whole redraw can show that. Otherwise the
-	 * row stays where it is, and its cells, its wash and the totals are drawn again
-	 * in place, keeping the selection and the scroll position a redraw would drop.
+	/*
+	 * A grid repaints only the cell it edited, so anything that reads it keeps the old
+	 * answer unless redrawn here. A value that takes part in the order or the filter can
+	 * move its row, and only a whole render shows that.
 	 */
 	private refreshAfterEdit(recordId: string, field: Field): void {
 		const doc = this.doc;
@@ -3003,10 +2360,8 @@ export class LayerView extends TextFileView {
 			view.filter.conditions.some((condition) =>
 				touched.has(condition.fieldId),
 			);
-		/*
-		 * A numbering column counted within the edited one changes for every row in
-		 * both groups, not just this one, so a single row cannot be patched.
-		 */
+		/* A numbering column counted within the edited one changes for every row, so one
+		 * row cannot be patched. */
 		const renumbersOtherRows = stale.some(
 			(other) =>
 				other.type === 'autoNumber' && other.numberGroupFieldId === field.id,
@@ -3031,9 +2386,6 @@ export class LayerView extends TextFileView {
 		}
 	}
 
-	/**
-	 * The view to render for this file.
-	 */
 	private activeView(): View | null {
 		if (!this.doc || this.doc.views.length === 0) {
 			return null;
@@ -3061,48 +2413,36 @@ export function createLayerView(
 	return new LayerView(leaf, plugin);
 }
 
-/**
- * JSON with the keys in a fixed order, for comparing two values by content.
- *
- * Object key order is not meaningful but does reach the serialised text, so two
- * equal documents can stringify differently. Sorting makes the comparison answer the
- * question actually being asked — is this the same data — rather than whether two
- * writers happened to emit keys in the same order.
- */
-/**
- * Whether a key pressed in this element belongs to a text field rather than the table.
- *
- * The distinction matters for undo: in a field the browser already remembers the
- * characters typed there, and that is the history someone wants while editing. A
- * checkbox or a slider has no text to take back, so the table keeps the key there.
- */
-/** The file path a stored note value names, with the extension the vault expects. */
 function noteTarget(path: string): string {
 	return path.endsWith('.md') ? path : `${path}.md`;
 }
 
-/**
- * How a frontmatter value reads in a cell.
- *
- * Lists join with commas, scalars print as they are, and a nested object is left out:
- * a cell has room for one line, and its JSON would be noise rather than a value.
- */
-function frontmatterText(raw: unknown): string {
+/* Lists join with commas and a nested object answers null: a cell has room for one
+ * line, and saying it cannot be read beats a blank that looks like a value. */
+function frontmatterText(raw: unknown): string | null {
 	if (raw === null || raw === undefined) {
 		return '';
 	}
 	if (Array.isArray(raw)) {
-		return raw
-			.map((item) => frontmatterText(item))
-			.filter((text) => text !== '')
-			.join(', ');
+		const parts: string[] = [];
+		for (const item of raw) {
+			const text = frontmatterText(item);
+			if (text === null) {
+				return null;
+			}
+			if (text !== '') {
+				parts.push(text);
+			}
+		}
+		return parts.join(', ');
 	}
 	if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
 		return String(raw);
 	}
-	return '';
+	return null;
 }
 
+/** A checkbox or a slider has no text to take back, so the table keeps the key there. */
 function isTextEntry(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) {
 		return false;

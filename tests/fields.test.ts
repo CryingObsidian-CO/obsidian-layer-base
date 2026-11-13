@@ -127,11 +127,6 @@ describe('clipboard round trip', () => {
 });
 
 describe('what every type reads as', () => {
-	/*
-	 * `formatCell` now looks its answer up in the same table the rest of the module
-	 * uses, instead of a hand-written chain. These cases pin what each type shows,
-	 * so the two cannot drift apart again without a test failing.
-	 */
 	function field(type: FieldType, extra: Partial<Field> = {}): Field {
 		return { id: 'f', name: 'F', type, ...extra };
 	}
@@ -143,7 +138,6 @@ describe('what every type reads as', () => {
 
 	it('formats a number by its settings', () => {
 		expect(formatCell(field('number'), 42)).toBe('42');
-		// A percent field stores a proportion: half is shown as fifty percent.
 		expect(formatCell(field('number', { numberFormat: 'percent' }), 0.5)).toBe('50%');
 	});
 
@@ -168,15 +162,10 @@ describe('what every type reads as', () => {
 	});
 
 	it('leaves a numbering cell to the view, which counts the rows', () => {
-		// A numbering column stores nothing: the number is worked out from the row's
-		// position when the grid draws it, and the padding is covered by
-		// `auto-number.test.ts`.
 		expect(formatCell(field('autoNumber', { numberLength: 3 }), 7)).toBe('');
 	});
 
 	it('answers nothing for a type whose value lives elsewhere', () => {
-		// These three are computed by the view, which is the only layer that can see
-		// the other table or the row's formula.
 		for (const type of ['relationBack', 'rollup', 'formula'] as const) {
 			expect(formatCell(field(type), ''), type).toBe('');
 		}
@@ -193,16 +182,10 @@ describe('what every type reads as', () => {
 	});
 });
 describe('what copying a cell puts on the clipboard', () => {
-	/** A column of the given type, with any extra settings. */
 	function field(type: FieldType, extra: Partial<Field> = {}): Field {
 		return { id: 'f', name: 'F', type, ...extra };
 	}
 
-	/*
-	 * The defect this pins: a derived column stores nothing, so copying read an
-	 * empty cell and a total arrived as a blank. The text has to come from whoever
-	 * could compute it.
-	 */
 	it('takes the stored text for a stored column', () => {
 		expect(copyTextFor(field('number'), 42)).toBe('42');
 		expect(copyTextFor(field('text'), 'hi')).toBe('hi');
@@ -221,28 +204,18 @@ describe('what copying a cell puts on the clipboard', () => {
 		}
 	});
 
-	/*
-	 * The defect this pins: a relation stores row ids, so copying read the stored
-	 * value and put `r_3f9a, r_8c21` on the clipboard while the cell on screen
-	 * showed two names.
-	 */
 	it('copies a relation as the names it shows, not the ids it stores', () => {
 		expect(copyTextFor(field('relation'), ['r_3f9a', 'r_8c21'], 'Ann, Bob')).toBe(
 			'Ann, Bob',
 		);
-		// Nothing could read it: an id on the clipboard would be worse than nothing.
 		expect(copyTextFor(field('relation'), ['r_3f9a'])).toBe('');
 	});
 
 	it('answers nothing when a derived column has no supplied text', () => {
-		// This is the old behaviour, kept only for the case where nothing could
-		// compute the value: better an empty cell than an invented one.
 		expect(copyTextFor(field('formula'), '')).toBe('');
 	});
 
 	it('never puts a stored value in a derived cell on the clipboard', () => {
-		// A derived column stores nothing, but a hand-edited file could hold junk;
-		// what is copied must be what the grid shows, not what the file kept.
 		expect(copyTextFor(field('rollup'), 'stale junk', '350')).toBe('350');
 	});
 });

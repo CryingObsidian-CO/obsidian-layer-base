@@ -13,18 +13,12 @@ export interface ColorRulesOptions {
 	app: AnchoredPopover['app'];
 	anchor: Anchor | null;
 	view: GridView;
-	/** The columns a rule may name, in the order the table shows them. */
 	fields: readonly Field[];
 	/** Reported on every change, so the table follows the panel as it is edited. */
 	onChange: (rules: ColorRule[]) => void;
 }
 
-/**
- * The colours this view's rows wear, and what makes them wear it.
- *
- * A rule is a filter condition plus a colour, so a row can be read before its
- * column is: the reading is "when this column says this, the row is blue".
- */
+/** A rule is a filter condition plus a colour, so a row reads before its column does. */
 export class ColorRulesPopover extends AnchoredPopover {
 	private rules: ColorRule[];
 
@@ -103,11 +97,8 @@ export class ColorRulesPopover extends AnchoredPopover {
 			const dot = swatches.createEl('button', { cls: 'layer-color-swatch' });
 			dot.toggleClass('is-active', name === rule.color);
 			dot.setAttribute('aria-label', name);
-			/*
-			 * The colour goes on a child, not on the button: this app gives every
-			 * button a background of its own, and a dot painted on the button would
-			 * be overruled by it and come out the colour of the panel.
-			 */
+			// The colour goes on a child: this app gives every button its own background,
+			// which would paint over a dot on the button itself.
 			dot.createSpan({
 				cls: 'layer-color-swatch-fill',
 			}).style.backgroundColor = optionColorHex(name);
@@ -125,8 +116,7 @@ export class ColorRulesPopover extends AnchoredPopover {
 		if (!first) {
 			return;
 		}
-		// Repeats are allowed for the same reason as in the filter panel: they are
-		// harmless, and refusing them makes the button look broken.
+		// Repeats are harmless, as in the filter panel, and refusing them makes the button look broken.
 		this.rules = [
 			...this.rules,
 			{

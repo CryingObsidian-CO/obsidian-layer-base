@@ -33,10 +33,6 @@ const rows = [
 
 describe('nothing is summarised unless asked', () => {
 	it('reports nothing by default', () => {
-		/*
-		 * A table that added up every numeric column by itself would put figures under
-		 * columns nobody asked to have counted.
-		 */
 		expect(summarize(number, rows, 'none')).toBe('');
 	});
 });
@@ -85,10 +81,6 @@ describe('counting the rows', () => {
 	});
 
 	it('counts the values that appear exactly once', () => {
-		/*
-		 * `A, A, B` holds two distinct values but only one unique one. The count is of
-		 * values that occur once, not of values that differ from each other.
-		 */
 		const repeated = [
 			row('a', { f_text: 'A' }),
 			row('b', { f_text: 'A' }),
@@ -117,7 +109,6 @@ describe('counting the rows', () => {
 	});
 
 	it('counts a computed column by its stored cells', () => {
-		// Its values are worked out elsewhere, so only the counts are answerable.
 		expect(summarize(formula, rows, 'filled')).toBe('0');
 	});
 });
@@ -131,8 +122,6 @@ describe('adding up', () => {
 	});
 
 	it('writes the figure in the column format', () => {
-		// Written with the column's own per cent sign, since that is how its cells read.
-		// The cells hold proportions: 0.1 is ten percent.
 		const percentages = [
 			row('a', { f_pct: 0.1 }),
 			row('b', { f_pct: 0.2 }),
@@ -149,10 +138,6 @@ describe('adding up', () => {
 		];
 		const shown = (record: LayerRecord) => formatCell(percent, record.cells.f_pct ?? '');
 
-		/*
-		 * The grid always supplies this reader, and a per cent cell reads "10%".
-		 * Reading that as a number found nothing, so every per cent total was blank.
-		 */
 		expect(summarize(percent, percentages, 'sum', shown)).toBe('60%');
 		expect(summarize(percent, percentages, 'average', shown)).toBe('20%');
 		expect(summarize(percent, percentages, 'min', shown)).toBe('10%');
@@ -167,15 +152,10 @@ describe('adding up', () => {
 			['b', '02'],
 		]);
 
-		/*
-		 * The numbers come from the view, and there is no cell formatter to write the
-		 * total with — the footer was blank however many rows the column numbered.
-		 */
 		expect(summarize(serial, rows, 'sum', (record) => texts.get(record.id) ?? '')).toBe('3');
 	});
 
 	it('answers nothing when there is nothing to add', () => {
-		// A sum of no rows is not zero: there is no total to report.
 		expect(summarize(number, [row('a', {})], 'sum')).toBe('');
 	});
 });
@@ -205,7 +185,6 @@ describe('the date span', () => {
 
 describe('the figures follow the rows given', () => {
 	it('sums only the rows handed over, which is what a filter leaves', () => {
-		// The footer totals what is on screen rather than everything stored.
 		const shown = [rows[0] as LayerRecord, rows[1] as LayerRecord];
 		expect(summarize(number, shown, 'sum')).toBe('30');
 	});

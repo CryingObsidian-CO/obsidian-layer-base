@@ -35,12 +35,8 @@ export class ConfirmModal extends Modal {
 		});
 		confirm.addEventListener('click', () => this.run());
 
-		/*
-		 * Enter answers the button that has the focus, and answers it once. It is
-		 * taken here rather than left to the browser because the key would otherwise
-		 * confirm from wherever the focus happened to be: a reader who tabbed to
-		 * Cancel and pressed Enter meant to cancel, and got the destructive action.
-		 */
+		// Taken here so Enter answers the focused button: left to the browser it would
+		// confirm from wherever the focus happened to be, Cancel included.
 		this.scope.register([], 'Enter', (event) => {
 			event.preventDefault();
 			if (event.target === cancel) {
@@ -50,12 +46,11 @@ export class ConfirmModal extends Modal {
 			this.run();
 		});
 
-		// The cancel button takes the focus, so an Enter typed before reading the
-		// dialog dismisses it instead of running the action it warns about.
+		// Cancel takes the focus, so an Enter typed before reading dismisses the dialog
+		// instead of running the action it warns about.
 		cancel.focus();
 	}
 
-	/** Runs the action, once, whichever button or key asked for it. */
 	private run(): void {
 		this.close();
 		this.config.onConfirm();

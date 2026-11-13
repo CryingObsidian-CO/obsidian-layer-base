@@ -9,15 +9,8 @@ import {
 } from '../src/model/relation';
 import type { Field, LayerDoc, LayerRecord } from '../src/types';
 
-/*
- * The defect these pin: a relation showed nothing when the column it displays is
- * computed, and so did a lookup and a backlink title. The document reads a stored
- * cell and a computed column stores nothing at all, so the answer has to come from
- * whoever can see that table — the same answer this table's own cells get, asked
- * of the table they belong to.
- */
+// A computed column stores nothing, so a relation showing one asks the view for the text.
 
-/** A table whose second column is computed from the first. */
 function targetTable(): LayerDoc {
 	const doc = createEmptyDoc('Target');
 	doc.fields = [
@@ -31,7 +24,6 @@ function targetTable(): LayerDoc {
 	return doc;
 }
 
-/** What the view does for a column its document cannot read on its own. */
 function readerFor(doc: LayerDoc) {
 	return (field: Field, record: LayerRecord): string => {
 		if (field.type === 'formula') {

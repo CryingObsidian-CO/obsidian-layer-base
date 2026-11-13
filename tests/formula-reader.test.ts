@@ -5,7 +5,6 @@ import { numberTexts } from '../src/model/numbering';
 import { addRecord } from '../src/model/records';
 import type { Field, LayerDoc, LayerRecord } from '../src/types';
 
-/** A one-row board with the given columns, so a formula has something to read. */
 function board(fields: Field[]): { doc: LayerDoc; recordId: string } {
 	const doc = createEmptyDoc('Board');
 	doc.fields = fields;

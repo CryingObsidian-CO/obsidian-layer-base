@@ -22,13 +22,7 @@ export interface RowHeightOptions {
 /** The heights in the order they are offered, shortest first. */
 const ORDER: readonly RowHeightPreset[] = ['compact', 'standard', 'comfortable'];
 
-/**
- * How tall the rows are, and whether a cell may run onto more lines.
- *
- * Two controls rather than one list of five, because they answer different
- * questions: the height is chosen for the whole table, while wrapping changes
- * what fits inside it.
- */
+/** Height is chosen for the whole table; wrapping changes what fits inside it. */
 export class RowHeightPopover extends AnchoredPopover {
 	constructor(private readonly config: RowHeightOptions) {
 		super(config.app, config.anchor, PANEL_WIDTH);
@@ -66,8 +60,7 @@ export class RowHeightPopover extends AnchoredPopover {
 			item.addEventListener('click', (event) => {
 				event.preventDefault();
 				this.config.onChoose(preset);
-				// Draw again so the tick moves with the choice, and so the height
-				// list agrees after the rows it undid were redrawn.
+				// Redraw so the tick moves and the list agrees after the undone rows are redrawn.
 				this.render();
 			});
 		}

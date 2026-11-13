@@ -1,22 +1,12 @@
 import type { Field, SelectOption } from '../types';
 import { generateId } from '../utils/id';
 
-/** A colour an option can wear: the name stored in the file, and its hex. */
 interface PaletteColor {
 	readonly name: string;
 	readonly hex: string;
 }
 
-/*
- * The single table behind every colour decision in this module: the name written
- * into `SelectOption.color`, the theme variable that name resolves to, and the
- * canonical hex for places that need a literal value (a native colour input,
- * for instance). Keeping the three side by side is what stops the name -> var
- * and name -> hex mappings from drifting apart.
- *
- * The names are Obsidian's own accent names, so pills follow the active theme
- * rather than pinning hues of their own.
- */
+/* Obsidian's accent names, so pills follow the theme; hex is for literal-colour inputs. */
 const OPTION_COLORS: readonly PaletteColor[] = [
 	{ name: 'blue', hex: '#086ddd' },
 	{ name: 'green', hex: '#08b94e' },
@@ -28,7 +18,6 @@ const OPTION_COLORS: readonly PaletteColor[] = [
 	{ name: 'pink', hex: '#d53984' },
 ];
 
-/** The names a new option cycles through, in the order they are handed out. */
 export const OPTION_PALETTE: readonly string[] = OPTION_COLORS.map(
 	(color) => color.name,
 );
@@ -45,7 +34,6 @@ function isUnset(value: string): boolean {
 	return value === '' || value.toLowerCase() === 'default';
 }
 
-/** The palette entry for a name, ignoring case. */
 function paletteColor(value: string): PaletteColor | undefined {
 	const name = value.toLowerCase();
 	return OPTION_COLORS.find((entry) => entry.name === name);
@@ -58,11 +46,7 @@ function themeColor(value: string): PaletteColor | undefined {
 	return name ? paletteColor(name) : undefined;
 }
 
-/**
- * The CSS colour for an option, or `null` when it has none we can resolve.
- * Palette names become theme variables; `var(...)` references and hex literals
- * are handed back as written, so a value set by hand keeps working.
- */
+/** Palette names become theme variables; hand-written `var()` and hex values pass through unchanged. */
 export function optionCssColor(color: string | undefined): string | null {
 	const value = color?.trim() ?? '';
 	if (isUnset(value)) {
@@ -78,11 +62,7 @@ export function optionCssColor(color: string | undefined): string | null {
 	return null;
 }
 
-/**
- * The canonical hex for an option, for places that need a literal colour rather
- * than a variable. Anything unresolvable becomes grey, so a bad value still
- * leaves a visible pill instead of throwing or painting nothing.
- */
+/** A literal hex; anything unresolvable becomes grey so a bad value still paints a visible pill. */
 export function optionColorHex(color: string | undefined): string {
 	const value = color?.trim() ?? '';
 	const palette = paletteColor(value) ?? themeColor(value);
@@ -104,7 +84,6 @@ export function optionColorHex(color: string | undefined): string {
 	return FALLBACK_HEX;
 }
 
-/** The colour to give the next option: the palette, stepped by how many exist. */
 export function nextOptionColor(
 	options: readonly SelectOption[] | undefined,
 ): string {
@@ -112,7 +91,6 @@ export function nextOptionColor(
 	return OPTION_PALETTE[used % OPTION_PALETTE.length] ?? 'blue';
 }
 
-/** Where each option sits in the field's order, by id, first mention winning. */
 export function optionRanks(
 	options: readonly SelectOption[] | undefined,
 ): Map<string, number> {
@@ -126,12 +104,8 @@ export function optionRanks(
 }
 
 /**
- * The list with one option moved, or null when nothing would move.
- *
- * `to` is the index the option ends up at, counted in the finished list, so a
- * caller that has worked out "put this one third" passes 2. Ids are untouched:
- * this is the one option edit that cannot orphan a cell, unlike a rename or a
- * removal, because a cell stores an id and not a position.
+ * `to` is the index in the finished list, so "put this one third" passes 2. Ids are untouched,
+ * so unlike a rename or a removal this edit cannot orphan a cell.
  */
 export function reorderOption(
 	options: readonly SelectOption[],
@@ -155,7 +129,6 @@ export function reorderOption(
 	return next;
 }
 
-/** A field's option by name, ignoring case and surrounding spaces. */
 export function findOptionByName(
 	field: Field,
 	name: string,
@@ -169,7 +142,6 @@ export function findOptionByName(
 	);
 }
 
-/** The options matching a search query, in the order they were stored. Blank keeps them all. */
 export function filterOptions(
 	options: readonly SelectOption[] | undefined,
 	query: string,
@@ -181,12 +153,10 @@ export function filterOptions(
 		: all;
 }
 
-/** The name a typed query would create: trimmed, or `''` when there is none. */
 export function normaliseOptionName(query: string): string {
 	return query.trim();
 }
 
-/** Appends a new option, creating the list and choosing the next colour. */
 export function appendOption(field: Field, name: string): SelectOption {
 	field.options ??= [];
 	const option: SelectOption = {
@@ -199,12 +169,8 @@ export function appendOption(field: Field, name: string): SelectOption {
 }
 
 /**
- * The colour to store for an option, or null when it is not one we can draw.
- *
- * Two spellings are legitimate: a palette name, which a new option is given, and a
- * literal `#rrggbb`, which is what the colour picker writes. Anything neither the
- * palette nor the theme variable resolves would leave an unstyled pill, so it is
- * refused instead of stored.
+ * Only a palette name or a literal `#rrggbb` may be stored; anything else would draw an
+ * unstyled pill, so it is refused instead of stored.
  */
 export function normaliseOptionColor(value: string): string | null {
 	const trimmed = value.trim();
@@ -214,12 +180,7 @@ export function normaliseOptionColor(value: string): string | null {
 	return optionCssColor(trimmed) === null ? null : trimmed;
 }
 
-/**
- * Renames an option, keeping its id.
- *
- * The id is what a cell stores, so renaming through a delete-and-add would orphan
- * every row that had chosen it. Says whether the option was there.
- */
+/** Renaming keeps the id: delete-and-add would orphan every cell that had chosen it. */
 export function renameOption(field: Field, from: string, to: string): boolean {
 	const option = findOptionByName(field, from);
 	const name = normaliseOptionName(to);
@@ -230,13 +191,7 @@ export function renameOption(field: Field, from: string, to: string): boolean {
 	return true;
 }
 
-/**
- * Removes an option by name.
- *
- * Cells that had chosen it keep the stale id, exactly as they do when an option is
- * removed in the app: they read as empty, and nothing here rewrites a row nobody
- * asked about. Says whether the option was there.
- */
+/** Cells that chose it keep the stale id and read as empty, as when an option is removed in the app. */
 export function removeOption(field: Field, name: string): boolean {
 	const option = findOptionByName(field, name);
 	if (!option || !field.options) {
@@ -246,7 +201,6 @@ export function removeOption(field: Field, name: string): boolean {
 	return true;
 }
 
-/** Gives an option a colour. False when either the option or the colour is unusable. */
 export function setOptionColor(
 	field: Field,
 	name: string,

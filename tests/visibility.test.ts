@@ -58,11 +58,6 @@ describe('hiding a column in a view', () => {
 	});
 
 	it('is unchanged, not refused, when the column asked for is already hidden', () => {
-		/*
-		 * Only one column is still visible, so the old guard fired — and the caller
-		 * told the reader "the last visible column cannot be hidden" about a column
-		 * that was hidden already, which reads as a broken button.
-		 */
 		const doc = board([a, b]);
 		const view = tableView(doc);
 		setHidden(view, a, doc.fields, true);
@@ -74,10 +69,6 @@ describe('hiding a column in a view', () => {
 
 describe('the last visible column', () => {
 	it('cannot be hidden', () => {
-		/*
-		 * A table with no columns left has nothing to draw and no way back to a visible
-		 * column, so the last one stays.
-		 */
 		const doc = board([a, b]);
 		const view = tableView(doc);
 		setHidden(view, a, doc.fields, true);
@@ -98,8 +89,7 @@ describe('the last visible column', () => {
 
 describe('views of the same table', () => {
 	it('hide columns independently', () => {
-		// A view is a way of looking at the rows, so one view's hidden columns do not
-		// reach another's.
+		// Each view is its own way of looking, so hidden columns do not reach another view.
 		const doc = board([a, b, c]);
 		const first = tableView(doc);
 		const second = { ...first, id: 'v_second', hiddenFieldIds: [] };

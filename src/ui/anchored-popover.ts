@@ -3,9 +3,9 @@ import {anchorRectOf, placeAtAnchor, type Anchor} from './anchor-placement';
 
 export type {Anchor};
 
-/** A panel that opens next to what asked for it: a `Modal` with the centring taken over. */
+/** A `Modal` placed against what opened it rather than centred. */
 export abstract class AnchoredPopover extends Modal {
-	/** The anchor's rectangle, read before the trigger could disappear. */
+	/** Read in the constructor: the trigger may be gone by the time the panel opens. */
 	private readonly anchorRect: DOMRect | null;
 
 	constructor(
@@ -31,7 +31,6 @@ export abstract class AnchoredPopover extends Modal {
 		});
 	}
 
-	/** Whether a nested control should consume Escape instead of this panel. */
 	protected handlesEscape(): boolean {
 		return false;
 	}
@@ -49,7 +48,7 @@ export abstract class AnchoredPopover extends Modal {
 		this.containerEl.removeClass('layer-popover-host');
 	}
 
-	/** Places the panel; call once the contents are rendered. */
+	/** Call once the contents are rendered. */
 	protected position(): void {
 		const panel = this.modalEl;
 		if (!this.anchorRect) {
