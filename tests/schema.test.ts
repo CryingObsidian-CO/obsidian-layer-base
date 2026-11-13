@@ -100,11 +100,6 @@ describe('parseLayerDoc', () => {
 
 	describe('a date it cannot read', () => {
 		it('clears the cell, and says which one it cleared', () => {
-			/*
-			 * The cell is about to be gone and the next save writes the file without
-			 * it, so the row and the column have to be named: an empty cell with no
-			 * explanation reads as "the plugin lost my data".
-			 */
 			const raw = JSON.parse(VALID) as Record<string, unknown>;
 			(raw.fields as unknown[]).push({ id: 'f_due', name: '截止', type: 'date' });
 			(raw.fields as unknown[]).push({ id: 'f_at', name: '开始', type: 'datetime' });
@@ -118,10 +113,6 @@ describe('parseLayerDoc', () => {
 
 			expect(doc.records[0]?.cells.f_due).toBeUndefined();
 			expect(doc.records[0]?.cells.f_at).toBeUndefined();
-			/*
-			 * Reported apart from the other repairs: a dropped value is a loss, and the
-			 * notice names the column and the value so it can be put back.
-			 */
 			expect(warnings).toEqual([]);
 			expect(dropped).toEqual([
 				{ field: '截止', value: '2026-02-30', type: 'date' },
@@ -162,11 +153,6 @@ describe('parseLayerDoc', () => {
 			(raw.records as unknown[]).push(record);
 			const { doc, warnings } = parseLayerDoc(JSON.stringify(raw));
 
-			/*
-			 * Both rows are kept, with ids that differ: an id two rows share cannot be
-			 * used to reach either of them, and the row heights, filters and updates
-			 * that name a row all go through it.
-			 */
 			expect(doc.records.length).toBe(2);
 			const ids = doc.records.map((r) => r.id);
 			expect(new Set(ids).size).toBe(2);
@@ -209,11 +195,6 @@ describe('parseLayerDoc', () => {
 
 	describe('view validation', () => {
 		it('keeps a board that groups by a column other than a choice', () => {
-			/*
-			 * A board may group by almost anything: a date gives one column per day, a
-			 * number one per value. Only a column that is gone sends it back to the
-			 * table, which the next case covers.
-			 */
 			const raw = JSON.parse(VALID) as Record<string, unknown>;
 			(raw.views as Record<string, unknown>[])[1]!.groupByFieldId = 'f_a';
 			const { doc } = parseLayerDoc(JSON.stringify(raw));
@@ -266,10 +247,7 @@ describe('parseLayerDoc', () => {
 		const raw = JSON.parse(VALID) as Record<string, unknown>;
 		raw.version = 99;
 
-		/*
-		 * Refused, not downgraded. Reading it would strip whatever the newer format
-		 * added, and the next save would write the stripped version back.
-		 */
+		// Refused, not downgraded: reading it would strip the newer format's fields and the next save would write that back.
 		expect(() => parseLayerDoc(JSON.stringify(raw))).toThrow(FutureVersionError);
 		expect(() => parseLayerDoc(JSON.stringify(raw))).toThrow(/v99/);
 	});
@@ -378,14 +356,10 @@ describe('createEmptyDoc', () => {
 		expect(warnings).toEqual([]);
 		expect(doc.name).toBe('测试');
 		expect(doc.fields.filter((f) => f.primary)).toHaveLength(1);
-		// A new file opens as a table. Boards are added on purpose, from the row of
-		// views, so nobody is handed an empty tab they did not ask for.
 		expect(doc.views.map((v) => v.type)).toEqual(['grid']);
 	});
 
 	it('carries the choice field a new board would group by', () => {
-		// The board is not created, but the column it would use is there, so adding
-		// one takes a single click.
 		const doc = createEmptyDoc();
 		const select = doc.fields.find((f) => f.type === 'select');
 
@@ -432,7 +406,6 @@ describe('createEmptyDoc', () => {
 		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
 		const reloaded = parsed.views[0] as GridView;
 
-		// A setting nobody reads back is a setting the reader loses on every reload.
 		expect(reloaded.summaries).toEqual({ [title]: 'unique' });
 	});
 
@@ -440,7 +413,6 @@ describe('createEmptyDoc', () => {
 		const doc = createEmptyDoc('Board');
 		const view = doc.views[0] as GridView;
 		const title = doc.fields[0]?.id as string;
-		// A sum of text is a figure that means nothing.
 		view.summaries = { [title]: 'sum' };
 
 		const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));

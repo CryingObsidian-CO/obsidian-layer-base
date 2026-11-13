@@ -11,12 +11,10 @@ export interface BoardFieldsOptions {
 	anchor: Anchor | null;
 	view: KanbanView;
 	fields: readonly Field[];
-	/** The column a card falls back to when none was chosen. */
 	primaryFieldId: string;
 	onSubmit: (result: BoardFieldsResult) => void;
 }
 
-/** What the panel reports back: everything it lets the reader change. */
 export interface BoardFieldsResult {
 	groupByFieldId: string;
 	/** `''` when the table's primary column should title the cards. */
@@ -24,13 +22,7 @@ export interface BoardFieldsResult {
 	cardFieldIds: string[];
 }
 
-/**
- * The columns a board uses, in a panel beside the button that opened it.
- *
- * Kept apart from the table's field editor because these are choices about the
- * board, not about the columns themselves: which one groups, which one titles a
- * card, and which ones show on it. Nothing here changes a column.
- */
+/** Only choices about the board; nothing here edits a column. */
 export class BoardFieldsPopover extends AnchoredPopover {
 	private groupByFieldId: string;
 	private titleFieldId: string;
@@ -69,8 +61,7 @@ export class BoardFieldsPopover extends AnchoredPopover {
 			},
 		);
 
-		// The title may be left to the table's primary column, which is what a board
-		// that was never configured already does.
+		// The title may stay unset, which is what a board never configured already does.
 		this.titleFieldId = this.renderChoice(
 			contentEl,
 			t().boardFieldsTitleField,
@@ -96,13 +87,8 @@ export class BoardFieldsPopover extends AnchoredPopover {
 	}
 
 	/**
-	 * One labelled dropdown over the table's columns.
-	 *
-	 * Answers the value the dropdown actually settled on, which is not always the
-	 * one asked for: a column that is gone has no option to select, and leaving the
-	 * select on its first entry while the draft kept the old id would save a column
-	 * the reader never chose. The caller puts the answer back into its draft, so
-	 * what is shown and what is saved cannot part company.
+	 * Answers the value the select settled on, which is not always the one asked for: a
+	 * column that is gone has no option, and the draft would keep an id nobody chose.
 	 */
 	private renderChoice(
 		host: HTMLElement,
@@ -131,19 +117,13 @@ export class BoardFieldsPopover extends AnchoredPopover {
 		return settled;
 	}
 
-	/**
-	 * The columns a card shows, as a tick list.
-	 *
-	 * The order is the table's, not the order they were ticked: a card that
-	 * rearranged itself as fields were added would be hard to read.
-	 */
+	/** The order is the table's, not the order they were ticked: a card would otherwise rearrange itself. */
 	private renderCardFields(host: HTMLElement): void {
 		host.createDiv({
 			cls: 'layer-board-fields-heading',
 			text: t().boardFieldsOnCard,
 		});
-		// Scrolled rather than grown: a table of twenty columns would otherwise push
-		// the panel past the bottom of the window.
+		// Scrolled rather than grown: twenty columns would push the panel past the window.
 		const list = host.createDiv({ cls: 'layer-board-fields-list' });
 
 		for (const field of this.config.fields) {
@@ -160,8 +140,6 @@ export class BoardFieldsPopover extends AnchoredPopover {
 			setIcon(icon, specFor(field.type).icon);
 			row.createSpan({ cls: 'layer-board-fields-name', text: field.name });
 			if (field.id === this.groupByFieldId) {
-				// The grouping column is already the board's structure; repeating it
-				// on every card says nothing the column does not.
 				row.addClass('is-grouping');
 				row.createSpan({
 					cls: 'layer-board-fields-note',

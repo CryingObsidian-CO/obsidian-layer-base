@@ -4,7 +4,6 @@ import { createEmptyDoc } from '../src/io/schema';
 import { addRecord, setCellValue } from '../src/model/records';
 import type { Field, LayerDoc } from '../src/types';
 
-/** A one-row board with the given columns, so a formula has something to read. */
 function board(fields: Field[]): { doc: LayerDoc; recordId: string } {
 	const doc = createEmptyDoc('Board');
 	doc.fields = fields;
@@ -16,7 +15,6 @@ function formulaField(id: string, formula: string): Field {
 	return { id, name: id, type: 'formula', formula };
 }
 
-/** Computes one column's value in the single row of that board. */
 function value(doc: LayerDoc, fieldId: string): string {
 	const field = doc.fields.find((candidate) => candidate.id === fieldId);
 	const record = doc.records[0];
@@ -91,8 +89,6 @@ describe('computeFormula', () => {
 	});
 
 	it('takes a single = as equality, the way a spreadsheet writes it', () => {
-		// Someone who has never read this syntax types `=`, so it is accepted
-		// beside `==` rather than reported as an unexpected character.
 		const { doc } = board([
 			formulaField('a', '1 = 1'),
 			formulaField('b', '1 = 2'),
@@ -108,7 +104,6 @@ describe('computeFormula', () => {
 	});
 
 	it('still reads the two-character forms correctly', () => {
-		// `==` must not be broken by accepting a lone `=`.
 		const { doc } = board([
 			formulaField('a', '1 == 1'),
 			formulaField('b', '1 == 2'),
@@ -166,7 +161,6 @@ describe('computeFormula', () => {
 		expect(value(doc, 'a')).toBe('TRUE');
 		expect(value(doc, 'b')).toBe('FALSE');
 		expect(value(doc, 'c')).toBe('2');
-		// BLANK() reads as nothing, which is what makes it usable in an IF branch.
 		expect(value(doc, 'd')).toBe('');
 	});
 
@@ -208,13 +202,11 @@ describe('computeFormula', () => {
 		]);
 		doc.records[0]!.cells.f_p = [];
 		expect(doc.records[0]?.id).toBe(recordId);
-		// Nothing linked reads as nothing, not as an error.
 		expect(value(doc, 'f')).toBe('');
 	});
 });
 
 describe('the kind of value a formula reports', () => {
-	/** The kind one column's single cell resolved to. */
 	function kindOf(formula: string): string {
 		const { doc } = board([formulaField('f', formula)]);
 		const record = doc.records[0]!;
@@ -244,8 +236,6 @@ describe('the kind of value a formula reports', () => {
 	});
 
 	it('calls a joined number-and-text a text', () => {
-		// `+` joins rather than adds once either side is text, so the column reads
-		// as words even though a number is part of it.
 		const { doc } = board([
 			{ id: 'f_n', name: 'n', type: 'number' },
 			formulaField('f', '{n} + " items"'),
@@ -257,8 +247,6 @@ describe('the kind of value a formula reports', () => {
 	});
 
 	it('reports the kind of what it actually computed, not of the formula', () => {
-		// The same expression can answer differently per row, and each cell shows
-		// what that row produced.
 		const { doc } = board([
 			{ id: 'f_done', name: 'done', type: 'checkbox' },
 			formulaField('f', 'IF({done}, 1, "pending")'),
@@ -305,7 +293,6 @@ describe('formulas that refer to each other', () => {
 		const result = computeFormula(doc, record, field);
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			// The outer formula reads the inner one, which reports its own cycle.
 			expect(result.error.code).toBe('cycle');
 		}
 	});
@@ -348,7 +335,6 @@ describe('a branch that is not taken', () => {
 	it('is the one IF reads when the condition says so', () => {
 		const { doc } = board([formulaField('a', 'IF(TRUE, 1/0, "safe")')]);
 
-		// The error is the answer here: the branch is the one being taken.
 		expect(value(doc, 'a')).toBe('#divide-by-zero');
 	});
 
@@ -371,7 +357,6 @@ describe('a branch that is not taken', () => {
 		]);
 
 		expect(value(doc, 'a')).toBe('a');
-		// Nothing was found before the bad one, so its error is the answer.
 		expect(value(doc, 'b')).toBe('#unknown-field');
 	});
 
@@ -386,7 +371,6 @@ describe('a percentage', () => {
 	it('is a proportion, so multiplying by it is the arithmetic the type is for', () => {
 		const rate: Field = { id: 'f_rate', name: 'rate', type: 'number', numberFormat: 'percent' };
 		const { doc, recordId } = board([rate, formulaField('a', '{rate} * 200')]);
-		// Fifteen percent is stored as 0.15 and shown as "15%".
 		setCellValue(doc, recordId, rate, 0.15);
 
 		expect(value(doc, 'a')).toBe('30');

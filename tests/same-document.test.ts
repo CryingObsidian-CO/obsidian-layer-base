@@ -10,7 +10,6 @@ import { addBoardView, renameView } from '../src/model/views';
 import { setColumnWidth } from '../src/model/layout';
 import type { LayerDoc } from '../src/types';
 
-/** A board with a row, a second view and a column width: every part filled in. */
 function board(): LayerDoc {
 	const doc = createEmptyDoc('Board');
 	const record = addRecord(doc);
@@ -29,7 +28,6 @@ function board(): LayerDoc {
 	return doc;
 }
 
-/** The document as it comes back from a save and a read. */
 function readBack(doc: LayerDoc): LayerDoc {
 	return parseLayerDoc(serializeLayerDoc(doc)).doc;
 }

@@ -10,13 +10,7 @@ import {
 } from '../src/model/select-options';
 import type { Field, SelectOption } from '../src/types';
 
-/*
- * Editing a choice column after it exists, which the app has always been able to do
- * from its column panel. These are the five moves a reader makes there — add, remove,
- * rename, recolour, reorder — and every one of them leaves the ids alone unless it is
- * creating one: a cell stores the id, so a rename that replaced it would orphan every
- * row that had chosen that option, while a reorder only moves ids about in the list.
- */
+// Editing a choice column: ids stay put across rename, recolour and reorder, because a cell stores the id.
 function status(): Field {
 	const field: Field = { id: 'f_status', name: 'Status', type: 'select' };
 	appendOption(field, 'Red');
@@ -58,7 +52,7 @@ describe('editing a choice column', () => {
 
 		expect(setOptionColor(field, 'Red', 'purple')).toBe(true);
 		expect(findOptionByName(field, 'Red')?.color).toBe('purple');
-		// What the app's colour picker hands over is a literal, not a palette name.
+		// The colour picker hands over a literal, not a palette name.
 		expect(setOptionColor(field, 'Red', '#08b94e')).toBe(true);
 		expect(findOptionByName(field, 'Red')?.color).toBe('#08b94e');
 	});
@@ -72,11 +66,7 @@ describe('editing a choice column', () => {
 	});
 });
 
-/*
- * The order of the list is the field's order: the board draws its columns in it and
- * a choice column sorts by it, so a reader who cannot reorder the list is stuck with
- * whatever order the names happened to be typed in.
- */
+// List order is the field's order: the board draws its columns in it and a choice column sorts by it.
 describe('reordering the options', () => {
 	const names = (
 		options: readonly SelectOption[] | null | undefined,
@@ -96,7 +86,6 @@ describe('reordering the options', () => {
 			before[1],
 			before[0],
 		]);
-		// The field itself is left alone: the caller decides when to store it.
 		expect(names(field.options)).toEqual(['Red', 'Green']);
 	});
 

@@ -5,7 +5,7 @@ import type {FieldType} from '../types';
 import {fieldTypeMatches, type FieldTypeChoice} from './field-type-choices';
 import {SearchableDropdown, type DropdownItem} from './searchable-dropdown';
 
-/** The rows, in the order they are offered, named for the active locale. */
+/** Built per call so the labels follow the active locale. */
 function fieldTypeChoices(): FieldTypeChoice[] {
 	const s = t();
 	const label: Record<FieldType, string> = {
@@ -82,10 +82,7 @@ export class FieldTypeDropdown {
 		});
 	}
 
-	/**
-	 * A type is a two-line row: the icon, then the name over its explanation.
-	 * The core owns the row's classes, so only the contents are drawn here.
-	 */
+	/** The core owns the row's classes; only the contents are drawn here. */
 	private renderRow(row: HTMLElement, item: DropdownItem): void {
 		if (item.icon) {
 			setIcon(row.createSpan({cls: 'layer-field-type-icon'}), item.icon);
@@ -95,7 +92,6 @@ export class FieldTypeDropdown {
 		body.createDiv({cls: 'layer-field-type-hint', text: item.hint ?? ''});
 	}
 
-	/** Whether the list is currently on screen. */
 	isOpen(): boolean {
 		return this.dropdown.isOpen();
 	}

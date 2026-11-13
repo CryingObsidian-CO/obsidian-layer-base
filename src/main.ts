@@ -36,7 +36,7 @@ import { TableIndex } from './io/table-index';
 export default class LayerBasePlugin extends Plugin {
 	settings!: LayerBaseSettings;
 	store!: LayerStore;
-	/** The other `.layer` files a relation may read, cached and kept current. */
+	/** Other `.layer` files a relation may read. */
 	tables!: TableIndex;
 
 	async onload(): Promise<void> {
@@ -61,14 +61,8 @@ export default class LayerBasePlugin extends Plugin {
 		});
 
 		/*
-		 * Undo and redo are commands rather than keys bound to the view's own scope.
-		 * `ItemView.scope` is null unless something creates one, and a scope-less
-		 * binding never fires — which is why pressing the key did nothing. A command
-		 * also gives them a place in the command palette and lets Obsidian own the key
-		 * handling, so a shortcut the editor wants does not swallow them silently.
-		 *
-		 * `checkCallback` decides availability per active view, so the command is only
-		 * offered while a table or board is in front.
+		 * `ItemView.scope` is null unless something creates one, and a binding made against
+		 * it never fires; a command is a hook Obsidian can bind a key to.
 		 */
 		this.addCommand({
 			id: COMMAND_UNDO,
@@ -85,16 +79,8 @@ export default class LayerBasePlugin extends Plugin {
 			}),
 		});
 
-		/*
-		 * The file explorer already offers "new note" where the reader is pointing, so a
-		 * new board belongs in the same place. The folder right-clicked wins over the
-		 * configured one: that is the folder the reader meant.
-		 *
-		 * `setSection('action-primary')` is what puts it next to "new note" rather than at
-		 * the bottom of the menu. The file explorer orders its sections as
-		 * title, open, action-primary, action, info, view, system, "", danger — so a plain
-		 * 'action' lands in the duplicate/move group below.
-		 */
+		/* `action-primary` puts this next to "new note"; a plain `action` would land in
+		 * the duplicate/move group further down. */
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu, file) => {
 				const folder = file instanceof TFolder ? file : file.parent;
@@ -115,12 +101,7 @@ export default class LayerBasePlugin extends Plugin {
 
 	onunload(): void {}
 
-	/**
-	 * Runs an action on the layer view in front, answering whether there is one.
-	 *
-	 * Returning false from `checkCallback` keeps the command out of the palette when
-	 * no layer view is active, rather than offering it and doing nothing.
-	 */
+	/** False keeps the command out of the palette when no layer view is in front. */
 	runOnActiveLayerView(
 		checking: boolean,
 		run: (view: LayerView) => void,
@@ -142,12 +123,8 @@ export default class LayerBasePlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			(await this.loadData()) as Partial<LayerBaseSettings>,
 		);
-		/*
-		 * The base name used to be the English literal. It is now the reader's own
-		 * language, but saved settings keep a copy of the old default, which would
-		 * pin every new file to English. Only that exact value is cleared: a name
-		 * someone typed is kept as it is.
-		 */
+		/* Saved settings can still hold the old English default, which would pin every new
+		 * file to English; only that exact value is cleared. */
 		if (this.settings.defaultFileName === LEGACY_DEFAULT_FILE_NAME) {
 			this.settings.defaultFileName = '';
 		}
@@ -157,12 +134,7 @@ export default class LayerBasePlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	/**
-	 * Creates a `.layer` file and opens it.
-	 *
-	 * A folder passed in comes from the file explorer's menu, and it wins over the
-	 * configured default: the reader pointed at the place they want it.
-	 */
+	/** A folder from the file explorer's menu wins over the configured default. */
 	async createLayerFile(targetFolder?: TFolder | null): Promise<void> {
 		let folder: TFolder | null = targetFolder ?? null;
 		if (!folder) {
@@ -192,9 +164,8 @@ export default class LayerBasePlugin extends Plugin {
 		}
 	}
 
-	/** Resolves a configured folder path, returning null when it is absent. */
 	private resolveFolder(path: string): TFolder | null {
-		// The setting is typed or picked by hand, so it is normalised before asking.
+		// A hand-typed setting is normalised before the lookup.
 		const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
 		return file instanceof TFolder ? file : null;
 	}

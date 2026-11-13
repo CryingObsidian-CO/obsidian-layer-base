@@ -1,9 +1,6 @@
 /**
- * Dates and local wall-clock date-times, as the format stores them.
- *
- * Deliberately free of `Date`: parsing through it would drag the local timezone
- * and its leniency (`2026-02-30` becomes March 2) into values that are meant to
- * be plain calendar text. Everything here is arithmetic on the written form.
+ * Dates and local wall-clock date-times as the format stores them. Free of `Date`: it drags
+ * the local timezone and its leniency (`2026-02-30` becomes March 2) into plain calendar text.
  */
 
 /** `YYYY-MM-DD`, with either separator, single-digit month and day allowed. */
@@ -30,22 +27,16 @@ function pad2(value: number): string {
 }
 
 /**
- * A civil date in the stored form, `YYYY-MM-DD`.
- *
- * The year is padded to four digits: `DATE_PATTERN` reads exactly four, so a
- * year written as `1` would produce text this module cannot read back — and a
- * cell that cannot be read back is cleared on the next load.
+ * The year is padded to four digits: `DATE_PATTERN` reads exactly four, and text this
+ * module cannot read back is cleared on the next load.
  */
 function formatDate(year: number, month: number, day: number): string {
 	return `${String(year).padStart(4, '0')}-${pad2(month)}-${pad2(day)}`;
 }
 
 /**
- * A calendar date as `YYYY-MM-DD`, or `null` when the text is not one.
- *
- * A month-first form like `10/17/2026` is refused rather than guessed at: it
- * could be either day- or month-first, and picking one silently would corrupt a
- * value the user can still correct.
+ * A month-first form like `10/17/2026` is refused rather than guessed at: either reading
+ * is possible, and picking one silently would corrupt a value the user could still fix.
  */
 export function normaliseDate(text: string): string | null {
 	const match = DATE_PATTERN.exec(text.trim());
@@ -65,12 +56,8 @@ export function normaliseDate(text: string): string | null {
 }
 
 /**
- * A local wall-clock date-time as `YYYY-MM-DDTHH:mm`, or `null`.
- *
- * Both a `T` and a space are accepted between the halves, since that is the
- * difference between what is stored and what is shown. Seconds are dropped, and
- * a value carrying a zone is refused rather than converted — this format has no
- * zones to convert between.
+ * `T` or a space is accepted, since that is the difference between stored and shown;
+ * seconds are dropped, and a zone is refused rather than converted: this format has none.
  */
 export function normaliseDateTime(text: string): string | null {
 	const parts = text.trim().split(/[T ]/);
@@ -97,20 +84,15 @@ export function normaliseDateTime(text: string): string | null {
 	return `${date}T${pad2(hours)}:${pad2(minutes)}`;
 }
 
-/** How a date-time is shown: a space where the stored form keeps its `T`. */
 export function displayDateTime(value: string): string {
 	return value.replace('T', ' ');
 }
 
-/** A date or date-time split into the two halves it is written in. */
 export interface DateParts {
-	/** The `YYYY-MM-DD` half. */
 	date: string;
-	/** The `HH:mm` half, or null when the value is a date alone. */
 	time: string | null;
 }
 
-/** Splits a stored date or date-time, or answers null when it is neither. */
 export function dateParts(text: string): DateParts | null {
 	const date = normaliseDate(text);
 	if (date !== null) {
@@ -120,8 +102,6 @@ export function dateParts(text: string): DateParts | null {
 	if (moment === null) {
 		return null;
 	}
-	// The halves are joined by exactly one `T`, which is what the two are split on:
-	// counting characters would go wrong the moment the date half is not ten long.
 	const [day, time] = moment.split('T');
 	if (day === undefined || time === undefined) {
 		return null;
@@ -129,14 +109,8 @@ export function dateParts(text: string): DateParts | null {
 	return { date: day, time };
 }
 
-/*
- * Day arithmetic without `Date`, by the standard civil-from-days conversion.
- *
- * `Date` cannot be used for this: it counts milliseconds in the local zone, so a
- * difference across a daylight-saving change is 23 or 25 hours rather than a day,
- * and the count would silently depend on where the reader lives. These two are
- * plain integer arithmetic on the calendar, which is what a column of dates means.
- */
+// Days from a civil date, the standard conversion. `Date` cannot do this: it counts
+// milliseconds in the local zone, so a daylight-saving change makes a day 23 or 25 hours.
 function daysFromCivil(year: number, month: number, day: number): number {
 	const y = year - (month <= 2 ? 1 : 0);
 	const era = Math.floor(y / 400);
@@ -175,14 +149,8 @@ export function dayNumber(text: string): number | null {
 }
 
 /**
- * A date or date-time as whole minutes since 1970-01-01 00:00, wall clock.
- *
- * This is the number a column of dates is ordered and compared by. Rolling the
- * day into a single count keeps a date-time on one day in front of a date-only
- * value on the next, and the time of day stays in it so two values on the same
- * day still order. Null when the text is not one — a half-written or
- * out-of-range value is not a very old date, and must not be given a number that
- * would place it among real ones.
+ * Whole minutes since 1970-01-01 00:00, wall clock, which is what a date column is ordered
+ * by. Null when the text is not one: an unreadable value must not get a number placing it among real dates.
  */
 export function dateMinutes(text: string): number | null {
 	const parts = dateParts(text);
@@ -203,13 +171,7 @@ export function dateMinutes(text: string): number | null {
 	return day * 1440 + hours * 60 + minutes;
 }
 
-/**
- * The same value moved by a whole number of days, keeping any time it carried.
- *
- * Null when the text is not a date or the shift is not a whole number: a column of
- * dates shifted by half a day has no meaning here, and rounding it would be a
- * silent guess.
- */
+/** Null unless the text is a date and the shift a whole number of days: rounding half a day would be a guess. */
 export function addDays(text: string, days: number): string | null {
 	const parts = dateParts(text);
 	const from = dayNumber(text);
@@ -217,12 +179,8 @@ export function addDays(text: string, days: number): string | null {
 		return null;
 	}
 	const civil = civilFromDays(from + days);
-	/*
-	 * Outside the four-digit range the written form would no longer be a date this
-	 * module reads: a negative year cannot be padded into shape, and a fifth digit
-	 * breaks the pattern. Answering "not a date" keeps the value honest instead of
-	 * writing text nothing can parse.
-	 */
+	// Outside four digits the written form is no longer a date this module reads: a negative
+	// year cannot be padded, and a fifth digit breaks the pattern.
 	if (civil.year < 0 || civil.year > 9999) {
 		return null;
 	}
@@ -230,7 +188,6 @@ export function addDays(text: string, days: number): string | null {
 	return parts.time === null ? date : `${date}T${parts.time}`;
 }
 
-/** The year, month or day of a stored date, or null when it is not one. */
 export function dateField(text: string, which: 'year' | 'month' | 'day'): number | null {
 	const parts = dateParts(text);
 	if (parts === null) {

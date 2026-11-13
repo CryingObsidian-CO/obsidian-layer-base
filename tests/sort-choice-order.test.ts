@@ -3,17 +3,7 @@ import { formatCell } from '../src/model/fields';
 import { sortRecords } from '../src/model/sort';
 import type { CellValue, Field, LayerRecord, SelectOption } from '../src/types';
 
-/*
- * Ordering a choice column.
- *
- * The option list is the one order such a field has: the board draws its columns in
- * it, the dropdown lists it in it, and the table sorts by it. Sorting these columns by
- * the names written in the cells is what made the board and the table disagree about
- * the same column — a board reading "Later, Soon, Now" beside a table reading
- * "Later, Now, Soon", with nothing on screen to say which one the reader had asked
- * for. The names below are deliberately in an order the alphabet disagrees with, so a
- * test that passes by luck is impossible.
- */
+// A choice column's order is its option order, not the names in the cells; the names below are deliberately not alphabetical.
 
 function row(id: string, cells: Record<string, CellValue> = {}): LayerRecord {
 	return { id, created: '', cells };

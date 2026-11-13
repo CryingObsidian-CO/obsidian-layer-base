@@ -1,43 +1,25 @@
 /**
- * A small expression language for `formula` fields.
- *
- * Split into three stages — lexing, parsing, evaluation — so that each can be
- * tested on its own: the parser never evaluates, and the evaluator only ever
- * walks a tree it was handed.
- *
- * The language is deliberately closed: values are numbers, strings and booleans,
- * and nothing in it can reach the vault, the DOM or the plugin. That is what
- * makes a formula field safe to store in a file and run on load.
+ * The expression language for `formula` fields: numbers, strings and booleans only, and nothing in
+ * it can reach the vault, the DOM or the plugin, so a stored formula is safe to run on load.
  */
 
-/** What a formula may produce or combine. */
 export type FormulaValue = number | string | boolean;
 
-/** One token of the source text. */
 export type Token =
 	| { kind: 'number'; value: number; at: number }
 	| { kind: 'string'; value: string; at: number }
-	/**
-	 * A name. `braced` marks the `{...}` form, which is always a column reference:
-	 * a bare name may also be the word `TRUE`, but `{TRUE}` can only be a column.
-	 */
+	/** `braced` marks the `{...}` form, which is always a column reference; a bare `TRUE` is a boolean. */
 	| { kind: 'name'; value: string; at: number; braced?: boolean }
 	| { kind: 'op'; value: string; at: number }
 	| { kind: 'end'; at: number };
 
 /**
- * Where a formula went wrong.
- *
- * Only a code and the values worth naming, never a sentence: the engine does not
- * know which language the reader uses, so the wording belongs to the caller. See
- * `formulaErrorMessage` for the translation.
+ * Only a code and the values worth naming, never a sentence: the engine does not know which
+ * language the reader uses, so the wording belongs to the caller (`formulaErrorMessage`).
  */
 export interface FormulaError {
-	/** A short, stable reason such as `unknown-field` or `divide-by-zero`. */
 	code: string;
-	/** Pieces the message needs, such as the offending character or field name. */
 	detail?: string;
-	/** The offset in the source text the problem starts at, when known. */
 	at?: number;
 }
 
@@ -57,10 +39,8 @@ const OPERATORS = [
 	'<',
 	'>',
 	/*
-	 * A lone `=` is equality, because that is what a spreadsheet writes and what
-	 * someone who does not know this syntax will type. The two-character form is
-	 * matched first, so `==`, `<=` and `>=` are unaffected — and the leading `=`
-	 * of a formula is dropped before lexing, so it never reaches here.
+	 * A lone `=` is equality as a spreadsheet writes it; the two-character forms are matched first,
+	 * and the leading `=` of a formula is dropped before lexing, so it never reaches here.
 	 */
 	'=',
 ] as const;
@@ -74,13 +54,7 @@ function isNamePart(char: string): boolean {
 	return /[A-Za-z0-9_\u4e00-\u9fa5]/.test(char);
 }
 
-/**
- * Turns source text into tokens.
- *
- * A failure is returned rather than thrown, because a half-typed formula is a
- * normal state while the editor is open — the caller decides whether to report
- * it or wait.
- */
+/** A failure is returned rather than thrown: a half-typed formula is a normal state while the editor is open. */
 export function tokenize(
 	source: string,
 ): { ok: true; tokens: Token[] } | { ok: false; error: FormulaError } {
@@ -95,8 +69,7 @@ export function tokenize(
 			continue;
 		}
 
-		// A `{field}` reference carries a name that may contain spaces or dots,
-		// which a bare name cannot, so it is read as one unit.
+		// A `{field}` reference may contain spaces or dots, which a bare name cannot, so it is read as one unit.
 		if (char === '{') {
 			const close = source.indexOf('}', at + 1);
 			if (close === -1) {

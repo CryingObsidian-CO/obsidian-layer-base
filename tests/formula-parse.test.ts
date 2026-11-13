@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { tokenize } from '../src/model/formula/lexer';
 import { parseFormula } from '../src/model/formula/parser';
 
-/** Parses and reports only whether it worked, which is most of these tests. */
 function parses(source: string): boolean {
 	return parseFormula(source).ok;
 }
@@ -13,7 +12,6 @@ function errorCode(source: string): string {
 }
 
 describe('boolean literals', () => {
-	/** The parsed kind of a formula that holds a single value. */
 	function kindOf(source: string): string {
 		const result = parseFormula(source);
 		return result.ok ? result.node.kind : `error:${result.error.code}`;
@@ -147,8 +145,6 @@ describe('parseFormula', () => {
 	});
 
 	it('reports trailing text it cannot use', () => {
-		// A separate code from `unexpected-token`, so the message can name which
-		// problem it is.
 		expect(errorCode('1 + 2 3')).toBe('trailing-text');
 	});
 

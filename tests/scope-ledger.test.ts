@@ -48,7 +48,6 @@ describe('scopeLedger', () => {
 	});
 
 	it('does not pop a scope it never pushed', () => {
-		// A view closed without ever being focused has nothing to take back.
 		const { ledger, popped } = ledgerFor('view');
 		ledger.release();
 		expect(popped).toEqual([]);

@@ -18,7 +18,6 @@ const LINK = platform === 'win32' ? 'junction' : 'dir';
 
 const made: { base: string; links: string[] }[] = [];
 
-/** A vault, a place outside it, and a link between them. */
 function makeVault(): { vault: string; outside: string; link: string } {
 	const base = mkdtempSync(join(tmpdir(), 'layer-vault-test-'));
 	const vault = join(base, 'Vault');
@@ -28,8 +27,6 @@ function makeVault(): { vault: string; outside: string; link: string } {
 	writeFileSync(join(outside, 'secret.layer'), '{"version":1}');
 
 	const link = join(vault, 'link');
-	// A junction on Windows: it needs no administrator rights, and it is what a
-	// user makes when they want one folder to live in two places.
 	symlinkSync(outside, link, LINK);
 
 	made.push({ base, links: [link] });
@@ -38,10 +35,7 @@ function makeVault(): { vault: string; outside: string; link: string } {
 
 afterEach(() => {
 	for (const { base, links } of made.splice(0)) {
-		/*
-		 * The link goes first. Removing the tree it sits in would otherwise walk
-		 * through it and delete what is on the other side.
-		 */
+		// The link goes first: removing the tree it sits in would walk through it and delete what is outside.
 		for (const link of links) {
 			try {
 				rmdirSync(link);
@@ -49,7 +43,7 @@ afterEach(() => {
 				try {
 					unlinkSync(link);
 				} catch {
-					// Already gone.
+					// Best effort: cleanup must not fail the test.
 				}
 			}
 		}

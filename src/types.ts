@@ -23,15 +23,10 @@ export type FieldType =
 /** What a `note` cell shows: the file's own name, or the path it lives at. */
 export type NoteLabelStyle = 'name' | 'path';
 
-/**
- * How a `number` field shows its value. A percent field stores a proportion —
- * `0.15` is fifteen percent, and its bounds are 0 and 1 — and the sign is added
- * when the value is shown and taken off when it is typed, so `{price} * {rate}`
- * is the arithmetic the type exists for.
- */
+/** A percent field stores a proportion — `0.15` is fifteen percent, bounds are 0 and 1 — and the
+ * sign is added when shown; a field that omits the format is plain. */
 export type NumberFormat = 'plain' | 'percent';
 
-/** A single choice of a `select` or `multiSelect` field. */
 export interface SelectOption {
 	id: string;
 	name: string;
@@ -43,83 +38,39 @@ export interface Field {
 	name: string;
 	type: FieldType;
 	primary?: boolean;
-	/**
-	 * Cells in this field must not be left empty. A missing flag and `false` mean
-	 * the same thing, so the flag is only written when it is true.
-	 */
+	/** Cells must not be left empty. Missing and `false` mean the same, so it is only written when true. */
 	required?: boolean;
 	frontmatterKey?: string;
-	/**
-	 * `noteProp` fields only: the `note` column whose file is read. The value of the
-	 * cell lives in that file's frontmatter, under `frontmatterKey`.
-	 */
+	/** `noteProp` only: the `note` column whose file is read; the value lives in that file's
+	 * frontmatter under `frontmatterKey`. */
 	noteFieldId?: string;
 	options?: SelectOption[];
-	/** `number` fields only: the display format. Missing means plain. */
 	numberFormat?: NumberFormat;
-	/** `number` fields only: decimal places. Missing means as typed. */
+	/** Decimal places; missing means as typed, not zero. */
 	decimals?: number;
-	/** `number` fields only: the smallest value the cell may hold. */
 	min?: number;
-	/** `number` fields only: the largest value the cell may hold. */
 	max?: number;
-	/**
-	 * `relation` fields only: the `.layer` file whose rows a cell picks from.
-	 * Missing means this table, so a self-reference needs no path at all.
-	 */
+	/** `relation` only: the `.layer` table to pick rows from; missing means this table. */
 	linkPath?: string;
-	/** `relation` fields only: the column of that table whose values are shown. */
 	linkFieldId?: string;
-	/**
-	 * `relationBack` fields only: the table whose rows point back at this one.
-	 * Missing means this table, the same way `linkPath` does.
-	 */
+	/** `relationBack` only: the table pointing back here; missing means this table. */
 	backPath?: string;
-	/** `relationBack` fields only: the `relation` column in that table. */
 	backFieldId?: string;
-	/**
-	 * `relationBack` fields only: the column a pointing row is named by. Missing
-	 * means the row's number, which is what an unconfigured column shows.
-	 */
 	backTitleFieldId?: string;
-	/**
-	 * `formula` fields only: the expression this column is computed from. Other
-	 * columns are named with `{their name}`; nothing about it is stored in cells.
-	 */
+	/** `formula` only: the expression; other columns are named `{their name}`, and cells store nothing. */
 	formula?: string;
-	/**
-	 * `formula` fields only: how the result is presented, for a column whose rows
-	 * compute different kinds. Missing means the result's own kind decides. It
-	 * changes the dressing only — never the computed value.
-	 */
+	/** `formula` only: how the result is presented. Changes the dressing, never the computed value. */
 	formulaType?: FormulaResultType;
-	/**
-	 * `rollup` fields only: the relation column in this table whose rows are
-	 * gathered. It may be a `relation` or a `relationBack`, which is what lets a
-	 * parent table total its children.
-	 */
+	/** `rollup` only: the relation column to gather rows through, which may point back at this table. */
 	rollupSourceFieldId?: string;
-	/** `rollup` fields only: the column in the other table that is read. */
 	rollupFieldId?: string;
-	/** `rollup` fields only: how the gathered values are reduced to one. */
 	rollupAggregate?: RollupAggregate;
-	/**
-	 * `lookup` fields only: the relation column in this table whose rows are read.
-	 * Same idea as `rollupSourceFieldId`, without the reduction.
-	 */
 	lookupSourceFieldId?: string;
-	/**
-	 * `lookup` fields only: the column in the other table whose values are shown,
-	 * one per row found through the relation. Nothing is stored in this document.
-	 */
 	lookupFieldId?: string;
-	/** `autoNumber` fields only: how many digits the number is padded to; missing means one. */
 	numberLength?: number;
-	/** `autoNumber` fields only: the column whose values are numbered separately. */
 	numberGroupFieldId?: string;
 }
 
-/** How a `rollup` field reduces the values it gathered. */
 export type RollupAggregate =
 	| 'sum'
 	| 'average'
@@ -128,43 +79,22 @@ export type RollupAggregate =
 	| 'count'
 	| 'countAll';
 
-/** How a `formula` field presents what it computed. */
 export type FormulaResultType = 'number' | 'text' | 'boolean';
 
-/**
- * What one cell holds, in the shape its field type uses: text, long text, date
- * and date-time keep a string, `number` a real number, `multiSelect` an array of
- * option ids, and `checkbox` a real boolean. An empty cell of any type is `''`.
- *
- * A date is `YYYY-MM-DD`; a date-time is `YYYY-MM-DDTHH:mm` in **local wall-clock
- * time**, carrying no zone and never converted — what was entered is what is
- * shown, in any timezone.
- *
- * The union of every shape on purpose, not a mapping from field type to shape: a
- * `Field` is looked up at runtime, so `tsc` cannot tie a cell to the type of the
- * column it sits in. "One field, one shape" is enforced where a value enters the
- * document rather than in the type — `normalizeCellForField` on load, and
- * `acceptsValue` inside `setCellValue` on write — and every reader asks the
- * field's type before it touches a value.
- */
+/** One cell, in its field type's shape; empty is `''`. Dates are `YYYY-MM-DD`, date-times
+ * `YYYY-MM-DDTHH:mm` in local wall-clock time and never converted. The union is checked where
+ * a value enters the document, not by the type. */
 export type CellValue = string | string[] | boolean | number;
 
 export interface Record_ {
 	id: string;
 	created: string;
-	/**
-	 * Keyed by field id, and written through `setCellValue` / `setCellFromText`
-	 * only: that is where the shape is checked against the column's type. An
-	 * assignment made here directly is not checked by anything, and puts a value
-	 * the grid's readers were told could not exist into the document.
-	 */
+	/** Keyed by field id; write through `setCellValue` / `setCellFromText`, which check the shape
+	 * against the column's type. */
 	cells: Record<string, CellValue>;
 }
 
-/*
- * A row of the board. The alias exists because Obsidian's own `Record` type is
- * generic and would otherwise shadow this one wherever both are imported.
- */
+/** The board's row. Aliased because Obsidian's own generic `Record` would shadow it. */
 export type LayerRecord = Record_;
 
 export type SortOrder = 'asc' | 'desc';
@@ -197,16 +127,9 @@ export interface Filter {
 	conditions: FilterCondition[];
 }
 
-/**
- * A rule that tints a whole row when its condition matches.
- *
- * It is a filter condition with a colour attached, on purpose: "when this column
- * contains this" has exactly one meaning in this plugin, and a colour rule that
- * decided it differently from the filter would be a second opinion nobody asked
- * for.
- */
+/** A filter condition with a colour attached. It shares the condition's meaning, so a colour rule
+ * cannot decide differently from the filter. */
 export interface ColorRule extends FilterCondition {
-	/** A name from the palette in `model/select-options.ts`. */
 	color: string;
 }
 
@@ -218,60 +141,31 @@ export interface BaseView {
 	hiddenFieldIds: string[];
 }
 
-/** Table view: rows are records, columns are fields. */
 export interface GridView extends BaseView {
 	type: 'grid';
 	columnWidths: Record<string, number>;
-	/**
-	 * The height every row starts at, before any of them were dragged. Missing
-	 * means the default, so a table written before this existed reads as it did.
-	 */
+	/** The height rows start at, before any were dragged; missing means the default. */
 	rowHeight?: number;
-	/** Rows dragged to a height of their own, which outrank `rowHeight`. */
 	rowHeights: Record<string, number>;
-	/**
-	 * Whether each cell's value may run onto more lines.
-	 *
-	 * A wrapped run of values adds to the row's height, so this is also what makes
-	 * a row taller than the height chosen for it. Long text is left out either way:
-	 * it scrolls inside its cell rather than growing the row.
-	 */
+	/** Whether a cell's value may run onto more lines. A wrapped value adds to the row's height;
+	 * long text scrolls inside its cell instead. */
 	wrap?: boolean;
-	/**
-	 * Whole-row tints, tried in the order they are listed. Only the first rule a
-	 * row matches is drawn, so the list order is the priority.
-	 */
+	/** Whole-row tints, tried in order; only the first rule a row matches is drawn. */
 	colorRules?: ColorRule[];
-	/**
-	 * What each column's footer reports, by column id. A column with no entry is not
-	 * summarised, so a table only shows figures someone asked for.
-	 */
+	/** What each column's footer reports; a column with no entry is not summarised. */
 	summaries?: Record<string, SummaryKind>;
 }
 
-/** Board view: columns are the options of `groupByFieldId`. */
+/** Board view: one column per value of `groupByFieldId`. */
 export interface KanbanView extends BaseView {
 	type: 'kanban';
 	groupByFieldId: string;
-	/**
-	 * The column a card is titled by. Missing means the table's primary column,
-	 * which is what a board that was never configured shows.
-	 */
+	/** The column a card is titled by; missing means the table's primary column. */
 	titleFieldId?: string;
-	/** The columns shown under the title on each card, in this order. */
 	cardFieldIds: string[];
-	/**
-	 * How many columns the board draws before the rest are counted and left out.
-	 * Missing means the default, which is what a board that was never configured
-	 * uses. A board of dates can produce a column per day, so the limit is a
-	 * property of the board rather than of the table.
-	 */
+	/** How many columns to draw before the rest are counted and left out; missing means the default. */
 	columnLimit?: number;
-	/**
-	 * Whether a board draws the columns its grouping column could hold but no row
-	 * uses yet. Without it a board of choices only offers the values already taken,
-	 * so a card could never be dragged into a value nobody has chosen.
-	 */
+	/** Also draw columns no row uses yet, so a card can be dragged into them. */
 	showEmptyColumns?: boolean;
 }
 

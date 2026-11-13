@@ -4,11 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/*
- * The MCP server has no unit tests: it is a process, and what is worth checking is
- * what it writes to disk. This drives it over stdin the way a client does and checks
- * the files it leaves behind, so a broken server cannot reach a release.
- */
+/* Drives the built server over stdin the way a client does and checks the files it leaves
+ * behind: it is a process, and what is worth checking is what it writes to disk. */
 
 const vault = mkdtempSync(join(tmpdir(), 'layer-mcp-'));
 const failures = [];
@@ -19,26 +16,20 @@ function check(condition, message) {
 	}
 }
 
-/*
- * The built server, found from this file rather than from the working directory:
- * a relative path is resolved against wherever the run was started, so the same
- * script worked under `npm run test:mcp` and failed with ENOENT from any other
- * directory.
- */
+/* Found from this file rather than the working directory, so the script works from any
+ * directory instead of failing with ENOENT. */
 const SERVER = fileURLToPath(new URL('../mcp-server.cjs', import.meta.url));
 
-/* Long enough that a working server never reaches it, short enough that a stuck
- * one is reported rather than holding a CI job open. */
+/* Long enough that a working server never reaches it, short enough that a stuck one is
+ * reported rather than holding a CI job open. */
 const TIMEOUT_MS = 30_000;
 
-/** The exit of a server that did not finish the run, in one line. */
 function describeExit(code, signal, err) {
 	const how = signal === null ? `code ${code}` : `signal ${signal}`;
 	const trace = err.trim().replace(/\s*\n\s*/g, ' | ');
 	return `the server exited with ${how}${trace === '' ? '' : `: ${trace.slice(0, 400)}`}`;
 }
 
-/** The JSON-RPC messages on stdout, one per line. */
 function parseMessages(out) {
 	return out
 		.split('\n')
@@ -52,12 +43,8 @@ function parseMessages(out) {
 		});
 }
 
-/**
- * Reports a run that could not be driven at all, and stops: every check below
- * would only repeat that the answers are missing. Without this a rejected
- * `drive` reaches the top level as an uncaught error, which prints a stack, skips
- * the report and leaves the temp folder behind.
- */
+/* Reports a run that could not be driven at all and stops: every check below would only
+ * repeat that the answers are missing, and an uncaught error would skip the report. */
 function stop(message) {
 	console.error(`mcp smoke: ${message}`);
 	try {
@@ -90,11 +77,8 @@ function drive(calls) {
 		server.stderr.on('data', (chunk) => {
 			err += chunk;
 		});
-		/*
-		 * A server that dies while stdin is still open answers the next write with
-		 * EPIPE, which would otherwise arrive as an uncaught error on the stream.
-		 * The exit handler below says what actually happened.
-		 */
+/* A server that dies while stdin is open answers the next write with EPIPE; the exit
+ * handler below says what actually happened. */
 		server.stdin.on('error', () => {});
 		server.on('error', (error) => {
 			clearTimeout(timer);
@@ -102,10 +86,8 @@ function drive(calls) {
 		});
 		server.on('close', (code, signal) => {
 			clearTimeout(timer);
-			/*
-			 * Answers alone are not a passing run: a server that wrote everything
-			 * and then died of something else did not do the job.
-			 */
+/* Answers alone are not a passing run: a server that wrote everything and then died
+ * of something else did not do the job. */
 			if (code !== 0) {
 				reject(new Error(describeExit(code, signal, err)));
 				return;
@@ -140,11 +122,8 @@ const { messages, err } = await drive([
 	call(6, 'read_table', { path: 'nested/新表.layer' }),
 	call(7, 'create_table', { path: 'nested/新表.layer' }),
 	call(8, 'read_table', { path: '../escape.layer' }),
-	/*
-	 * A new table's view is named after the table, not "Table": this process has no
-	 * interface language, so a fixed word would be wrong in one of them. The view is
-	 * addressed the way a caller finds it — by the name `read_table` reports.
-	 */
+/* A new table's view is named after the table: this process has no interface language,
+ * so a fixed word would be wrong in one of them. */
 	call(9, 'update_view', { path: 'nested/新表.layer', view: '新表', sorts: [{ field: '标题', order: 'desc' }] }),
 	call(10, 'add_field', { path: 'nested/新表.layer', name: '编号', type: 'autoNumber', numberLength: 2 }),
 	call(11, 'add_records', {
@@ -193,25 +172,16 @@ const { messages, err } = await drive([
 		field: '状态',
 		orderOptions: ['黄', '赤', '绿'],
 	}),
-	/*
-	 * The order has to name every option exactly once; a partial list leaves the rest
-	 * in no defined place, so it is refused rather than guessed at.
-	 */
+/* The order has to name every option exactly once; a partial list is refused rather than guessed. */
 	call(28, 'update_field', {
 		path: 'probe/选项.layer',
 		field: '状态',
 		orderOptions: ['黄', '赤'],
 	}),
-	/*
-	 * Two dots at the front of a name are a name, not a way out of the vault: only
-	 * the parent itself (`..`) and anything past it are refused.
-	 */
+/* Two dots at the front are a name, not an escape: only `..` and paths past it are refused. */
 	call(29, 'create_table', { path: '..draft.layer', name: '..draft' }),
-	/*
-	 * Changing a column's type drops the settings the old type owned, so the new
-	 * type's settings have to come with the change: without a source the column
-	 * could never compute anything.
-	 */
+/* A type change drops the old type's settings, so the new type's settings have to come
+ * with it; without a source the column could never compute anything. */
 	call(30, 'update_field', {
 		path: 'nested/新表.layer',
 		field: '编号',
@@ -322,11 +292,8 @@ if (doc !== null) {
 	);
 }
 
-/*
- * The row id the rest of the run needs. The answer to `read_table` may be an error
- * message or a body of another shape, so anything unexpected is reported once here
- * and leaves the id empty.
- */
+/* The row id the rest of the run needs: an answer of another shape is reported once here
+ * and leaves the id empty. */
 function firstRowId() {
 	try {
 		const id = JSON.parse(textOf(24)).records[0]?.id ?? '';
@@ -340,11 +307,8 @@ function firstRowId() {
 	}
 }
 
-/*
- * Clearing a cell needs a row id, so this phase runs only on one that was read
- * back: asking the server to update an empty id would report a second problem
- * that the empty id itself invented.
- */
+/* Clearing a cell needs a row read back; an empty id would invent a second problem, so
+ * this phase runs only on a real row. */
 const firstRow = firstRowId();
 if (firstRow !== '') {
 	const cleared = await drive([
@@ -417,11 +381,8 @@ if (probeDoc !== null) {
 		'a column width was written',
 	);
 
-	/*
-	 * A write has to start from the file as it is now, not from the version an
-	 * earlier call saw. Change the file between two server runs and check that
-	 * both the outside column and the MCP cell survive.
-	 */
+/* A write has to start from the file as it is now, not the version an earlier call saw.
+ * Change the file between runs and check both the outside column and the MCP cell survive. */
 	const external = JSON.parse(JSON.stringify(probeDoc));
 	external.fields.push({ id: 'f_external', name: '外部列', type: 'text' });
 	writeFileSync(
@@ -465,13 +426,9 @@ if (probeDoc !== null) {
 	}
 }
 
-/*
- * The computed columns another table contributes to. The target table stores the
- * numbers; the main table reaches them through a relation and reads a rollup,
- * a lookup and a formula over that rollup. The answer has to hold both the values
- * and the `computedFrom` chain that says where they came from. A note property is
- * read from a real note in the temporary vault, not from the `.layer` file.
- */
+/* The computed columns another table contributes to: the target table stores the numbers,
+ * the main table reaches them through a relation and reads a rollup, a lookup and a formula
+ * over that rollup. A note property is read from a real note in the temporary vault. */
 mkdirSync(join(vault, 'computed'), { recursive: true });
 writeFileSync(join(vault, 'computed', 'Note.md'), '---\nstatus: done\n---\n');
 const computedRun = await drive([
@@ -598,14 +555,9 @@ if (computedDoc !== null) {
 	);
 }
 
-/*
- * A link stores the path it was given, and moving the table it points at leaves that
- * path stale. The app still reads the table by its file name, so everything this
- * server reports and writes through a link has to resolve the same way — otherwise a
- * cell shows its value while the column is described as unconfigured, a relation
- * loses its row labels, and writing a row by name fails. Its table has a name of its
- * own on purpose: a file name two tables share resolves to neither.
- */
+/* A link stores the path it was given, so moving the table leaves it stale while the app
+ * still reads by file name. Everything this server reports and writes through a link must
+ * resolve the same way. The other table has a name of its own: a shared file name resolves to neither. */
 mkdirSync(join(vault, 'stale', '深'), { recursive: true });
 const staleRun = await drive([
 	call(1, 'create_table', { path: 'stale/远端.layer', name: '远端' }),

@@ -15,49 +15,29 @@ import {
 	type CellReader as CellTextReader,
 } from './relation';
 
-/** What a view needs to draw one cell. */
 export interface CellReading {
 	text: string;
 	broken: number;
-	/** Values to draw as separate chips, when the cell holds more than one. */
 	chips?: readonly string[];
-	/** What kind of value stands behind the text, when the caller knows. */
 	kind?: 'number' | 'text' | 'boolean';
-	/** Whether a box drawn for this cell is ticked. Only read when `kind` is boolean. */
 	ticked?: boolean;
-	/** Why the cell cannot show what it should, as a sentence. */
 	hint?: string;
 }
 
-/**
- * What the reader needs from the layer it lives in.
- *
- * The model may not import Obsidian, so an editor supplies its live table cache
- * and metadata cache, while the MCP server supplies its own file reads. Keeping
- * these three questions here is what lets both answer a cell the same way.
- */
+/** The model may not import Obsidian: an editor supplies its live caches, the MCP server its own file reads. */
 export interface CellReaderHost {
-	/**
-	 * The table a link points at. `from` is the table the field lives in; an
-	 * empty path means that same table.
-	 */
+	/** The table a link points at; an empty `from` path means that same table. */
 	table(field: Field, from: LayerDoc, direction: 'link' | 'back'): LayerDoc | null;
-	/** The text of one frontmatter key in the note at `notePath`; null when the value is too complex to read. */
 	noteProperty(notePath: string, key: string): string | null;
-	/** Why a note property cannot be read, in the caller's language; a cell shows it on hover. */
 	notePropertyHint(): string;
-	/** How a formula error reads in the caller's language, for the cell and its hover. */
 	formulaError(error: FormulaError): { text: string; hint: string };
 }
 
-/** One table's cells, read against the live documents a host can reach. */
 export class CellReader {
 	private readDepth = 0;
-	/** Reverse lookups for the current pass, per source column. */
+	// Per-pass caches, per source column: built once, since per cell each would scan another table per row.
 	private readonly backIndexes = new Map<string, Map<string, string[]> | null>();
-	/** The pointing rows themselves, per source column, for the current pass. */
 	private readonly backRows = new Map<string, Map<string, BacklinkRow[]> | null>();
-	/** Numbering texts for the current pass, per column. */
 	private readonly numbers = new Map<string, Map<string, string>>();
 
 	constructor(private readonly host: CellReaderHost) {}
@@ -70,15 +50,9 @@ export class CellReader {
 		this.numbers.clear();
 	}
 
-	/**
-	 * Reads a cell the document cannot read by itself.
-	 *
-	 * A note property lives in another file; a relation stores row ids and the names
-	 * are in another table; a computed column stores nothing at all. Answering null
-	 * leaves every other type to the plain rules, so this switch is the whole of
-	 * "this column needs the layer".
-	 */
+	/** Reads a cell the document cannot read itself; null leaves the type to the plain rules. */
 	reading(doc: LayerDoc, field: Field, record: LayerRecord): CellReading | null {
+		// Stops a computed column from reading another that reads it back.
 		if (this.readDepth > 8) {
 			return null;
 		}
@@ -112,12 +86,10 @@ export class CellReader {
 		}
 	}
 
-	/** The text a cell reads as, or null when the document can read it itself. */
 	text(doc: LayerDoc, field: Field, record: LayerRecord): string | null {
 		return this.reading(doc, field, record)?.text ?? null;
 	}
 
-	/** What one cell reads as, whoever is asking; stored types fall back to formatCell. */
 	displayText(doc: LayerDoc, field: Field, record: LayerRecord): string {
 		const read = this.reading(doc, field, record);
 		if (read !== null) {
@@ -126,20 +98,13 @@ export class CellReader {
 		return formatCell(field, record.cells[field.id] ?? emptyValueFor(field));
 	}
 
-	/**
-	 * How another table's cells read, for the columns that table cannot read itself.
-	 *
-	 * The same answer this table's cells get, asked of the table they live in. That
-	 * is what lets a relation show a formula, a lookup show a rollup and a backlink
-	 * title a numbering column — one answer, every table.
-	 */
+	/** The same answers, asked of the table those cells live in, so a relation can show a formula. */
 	readerIn(doc: LayerDoc): CellTextReader {
 		return (field, record) =>
 			this.reading(doc, field, record)?.text ??
 			formatCell(field, record.cells[field.id] ?? '');
 	}
 
-	/** What a note property row reads. */
 	notePropReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		const text = this.notePropValueIn(doc, field, recordId);
 		if (text === null) {
@@ -152,7 +117,6 @@ export class CellReader {
 		return { text, broken: 0 };
 	}
 
-	/** The value a note property row reads, resolved through the row's note column. */
 	private notePropValueIn(doc: LayerDoc, field: Field, recordId: string): string | null {
 		const record = findRecord(doc, recordId);
 		if (!record) {
@@ -171,11 +135,8 @@ export class CellReader {
 	}
 
 	/**
-	 * What a formula row computes to.
-	 *
-	 * The columns are re-read from the open document rather than trusted from the
-	 * cell that asked: the grid was built from an earlier render, and a formula
-	 * must read the values as they are now.
+	 * Columns are re-read from the open document, not trusted from the cell that asked:
+	 * the grid was built from an earlier render, and a formula reads the values as they are now.
 	 */
 	formulaReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		const record = findRecord(doc, recordId);
@@ -183,11 +144,7 @@ export class CellReader {
 		if (!record || !target) {
 			return { text: '', broken: 0 };
 		}
-		/*
-		 * A column with no expression yet is not an error, it is a column waiting to
-		 * be set up, so it reads as empty rather than reporting a failure in every
-		 * row of a field that was just created.
-		 */
+		// A column waiting to be set up, not a failure in every row.
 		if ((target.formula ?? '').trim() === '') {
 			return { text: '', broken: 0 };
 		}
@@ -195,11 +152,7 @@ export class CellReader {
 			this.formulaCellValueIn(doc, other, record, recordId),
 		);
 		if (result.ok) {
-			/*
-			 * The text is always what was computed; only the dressing follows the
-			 * column's declared kind. Coercing here would quietly change a result
-			 * the reader can see, which is worse than presenting it plainly.
-			 */
+			// The text is what was computed; only the dressing follows the declared kind.
 			return {
 				text: result.text,
 				broken: 0,
@@ -211,14 +164,8 @@ export class CellReader {
 	}
 
 	/**
-	 * What one column hands a formula.
-	 *
-	 * Asked only for the columns the document cannot read on its own: a relation
-	 * keeps row ids where the grid shows names, and a lookup, rollup, reverse
-	 * relation, note property or numbering keeps nothing at all. Every other type
-	 * answers `undefined` and is read from its stored cell — which matters, because
-	 * a number column must arrive as a number or `+` would join it as text instead
-	 * of adding it.
+	 * Only for columns the document cannot read alone; anything else answers `undefined`
+	 * and is read from its stored cell; a number must arrive as a number, or `+` joins text.
 	 */
 	formulaCellValueIn(
 		doc: LayerDoc,
@@ -250,17 +197,13 @@ export class CellReader {
 	}
 
 	/**
-	 * What a numbering cell reads: its position within its group, padded.
-	 *
-	 * Counted for the whole column at once and kept for this render pass, because
-	 * the count walks every row of the group — asking that per cell would make the
-	 * table cost its own square.
+	 * Position within its group, counted for the whole column once per pass: asking
+	 * per cell would make the table cost its own square.
 	 */
 	autoNumberReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		let texts = this.numbers.get(field.id);
 		if (!texts) {
-			// The live column, not the copy the paint was handed, so a setting
-			// changed since the tree was built cannot be counted with.
+			// The live column, not the copy the paint was handed: a setting may have changed.
 			const target = doc.fields.find((other) => other.id === field.id) ?? field;
 			texts = numberTexts(doc, target);
 			this.numbers.set(field.id, texts);
@@ -268,7 +211,6 @@ export class CellReader {
 		return { text: texts.get(recordId) ?? '', broken: 0, kind: 'number' };
 	}
 
-	/** What a rollup gathered from the rows this row is linked to. */
 	rollupReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		const record = findRecord(doc, recordId);
 		if (!record) {
@@ -281,12 +223,7 @@ export class CellReader {
 		return { text: answer.text, broken: 0, kind: answer.kind };
 	}
 
-	/**
-	 * The total a rollup reached, before it is dressed for the cell.
-	 *
-	 * Null covers both "this column is not set up" and "the other table cannot be
-	 * read": either way the column has nothing to show, and neither is an error.
-	 */
+	/** Null is both "not set up" and "the other table cannot be read": neither is an error. */
 	private rollupAnswerIn(
 		doc: LayerDoc,
 		field: Field,
@@ -300,8 +237,7 @@ export class CellReader {
 		const sourceField = doc.fields.find(
 			(candidate) => candidate.id === target.rollupSourceFieldId,
 		);
-		// Not configured yet, or pointing at a column that is gone: a column waiting
-		// to be set up reads as empty, not as a failure in every row.
+		// Not configured, or pointing at a column that is gone: empty, not a failure in every row.
 		if (!sourceField || !target.rollupFieldId) {
 			return null;
 		}
@@ -321,13 +257,7 @@ export class CellReader {
 		);
 	}
 
-	/**
-	 * What a lookup read from the rows this row is linked to.
-	 *
-	 * One chip per value, in the order the link lists the rows. Values that repeat
-	 * stay repeated: dropping one would silently forget that a linked row exists.
-	 * Nothing about it is stored, so it cannot go stale when the other table moves.
-	 */
+	/** One chip per gathered value, in link order; a repeat stays, since dropping one forgets a linked row. */
 	lookupReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		const record = findRecord(doc, recordId);
 		const target = doc.fields.find((candidate) => candidate.id === field.id);
@@ -338,8 +268,6 @@ export class CellReader {
 			(candidate) => candidate.id === target.lookupSourceFieldId,
 		);
 		const columnId = target.lookupFieldId ?? '';
-		// Not set up yet, or pointing at a column that is gone: an unconfigured
-		// column reads as empty, not as a failure in every row.
 		if (!sourceField || columnId === '') {
 			return { text: '', broken: 0 };
 		}
@@ -358,12 +286,8 @@ export class CellReader {
 		if (!other || gathered === null) {
 			return { text: '', broken: 0 };
 		}
-		/*
-		 * Read through the formatter of the column the values came from, not
-		 * through a link reader: a gathered value is the value itself, while a
-		 * link reader expects a cell holding a list of row ids and answers
-		 * with nothing for anything else.
-		 */
+		// Through the column's own formatter, not a link reader: a link reader expects
+		// a cell of row ids and answers nothing for a plain value.
 		const column = other.fields.find((candidate) => candidate.id === columnId);
 		if (!column) {
 			return { text: '', broken: 0 };
@@ -377,12 +301,7 @@ export class CellReader {
 		return { text: chips.join(', '), broken: 0, chips };
 	}
 
-	/**
-	 * The values a rollup reduces, or null when the other table cannot be read.
-	 *
-	 * Null is not the same as an empty list: an empty list means the other table was
-	 * read and had nothing to contribute, which a count answers as zero.
-	 */
+	/** Null is not an empty list: an empty list was read and had nothing, which a count answers as zero. */
 	private gatheredValuesIn(
 		doc: LayerDoc,
 		sourceField: Field,
@@ -419,18 +338,12 @@ export class CellReader {
 			);
 		}
 
-		// A source column that is neither kind is a configuration this column cannot
-		// answer, so it reads as empty rather than guessing at a direction.
 		return null;
 	}
 
 	/**
-	 * One gathered value, plus the text to use when that column computes it.
-	 *
-	 * `text` is null for every column that stores what it shows, so the caller reads
-	 * the stored value — a number column has to stay a number or a total stops being
-	 * arithmetic. A computed column has nothing stored, so what its cell reads as is
-	 * all there is; without this, a lookup or rollup over a formula gathered blanks.
+	 * `text` is null for a column that stores what it shows, so the caller reads the stored
+	 * value; a number must stay a number. Without it, a lookup over a formula gathers blanks.
 	 */
 	private gatheredIn(
 		doc: LayerDoc,
@@ -451,7 +364,6 @@ export class CellReader {
 		};
 	}
 
-	/** What a relation cell shows. */
 	relationReading(doc: LayerDoc, field: Field, value: CellValue): CellReading {
 		const target = this.host.table(field, doc, 'link');
 		if (!target) {
@@ -470,16 +382,11 @@ export class CellReader {
 		};
 	}
 
-	/** What a reverse relation row shows: the rows elsewhere that point at it. */
 	backReading(doc: LayerDoc, field: Field, recordId: string): CellReading {
 		const source = this.host.table(field, doc, 'back');
 		if (source === null) {
 			return { text: '', broken: 1 };
 		}
-		/*
-		 * Built once per column per render, not once per cell: asking per cell
-		 * would scan the whole source table for every row of this one.
-		 */
 		const titleFieldId = field.backTitleFieldId ?? '';
 		const key = `${field.backPath ?? ''}\u0000${field.backFieldId ?? ''}\u0000${titleFieldId}`;
 		let index = this.backIndexes.get(key);

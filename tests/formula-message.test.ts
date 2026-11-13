@@ -16,7 +16,6 @@ import {
 import { createEmptyDoc } from '../src/io/schema';
 import { addRecord } from '../src/model/records';
 
-/** Every error code a formula can report, gathered by provoking each one. */
 function errorOf(source: string): {
 	code: string;
 	detail?: string;
@@ -42,7 +41,7 @@ function errorOf(source: string): {
 	return result.error;
 }
 
-/** The sources that provoke one error each, with the code each must report. */
+/** One source per error code it must report. */
 const CASES: readonly (readonly [string, string])[] = [
 	['', 'empty'],
 	['{a', 'unclosed-reference'],
@@ -71,7 +70,6 @@ describe('the engine reports codes, not sentences', () => {
 
 	it('carries no English sentence in the error itself', () => {
 		for (const [source] of CASES) {
-			// A message field would mean wording the engine cannot localise.
 			expect(errorOf(source).message, source).toBeUndefined();
 		}
 	});
@@ -84,8 +82,6 @@ describe('the engine reports codes, not sentences', () => {
 	});
 
 	it('names a value the formula wrote, never a sentence of its own', () => {
-		// The detail is substituted into the locale sentence, so it has to appear in
-		// the source verbatim rather than being prose of its own.
 		for (const [source] of CASES) {
 			const { detail } = errorOf(source);
 			if (detail === undefined) {
@@ -101,7 +97,6 @@ describe('formulaErrorKey', () => {
 		for (const [source] of CASES) {
 			const { key } = formulaErrorKey(errorOf(source));
 			expect(key.startsWith('formulaErr'), source).toBe(true);
-			// Never the generic one while the specific code is known.
 			expect(key, source).not.toBe('formulaErrGeneric');
 		}
 	});
@@ -149,8 +144,6 @@ describe('formulaErrorKindKey', () => {
 	});
 
 	it('tells a misspelling from a missing reference from arithmetic', () => {
-		// These are the distinctions worth drawing in a cell too narrow for a
-		// sentence; the sentence itself travels as the hover.
 		expect(formulaErrorKindKey({ code: 'trailing-text' })).toBe(
 			'formulaErrShortSyntax',
 		);
@@ -182,15 +175,11 @@ describe('formulaSymbolKey', () => {
 	});
 
 	it('answers null for a symbol it does not offer', () => {
-		// A button can only be built from the declared groups, so this is the
-		// safety net for a symbol passed in from somewhere else.
 		expect(formulaSymbolKey('&&')).toBeNull();
 		expect(formulaSymbolKey('')).toBeNull();
 	});
 
 	it('explains the symbols a reader cannot guess', () => {
-		// The point of the wording: `!=`, `%` and a quote mean nothing to someone
-		// who has not met them, which is exactly who the buttons are for.
 		for (const symbol of ['!=', '%', '"', 'TRUE', 'FALSE', '>=']) {
 			expect(formulaSymbolKey(symbol), symbol).not.toBeNull();
 		}
@@ -199,8 +188,6 @@ describe('formulaSymbolKey', () => {
 
 describe('the groups the functions are offered in', () => {
 	it('cover every function exactly once', () => {
-		// A function in no group would never be offered; one in two would appear
-		// twice. Both are mistakes that only show on a screen nobody re-reads.
 		const seen = new Map<string, number>();
 		for (const group of FORMULA_FUNCTION_GROUPS) {
 			for (const name of group.functions) {
@@ -231,17 +218,14 @@ describe('the groups the functions are offered in', () => {
 
 describe('the text these keys point at', () => {
 	/*
-	 * The locale files themselves are checked by `npm run check:i18n`, because
-	 * reading them here would need `node:fs`, which a mobile-safe plugin may not
-	 * import. What can be asserted without them is the shape of the contract: a
-	 * tooltip is a label, so the key naming one is distinct from the keys naming
-	 * sentences, and the two sets do not overlap.
+	 * The locale files are checked by `npm run check:i18n`; a mobile-safe plugin cannot
+	 * read them here. What is left to assert is that a tooltip key never collides with
+	 * a sentence key.
 	 */
 	it('separates tooltip keys from sentence keys', () => {
 		for (const name of FORMULA_FUNCTIONS) {
 			const key = formulaFunctionKey(name) as string;
 			expect(key.startsWith('formulaFn'), key).toBe(true);
-			// A message key would mean a tooltip and an error shared wording.
 			expect(key.startsWith('formulaErr'), key).toBe(false);
 		}
 	});

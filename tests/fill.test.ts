@@ -21,8 +21,7 @@ describe('fillableFields', () => {
 	});
 
 	it('leaves out a note property, whose cell carries the empty stored value', () => {
-		// Editable, yet derived: a fill from it would write '' and delete the key from
-		// every linked note, so it must not be offered as a fill column.
+		// Editable yet derived: a fill would write '' and delete the key from every linked note.
 		expect(fillableFields([noteProp])).toEqual([]);
 	});
 

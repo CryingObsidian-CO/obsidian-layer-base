@@ -15,44 +15,29 @@ import { specFor } from '../../model/fields';
 import { sortRecords } from '../../model/sort';
 
 export interface KanbanHandlers {
-	/** Switches this board to group by another column. */
 	onSetGroupField(fieldId: string): void;
-	/** Stores a new column limit on this board. */
 	onSetColumnLimit(limit: number): void;
-	/** Stores whether the board shows columns no row uses yet. */
 	onSetShowEmpty(show: boolean): void;
-	/** Writes a new value into the grouping column, moving the card. */
 	onMove(index: { recordId: string; column: KanbanColumn }): void;
-	/** Opens a card, which means opening its row in the table. */
 	onOpenRecord(recordId: string): void;
-	/**
-	 * Opens the note a `note` line names, creating it when the vault has none. The
-	 * board cannot reach the vault itself.
-	 */
+	/** The board cannot reach the vault itself. */
 	onOpenNote(path: string): void;
 
-	/** What a `note` line shows: the file's name, or the path it lives at. */
 	noteLabelStyle(): NoteLabelStyle;
 
 	/** Reads a cell the model cannot read by itself; null means "not mine". */
 	cellText(field: Field, record: LayerRecord): string | null;
-	/** What a cell reads as, for grouping and for card titles. */
 	displayText(field: Field, record: LayerRecord): string;
 }
 
 /**
- * The board: one column per value of the grouping column, one card per row.
- *
- * Rows are grouped by the text the column shows, so a board of dates reads as a
- * calendar and a board of a multiple-value column keeps each distinct selection
- * together rather than scattering its rows across columns.
+ * One column per value of the grouping column, one card per row. Rows are grouped by the text
+ * the column shows, so a multiple-value column keeps each distinct selection in one column.
  */
 export class KanbanRenderer {
 	private host: HTMLElement;
 	private handlers: KanbanHandlers;
-	/** The cards by row id, so a drag can find what it is carrying. */
 	private cards = new Map<string, HTMLElement>();
-	/** The column currently grouped by, so the menu can tick it. */
 	private groupedBy = '';
 
 	constructor(host: HTMLElement, handlers: KanbanHandlers) {
@@ -73,9 +58,7 @@ export class KanbanRenderer {
 			return;
 		}
 
-		// The board honours the view's filter and order, so it shows the same rows
-		// the table would: two views of one table should not disagree about which
-		// rows exist.
+		// The board honours the view's filter and order, so it shows the rows the table would.
 		const visible = sortRecords(
 			filterRecords(
 				doc.records,
@@ -102,8 +85,7 @@ export class KanbanRenderer {
 			view.showEmptyColumns === true,
 		);
 		const byId = new Map(doc.records.map((record) => [record.id, record]));
-		// What a card prints comes from the board's own settings, resolved in one
-		// place so the panel and the renderer cannot disagree.
+		// Resolved in one place, so the settings panel and this renderer cannot disagree.
 		const cardColumns = cardColumnsFor(doc.fields, view);
 
 		this.groupedBy = groupField.id;
@@ -114,8 +96,7 @@ export class KanbanRenderer {
 			this.renderColumn(board, column, groupField, byId, cardColumns);
 		}
 
-		// What the limit left out, so a board that draws fewer columns than it has
-		// says so instead of looking complete.
+		// What the limit left out, so a board drawing fewer columns than it has does not look complete.
 		const total = groupRecords(
 			visible,
 			groupField,
@@ -131,28 +112,12 @@ export class KanbanRenderer {
 		}
 	}
 
-	/**
-	 * The strip above the columns: what the board groups by, and its column limit.
-	 *
-	 * The grouping control picks the column rather than editing it: its label is the
-	 * column's name, so a reader takes it for a chooser, and opening a field editor
-	 * from here would answer a question nobody asked. Editing a column stays where
-	 * columns are edited — the table's header.
-	 *
-	 * The limit belongs to the board rather than the table, because one table may
-	 * have several boards and a board of dates needs a different ceiling from a
-	 * board of choices. It is edited here because this is where its effect is seen.
-	 */
+	// The limit belongs to the board, not the table: one table may have several boards, each
+	// needing its own ceiling.
 	private renderHead(view: KanbanView, groupField: Field): void {
 		const head = this.host.createDiv({ cls: 'layer-kanban-toolbar' });
 
 
-		/*
-		 * The grouping column is shown, not offered: changing it belongs in the
-		 * fields panel, which is where the card's other columns are chosen. Two
-		 * controls that both change it would leave the reader wondering which one
-		 * speaks for the board.
-		 */
 		const group = head.createSpan({ cls: 'layer-kanban-group' });
 		setIcon(group.createSpan({ cls: 'layer-kanban-group-icon' }), 'columns');
 		group.createSpan({ text: groupField.name });
@@ -160,8 +125,7 @@ export class KanbanRenderer {
 
 		head.createDiv({ cls: 'layer-kanban-toolbar-spacer' });
 
-		// Whether the board shows columns no row uses yet, which is what makes an
-		// unused choice reachable by dragging.
+		// Showing empty columns is what makes an unused choice reachable by dragging.
 		const emptyLabel = head.createEl('label', { cls: 'layer-kanban-toggle' });
 		const emptyBox = emptyLabel.createEl('input', { type: 'checkbox' });
 		emptyBox.checked = view.showEmptyColumns === true;
@@ -191,12 +155,6 @@ export class KanbanRenderer {
 		input.addEventListener('change', commit);
 	}
 
-	/**
-	 * Offers the columns this board could group by.
-	 *
-	 * Every column is offered, since a board groups by whatever its cells show —
-	 * except the one already in use, which is ticked rather than repeated.
-	 */
 	private showGroupMenu(anchor: HTMLElement, fields: readonly Field[]): void {
 		const menu = new Menu();
 		for (const field of fields) {
@@ -215,7 +173,6 @@ export class KanbanRenderer {
 		menu.showAtPosition({ x: box.left, y: box.bottom });
 	}
 
-	/** One column: its header, then its cards. */
 	private renderColumn(
 		board: HTMLElement,
 		column: KanbanColumn,
@@ -258,7 +215,6 @@ export class KanbanRenderer {
 		}
 	}
 
-	/** One card: the row's title, and nothing else unless it is asked for. */
 	private renderCard(
 		list: HTMLElement,
 		record: LayerRecord,
@@ -276,31 +232,17 @@ export class KanbanRenderer {
 			text: title === '' ? t().kanbanUntitled : title,
 		});
 
-		/*
-		 * The columns the reader chose to see, each as a small line. A field whose
-		 * cell is empty is left out: a card of empty labels would be longer than the
-		 * information in it.
-		 */
 		for (const field of columns.shown) {
 			const text = this.handlers.displayText(field, record);
 			if (text.trim() === '') {
 				continue;
 			}
 			const line = card.createDiv({ cls: 'layer-kanban-card-field' });
-			/*
-			 * The column's own type icon, which is how the table's header marks it: a
-			 * card showing six fields reads faster when the date and the number look
-			 * different from the text.
-			 */
 			const icon = line.createSpan({ cls: 'layer-kanban-card-icon' });
 			setIcon(icon, specFor(field.type).icon);
 			line.createSpan({ cls: 'layer-kanban-card-label', text: field.name });
 			if (field.type === 'note') {
-				/*
-				 * A note line is a way into the file it names, so it reads as a link. The
-				 * click is kept from the card underneath, which would otherwise take it as
-				 * "open this row" and cost the reader their place in the board.
-				 */
+				// The card underneath would take the click as "open this row", so it is kept from it.
 				const link = line.createEl('a', {
 					cls: 'layer-kanban-card-link',
 					text: noteLabel(text, this.handlers.noteLabelStyle()),
@@ -316,8 +258,7 @@ export class KanbanRenderer {
 			}
 		}
 
-		// A card only drags when its drop would write somewhere: a computed column
-		// has no value to write, so its cards stay put.
+		// A card only drags when its drop would write somewhere; a computed column has nowhere.
 		if (column.droppable) {
 			card.draggable = true;
 			card.addEventListener('dragstart', (event) => {
@@ -332,8 +273,6 @@ export class KanbanRenderer {
 			setTooltip(card, t().kanbanFixedGroup);
 		}
 
-		// Clicking opens the row in the table, which is where it is edited: a card
-		// shows a title and nothing else, so editing belongs somewhere with room.
 		card.addEventListener('click', () => {
 			this.handlers.onOpenRecord(record.id);
 		});
@@ -341,7 +280,6 @@ export class KanbanRenderer {
 		this.cards.set(record.id, card);
 	}
 
-	/** Lets a column receive a dragged card, if it may. */
 	private attachDropTarget(
 		host: HTMLElement,
 		column: KanbanColumn,
@@ -366,12 +304,8 @@ export class KanbanRenderer {
 		});
 	}
 
-	/**
-	 * A board whose grouping column is gone says so, and offers a way to fix it.
-	 *
-	 * The repair is a button rather than something that happens on render: opening a
-	 * panel by merely looking at a board would be a window nobody asked for.
-	 */
+	// A button rather than automatic: opening a panel just because a board was looked at
+	// would be a window nobody asked for.
 	private renderMissing(doc: LayerDoc): void {
 		const wrap = this.host.createDiv({ cls: 'layer-kanban-missing' });
 		setIcon(wrap.createSpan({ cls: 'layer-kanban-missing-icon' }), 'columns');

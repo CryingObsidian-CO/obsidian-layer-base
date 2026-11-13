@@ -61,11 +61,6 @@ describe('the chips a lookup draws', () => {
 		]);
 	});
 
-	/*
-	 * The case that was wrong: a gathered value is not a list of row ids, so it
-	 * must go through the column's own formatter. Reading it as a link answered
-	 * with nothing, which looked exactly like an empty column.
-	 */
 	it('shows a choice by its name, not by the id it stores', () => {
 		const choice: Field = {
 			id: 'f_choice',
@@ -96,11 +91,6 @@ describe('the chips a lookup draws', () => {
 		expect(lookupChips(text, [])).toEqual([]);
 	});
 
-	/*
-	 * A computed column stores nothing to format, so the caller has to say what the
-	 * value reads as. Without that it contributed no chip at all, and the lookup
-	 * showed a blank where the other table plainly held a value.
-	 */
 	it('takes the text the caller resolved for a computed column', () => {
 		const formula: Field = { id: 'f_formula', name: 'Label', type: 'formula' };
 
@@ -119,8 +109,6 @@ describe('the chips a lookup draws', () => {
 		const link: Field = { id: 'f_link', name: 'Link', type: 'relation' };
 		const names = (): readonly string[] => ['Ann', 'Bob'];
 
-		// Without a reader it can only answer what it stores: the row ids, joined the
-		// way the column stores them.
 		expect(lookupChips(link, [['r_1', 'r_2']])).toEqual(['r_1, r_2']);
 		expect(
 			lookupChips(link, [['r_1', 'r_2']], () => ['Ann', 'Bob']),

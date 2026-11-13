@@ -1,44 +1,30 @@
 import type { Field, LayerDoc, LayerRecord } from '../types';
 
 /**
- * Undo and redo for the data of a table.
- *
- * A snapshot is the fields and the rows, and nothing else. Views — column widths,
- * filters, which columns are hidden — are not part of it: undoing a deleted row
- * should put the row back, not also undo the column the reader widened meanwhile.
+ * Undo and redo for a table's data only: views are not snapshotted, so undoing a deleted
+ * row does not also undo the column the reader widened meanwhile.
  */
 
-/** One step of history: what the table held before an edit. */
 export interface HistoryEntry {
-	/** What the edit was, used to merge a run of the same kind of edit. */
 	label: string;
 	fields: Field[];
 	records: LayerRecord[];
 }
 
-/** The data of a document, as a snapshot holds it. */
 export interface Snapshot {
 	fields: Field[];
 	records: LayerRecord[];
 }
 
-/** How many steps back a table may go. */
 export const HISTORY_LIMIT = 30;
 
-/** How long a run of the same edit keeps merging into one step. */
 const MERGE_WINDOW_MS = 800;
 
-/**
- * Copies the data of a document.
- *
- * Through JSON rather than `structuredClone`: the document is plain JSON by
- * construction, and this way a runtime without the newer function still works.
- */
+/** Through JSON, not `structuredClone`: the document is plain JSON and older runtimes lack it. */
 function copyData(doc: LayerDoc): Snapshot {
 	return JSON.parse(JSON.stringify({ fields: doc.fields, records: doc.records })) as Snapshot;
 }
 
-/** Reads a clock, given a chance to be replaced in tests. */
 export type Clock = () => number;
 
 export class History {
@@ -52,35 +38,17 @@ export class History {
 		private readonly now: Clock = () => Date.now(),
 	) {}
 
-	/**
-	 * Records what the table looked like before an edit.
-	 *
-	 * Called *before* the change is made, so a step holds the state to go back to. A
-	 * run of the same kind of edit within the merge window replaces the step it would
-	 * otherwise follow: typing in one cell should take one press to undo, not one per
-	 * keystroke.
-	 */
+	/** Call before the edit: the step holds the state to go back to. */
 	record(label: string, doc: LayerDoc): void {
 		this.push(label, this.snapshot(doc));
 	}
 
-	/**
-	 * Copies the data now, before an edit is made.
-	 *
-	 * Paired with `push`: an edit that turns out to change nothing — a delete that
-	 * matched no rows — can then leave no step behind.
-	 */
+	/** Take this before an edit and `push` it after: an edit that changed nothing then leaves no step. */
 	snapshot(doc: LayerDoc): Snapshot {
 		return copyData(doc);
 	}
 
-	/**
-	 * Records a snapshot taken earlier.
-	 *
-	 * Called after the edit, handing back what `snapshot` took before it. A run of the
-	 * same kind of edit within the merge window replaces the step it would otherwise
-	 * follow: typing in one cell should take one press to undo, not one per keystroke.
-	 */
+	/** Records a snapshot taken earlier; same-label edits inside the merge window fold into one step. */
 	push(label: string, before: Snapshot): void {
 		const at = this.now();
 		const merging =
@@ -101,12 +69,6 @@ export class History {
 		this.lastAt = at;
 	}
 
-	/**
-	 * Takes one step back, returning the data to restore.
-	 *
-	 * The state handed back is the table as it was before the edit, and the caller's
-	 * current state is pushed onto the redo stack so it can be reached again.
-	 */
 	undo(current: Snapshot): Snapshot | null {
 		const entry = this.undoStack.pop();
 		if (!entry) {
@@ -123,7 +85,6 @@ export class History {
 		return { fields: entry.fields, records: entry.records };
 	}
 
-	/** Takes one step forward again, after an undo. */
 	redo(current: Snapshot): Snapshot | null {
 		const entry = this.redoStack.pop();
 		if (!entry) {
@@ -147,17 +108,11 @@ export class History {
 		return this.redoStack.length > 0;
 	}
 
-	/** How many steps back are available, for tests and for a status line. */
 	get depth(): number {
 		return this.undoStack.length;
 	}
 
-	/**
-	 * Forgets everything.
-	 *
-	 * Used when the file is replaced under us: history from the old document must not
-	 * be replayed onto a new one.
-	 */
+	/** Used when the file is replaced: history from the old document must not replay onto a new one. */
 	clear(): void {
 		this.undoStack = [];
 		this.redoStack = [];

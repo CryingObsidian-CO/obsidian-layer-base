@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { aggregateRollup } from '../src/model/rollup';
 import type { CellValue } from '../src/types';
 
-/** The text a rollup answered, or '—' when it had nothing to report. */
 function text(values: readonly CellValue[], how: Parameters<typeof aggregateRollup>[1]): string {
 	return aggregateRollup(values, how)?.text ?? '—';
 }
@@ -24,8 +23,6 @@ describe('reducing the gathered values', () => {
 	});
 
 	it('answers the earliest and latest date, as a date', () => {
-		// The reason min and max accept dates: "when is the first deadline" is a
-		// question a table of children actually gets asked.
 		expect(text(['2026-10-18', '2026-03-07', '2026-12-01'], 'min')).toBe('2026-03-07');
 		expect(text(['2026-10-18', '2026-03-07', '2026-12-01'], 'max')).toBe('2026-12-01');
 	});
@@ -33,10 +30,6 @@ describe('reducing the gathered values', () => {
 	it('keeps the time of day when the values are date-times', () => {
 		const times = ['2026-03-07T09:00', '2026-03-07T18:00'];
 
-		/*
-		 * Both values fall on the same day, so a comparison of days made them a tie
-		 * and the first one won: the latest deadline of a day answered 09:00.
-		 */
 		expect(text(times, 'min')).toBe('2026-03-07T09:00');
 		expect(text(times, 'max')).toBe('2026-03-07T18:00');
 		expect(text(['2026-03-07T18:00', '2026-03-08T09:00'], 'max')).toBe('2026-03-08T09:00');
@@ -68,8 +61,6 @@ describe('reducing the gathered values', () => {
 
 describe('a rollup over no rows at all', () => {
 	it('reports nothing for the aggregates that need a value', () => {
-		// "No children" and "the total is nothing" are different facts, and the cell
-		// shows the first as empty rather than as a zero it cannot justify.
 		for (const how of ['sum', 'average', 'min', 'max'] as const) {
 			expect(aggregateRollup([], how), how).toBeNull();
 		}

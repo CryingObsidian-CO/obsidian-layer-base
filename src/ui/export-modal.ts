@@ -10,12 +10,10 @@ import { t } from '../i18n';
 
 export interface ExportModalOptions {
 	app: App;
-	/** The board the export is taken from, which decides the default place. */
 	boardFile: { path: string; basename: string; parent: TFolder | null };
 	onSubmit: (result: { folder: TFolder; name: string }) => void;
 }
 
-/** Offers the vault's folders while a path is typed. */
 class FolderSuggest extends AbstractInputSuggest<TFolder> {
 	constructor(
 		app: App,
@@ -47,20 +45,11 @@ class FolderSuggest extends AbstractInputSuggest<TFolder> {
 	}
 }
 
-/**
- * Where an export goes, asked before it is written.
- *
- * A file appearing in the vault is worth confirming, so folder and name are shown
- * rather than assumed. Both default to the board's own, so confirming is one press.
- */
+/** Asked before the file is written, so the place is confirmed rather than assumed. */
 export class ExportModal extends Modal {
 	/**
-	 * The folder path as typed, which is both what the input shows and what a
-	 * submit uses.
-	 *
-	 * Kept as text rather than as a folder: holding the last folder that existed at
-	 * a typed path meant the input could show one place while the export went to
-	 * another, silently.
+	 * Kept as text rather than as a folder: holding the last folder that existed at the typed
+	 * path let the input show one place while the export went to another.
 	 */
 	private folderPath: string;
 	private name: string;
@@ -97,9 +86,7 @@ export class ExportModal extends Modal {
 			.sort((a, b) => a.path.localeCompare(b.path));
 		new FolderSuggest(this.app, folderInput, folders);
 		folderInput.addEventListener('input', () => {
-			// The typed path is the answer; whether a folder exists at it is asked when
-			// the reader is finished typing, so a half-written path does not flash an
-			// error under every keystroke.
+			// Only the text is taken while typing; a bad path is reported on blur, not per keystroke.
 			this.folderPath = normalizePath(folderInput.value.trim());
 			this.paint();
 		});
@@ -132,13 +119,7 @@ export class ExportModal extends Modal {
 		window.setTimeout(() => nameInput.select(), 0);
 	}
 
-	/**
-	 * Shows what is wrong, so the reader can fix it before confirming.
-	 *
-	 * The folder is only reported once the reader is done with that field — on
-	 * blur, or on an attempt to confirm — because every half-typed path is a folder
-	 * that does not exist yet.
-	 */
+	/** The folder is reported only once the reader is done with it: every half-typed path names none. */
 	private paint(reportFolder = false): void {
 		const error = this.errorEl;
 		if (!error) {
@@ -155,7 +136,6 @@ export class ExportModal extends Modal {
 		}
 	}
 
-	/** What is wrong with the name, or an empty string. */
 	private nameProblem(): string {
 		if (this.name.trim() === '') {
 			return t().exportNameEmpty;
@@ -176,7 +156,6 @@ export class ExportModal extends Modal {
 		this.close();
 	}
 
-	/** The folder the typed path names, or null when the vault has none there. */
 	private folderInVault(): TFolder | null {
 		if (this.folderPath === '') {
 			return this.app.vault.getRoot();
@@ -184,7 +163,6 @@ export class ExportModal extends Modal {
 		return this.app.vault.getFolderByPath(this.folderPath);
 	}
 
-	/** What is wrong with the typed folder path, or an empty string. */
 	private folderProblem(): string {
 		return this.folderInVault() === null ? t().exportFolderInvalid : '';
 	}

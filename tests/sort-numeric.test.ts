@@ -2,12 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sortRecords } from '../src/model/sort';
 import type { CellValue, Field, LayerRecord } from '../src/types';
 
-/*
- * The defect these pin: a computed column reaches the sorter as the text it shows,
- * and the collator gets decimals wrong — `1.5` came before `1.25`, because numeric
- * collation compares digit runs and `5` is smaller than `25`. A rollup of money or a
- * formula of averages was in an order no reader would accept.
- */
+// The collator gets decimals wrong: it compares digit runs, so `1.5` sorts before `1.25`.
 
 function row(id: string, cells: Record<string, CellValue> = {}): LayerRecord {
 	return { id, created: '', cells };

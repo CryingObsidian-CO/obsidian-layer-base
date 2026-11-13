@@ -14,7 +14,6 @@ import {
 import { addRecord, setCellValue } from '../src/model/records';
 import type { Field, LayerDoc } from '../src/types';
 
-/** The table that does the pointing: it links at rows of "target". */
 function sourceTable(): LayerDoc {
 	const doc = createEmptyDoc('Tasks');
 	doc.fields = [
@@ -51,7 +50,6 @@ const backField: Field = {
 describe('relationBackText', () => {
 	it('falls back to row numbers when no display column is chosen', () => {
 		expect(relationBackText(sourceTable(), 'f_link', 'r_p1')).toEqual({
-			// Rows 1 and 2 are the ones that point at r_p1.
 			texts: ['1', '2'],
 			broken: 0,
 		});
@@ -88,7 +86,6 @@ describe('relationBackText', () => {
 	});
 
 	it('refuses a source column that is not a relation', () => {
-		// Following a text column would answer every row and mean nothing.
 		expect(relationBackText(sourceTable(), 'f_title', 'r_p1')).toEqual({
 			texts: [],
 			broken: 1,
@@ -101,12 +98,11 @@ describe('relationBackIndex', () => {
 		const index = relationBackIndex(sourceTable(), 'f_link', 'f_title');
 		expect(index?.get('r_p1')).toEqual(['Write it', 'Review it']);
 		expect(index?.get('r_p2')).toEqual(['Review it']);
-		// Rows nobody points at are simply absent, not present and empty.
 		expect(index?.has('r_p9')).toBe(false);
 	});
 
 	it('answers null when the question cannot be asked at all', () => {
-		// Told apart from an empty map, which means "nobody points anywhere".
+		// Told apart from an empty map, which means nobody points anywhere.
 		expect(relationBackIndex(sourceTable(), 'f_gone', 'f_title')).toBeNull();
 		expect(relationBackIndex(sourceTable(), 'f_title', 'f_title')).toBeNull();
 	});
@@ -117,8 +113,7 @@ describe('relationBackIndex', () => {
 	});
 
 	it('never names a row by a column that reads as raw ids', () => {
-		// The primary field here is a relation column, whose text form is the ids
-		// it holds — putting those in a backlink list would show identifiers.
+		// The primary field here is a relation column whose text form is the ids it holds, which must not reach a backlink list.
 		const doc = sourceTable();
 		doc.fields[0]!.primary = false;
 		doc.fields[1]!.primary = true;
@@ -132,7 +127,6 @@ describe('a derived field', () => {
 	it('is marked as derived, and never as missing', () => {
 		expect(isDerived('relationBack')).toBe(true);
 		expect(isDerived('relation')).toBe(false);
-		// Nothing is stored, so "required" cannot be waiting on it.
 		expect(isMissingRequired({ ...backField, required: true }, '')).toBe(false);
 	});
 

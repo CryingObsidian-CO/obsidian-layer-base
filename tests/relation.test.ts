@@ -24,7 +24,6 @@ import {
 } from '../src/model/records';
 import type { Field, LayerDoc } from '../src/types';
 
-/** The table a relation reads: two rows with a value, one without. */
 function sourceTable(): LayerDoc {
 	const doc = createEmptyDoc('Projects');
 	doc.fields = [
@@ -71,7 +70,6 @@ describe('relationCandidates', () => {
 	});
 
 	it('leaves out a row with nothing in that column', () => {
-		// r_c has no value, so it has nothing to contribute.
 		const texts = relationCandidates(sourceTable(), 'f_title').map((c) => c.text);
 		expect(texts).not.toContain('');
 	});
@@ -100,7 +98,6 @@ describe('relationText', () => {
 	});
 
 	it('falls back to the target row numbers when no column is chosen', () => {
-		// An unconfigured relation still says which rows it points at.
 		expect(relationText(sourceTable(), '', ['r_b', 'r_a'])).toEqual({
 			texts: ['2', '1'],
 			broken: 0,
@@ -190,7 +187,6 @@ describe('through the file', () => {
 
 describe('the shapes the grid passes a relation value through', () => {
 	it('clears with the empty value of its own shape', () => {
-		// `''` is not a relation value, so clearing has to hand it an empty array.
 		expect(emptyValueFor(relationField)).toEqual([]);
 		const doc = createEmptyDoc('Tasks');
 		doc.fields = [{ ...relationField }];

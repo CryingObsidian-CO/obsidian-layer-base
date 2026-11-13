@@ -1,30 +1,11 @@
 /*
- * The CSS variables used here come from Obsidian's own app.css, where they are
- * declared on `body`. Editors that validate var() without knowing about the
- * host app will flag them as unresolved; ignore that.
- *
- * Do not redeclare them on `:root` to silence it — themes set the real values on
- * `body`, so a plugin overriding them there overrides the theme.
- *
- * To check a name against the installed Obsidian build:
- *   node scripts/verify-css-vars.mjs
+ * Obsidian declares these variables on `body`; do not redeclare them on `:root`
+ * or a theme's values are overridden. `node scripts/verify-css-vars.mjs` checks names.
  */
 
-/* Root container for a `.layer` file view. */
 .layer-base-container {
-	/*
-	 * Shared by every band and by the table, so their left edges line up.
-	 * Column and row sizes are not here: the renderer sets those as inline
-	 * widths from `model/layout.ts`.
-	 */
 	--layer-inset: var(--size-4-3);
-
-	/*
-	 * Written per row by the renderer. Declared here so the stylesheet owns every
-	 * name it reads, even the ones it never sets itself.
-	 */
 	--layer-row-tint: transparent;
-
 	padding: 0;
 	overflow: hidden;
 	height: 100%;
@@ -39,7 +20,6 @@
 	flex-direction: column;
 }
 
-/* Shown when a file holds no renderable view yet. */
 .layer-base-message {
 	padding: var(--size-4-6);
 	color: var(--text-muted);
@@ -61,14 +41,7 @@
 	padding-left: var(--layer-inset);
 }
 
-/*
- * The block whose definite pixel width the table fills; the renderer sets that
- * width to the sum of the columns it declared. A block cannot be stretched by
- * the table sizing rules the way a table with an `auto` width can.
- *
- * Also the containing block for the range marquee — the renderer measures the
- * marquee against this element, so the two have to agree on the origin.
- */
+/* The renderer gives this block the sum of the column widths, which the table fills. */
 .layer-grid-fit {
 	position: relative;
 	display: block;
@@ -79,22 +52,13 @@
 	border-spacing: 0;
 	table-layout: fixed;
 	/*
-	 * `100%` of `.layer-grid-fit`, which the renderer gives an explicit pixel
-	 * width equal to the sum of the columns — so the table resolves to exactly
-	 * that sum and the `<col>` widths are honoured as written.
-	 *
-	 * This has to be a specified width, and it has to be on the TABLE: the fixed
-	 * algorithm is only used when the table's own `width` is explicit, and with
-	 * `auto` the browser silently falls back to the automatic algorithm, where a
-	 * column's declared width is a starting point that cell content may grow.
-	 * That made a narrowed column spring back open around its content. A width on
-	 * the parent block does not count — it is not the table's own width.
+	 * The table must carry an explicit width for `table-layout: fixed` to apply;
+	 * with `auto` a narrowed column springs back open to fit its content.
 	 */
 	width: 100%;
 	font-size: var(--font-ui-smaller);
 }
 
-/* Also the anchor for the resize handle, so it needs no wrapper of its own. */
 .layer-grid-th {
 	position: sticky;
 	top: 0;
@@ -111,14 +75,7 @@
 	vertical-align: middle;
 }
 
-/*
- * Every state a header can wear is a tint over the colour above, never a colour of
- * its own. Rows scroll underneath the header row, so a fill that replaced the
- * header's colour with a translucent one — the column being hovered, the sorted
- * column, the selected column — let the cell below show through it, and the header
- * read as part of that row instead of above it. An image layer composites over the
- * cell's own background, which stays opaque.
- */
+/* Header states are tints over the base colour; a translucent fill would let rows show through. */
 .layer-grid-th.is-clickable:hover,
 .layer-grid-th.is-sorted {
 	background-image: linear-gradient(
@@ -136,10 +93,6 @@
 
 /* ---------- Resize handles ---------- */
 
-/*
- * A thin strip inside the cell's trailing edge, deliberately wider than the
- * line it draws: a 1px target is unhittable.
- */
 .layer-grid-resizer {
 	position: absolute;
 	z-index: 2;
@@ -162,13 +115,11 @@
 	cursor: row-resize;
 }
 
-/* Feedback on hover, so the handle is discoverable before it is grabbed. */
 .layer-grid-resizer.is-col-resize:hover,
 .layer-grid-resizer.is-row-resize:hover {
 	background: var(--interactive-accent);
 }
 
-/* Keep the cursor for the whole drag, not just over the handle. */
 body.layer-grid-resizing.is-col-resize,
 body.layer-grid-resizing.is-col-resize * {
 	cursor: col-resize !important;
@@ -197,11 +148,7 @@ body.layer-grid-resizing.is-row-resize * {
 	height: 14px;
 }
 
-/*
- * The badge on a computed column, sat before its type icon. It says the values
- * are worked out from another table, so nothing here can be typed into — a
- * column that silently refuses edits would otherwise look broken.
- */
+/* Badge on a computed column: its values come from another table and cannot be typed into. */
 .layer-grid-derived-icon {
 	display: inline-flex;
 	vertical-align: middle;
@@ -227,14 +174,7 @@ body.layer-grid-resizing.is-row-resize * {
 	background: var(--background-modifier-hover);
 }
 
-/*
- * A row tinted by a colour rule.
- *
- * The wash goes on the CELLS rather than on the row: the row's own background is
- * what the hover state paints, and a cell that painted nothing would let that
- * show through and swallow the tint. Hover is then a second, see-through layer
- * over the tint, so a coloured row still answers the pointer.
- */
+/* The tint goes on the cells, not the row: the row background is what hover paints. */
 .layer-grid-row.is-colored > .layer-grid-td {
 	background-color: var(--layer-row-tint);
 }
@@ -250,19 +190,11 @@ body.layer-grid-resizing.is-row-resize * {
 	padding: var(--size-4-1) var(--size-4-3);
 	border-bottom: 1px solid var(--background-modifier-border);
 	border-right: 1px solid var(--background-modifier-border);
-	/* No max-width: under fixed layout the column width already decides how much
-	 * room a cell has, and a cap would clip a deliberately widened column. */
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	cursor: cell;
-	/*
-	 * Every cell is a containing block. Some values are laid out against the cell
-	 * rather than inside its flow (a run of pills, a long text, an editor), and a
-	 * cell that is not positioned lets them escape to a distant ancestor — where
-	 * they would cover the whole board and swallow its clicks. Setting this once
-	 * here means a new type cannot forget to.
-	 */
+	/* Every cell is a containing block, so out-of-flow values cannot escape to the board. */
 	position: relative;
 }
 
@@ -271,21 +203,8 @@ body.layer-grid-resizing.is-row-resize * {
 }
 
 /*
- * A required field whose cell is empty.
- *
- * An `outline` with a negative offset, not an inset `box-shadow` — the two draw
- * different rectangles. An inset shadow is clipped to the PADDING box (MDN), and
- * a cell carries a right and a bottom border but no left or top one, so a shadow
- * is pushed in on two sides only and the ring sits visibly off-centre. An
- * outline is drawn on the border edge, so at -2px it rings the outermost 2px of
- * the border box on all four sides — the same rectangle the range marquee
- * traces. A selected empty required cell therefore shows ONE band, not two
- * nearly-overlapping ones.
- *
- * The outline is also what `.is-editing` uses, which is why the two can hand
- * over cleanly: same property, equal specificity, so the later declaration wins.
- * Sharing the property is the point — with a shadow here and an outline there
- * both would paint at once.
+ * An outline, not an inset shadow: the cell has borders on two sides only, so a
+ * shadow would sit off-centre. The editing ring reuses the same property.
  */
 .layer-grid-td.is-missing-required {
 	outline: 2px solid var(--text-error);
@@ -301,11 +220,6 @@ body.layer-grid-resizing.is-row-resize * {
 	text-align: right;
 }
 
-/*
- * A computed number lines up the same way. The class is on the cell rather than
- * the field, because whether a cell holds a number is only known once the formula
- * has run — the column's type says "formula", not "number".
- */
 .layer-grid-td.is-value-number {
 	text-align: right;
 }
@@ -321,11 +235,6 @@ body.layer-grid-resizing.is-row-resize * {
 	white-space: nowrap;
 }
 
-/*
- * A note cell is a way into the file it names, so it is drawn as a link: same colour
- * as a link elsewhere in the app, underlined on hover, and no drag-selection so a
- * click reads as a click rather than as a text selection.
- */
 .layer-grid-note {
 	display: inline-block;
 	max-width: 100%;
@@ -343,17 +252,7 @@ body.layer-grid-resizing.is-row-resize * {
 	text-decoration: underline;
 }
 
-/*
- * Long text keeps its line breaks, and the row keeps the height it was given.
- *
- * A table row grows to fit its content, and `overflow: hidden` on the cell does
- * not stop that — it only clips the painting. So the value is taken out of flow:
- * it then adds nothing to the row's minimum height. What does not fit scrolls,
- * rather than being lost at the cell edge.
- *
- * The padding moves onto the value, because an absolutely positioned box is laid
- * out against the cell's padding box.
- */
+/* Long text is out of flow so it scrolls inside the cell instead of growing the row. */
 .layer-grid-value.is-longtext {
 	position: absolute;
 	inset: 0;
@@ -363,30 +262,14 @@ body.layer-grid-resizing.is-row-resize * {
 	overflow-wrap: anywhere;
 }
 
-/*
- * A run of pills: the several values one cell holds.
- *
- * It is laid out against the cell rather than inside its flow, for the same
- * reason a long text value is: a table row grows to fit its content, so a run
- * that wrapped while in flow would push the row taller. Out of flow it adds
- * nothing to the row, which keeps the height the user gave it — and whatever
- * does not fit is reached by scrolling rather than being lost.
- *
- * The pills wrap instead of shrinking. With a single line, a long second value
- * used to squeeze the first until it vanished, hiding a value that is really
- * stored there. Each pill keeps the width its text needs and drops to the next
- * line; only the last one gives way, ellipsising when it is too wide even on a
- * line of its own.
- */
+/* Pills are out of flow for the same reason, and they wrap rather than shrink. */
 .layer-grid-pills {
 	position: absolute;
 	inset: 0;
 	box-sizing: border-box;
-	/* The padding the cell no longer applies to an out-of-flow box. */
 	padding: var(--size-4-1) var(--size-4-3);
 	display: flex;
 	flex-wrap: wrap;
-	/* Wrapped lines stack from the top instead of being spread out. */
 	align-content: flex-start;
 	align-items: center;
 	gap: 3px;
@@ -394,30 +277,19 @@ body.layer-grid-resizing.is-row-resize * {
 	min-width: 0;
 }
 
-/* Natural width, and never narrower than the text inside. */
 .layer-grid-pills > * {
 	flex: 0 0 auto;
 	max-width: 100%;
 }
 
-/* The tail is the one that gives way. */
 .layer-grid-pills > *:last-child {
 	flex-shrink: 1;
 	min-width: 0;
 }
 
 /*
- * Row height, and what a row does when a value needs more lines.
- *
- * The height is written on the row as a `height`, which for a table cell is a
- * MINIMUM rather than a fixed size: a value that needs more room still pushes the
- * row taller. That is what wrapping is for. It is also why long text is left out
- * of it — a long text value is taken out of flow (above) and scrolls inside its
- * cell, so one long note can never decide how tall the table is.
- *
- * Compact trims the cell's own padding, because a single line plus the usual
- * padding is already about 26px: asking for 24 without this would be quietly
- * overruled by the content and the choice would look like it did nothing.
+ * Row height is a minimum for a table cell; compact also trims the cell padding,
+ * or a 24px choice would be overruled by the content.
  */
 .layer-grid.is-compact .layer-grid-td,
 .layer-grid.is-compact .layer-grid-value.is-longtext,
@@ -426,7 +298,6 @@ body.layer-grid-resizing.is-row-resize * {
 	padding-bottom: 2px;
 }
 
-/* Wrapped: values stay in flow, so extra lines add up to a taller row. */
 .layer-grid.is-wrapped .layer-grid-td {
 	white-space: normal;
 }
@@ -437,22 +308,12 @@ body.layer-grid-resizing.is-row-resize * {
 	overflow-wrap: anywhere;
 }
 
-/*
- * A run of pills stops being laid out against the cell and joins its flow. Its
- * own padding goes with it — the cell already applies it — and what does not fit
- * on one line wraps to the next instead of scrolling.
- */
 .layer-grid.is-wrapped .layer-grid-pills {
 	position: static;
 	overflow: visible;
 	padding: 0;
 }
 
-/*
- * A checkbox cell, drawn in both states: an unticked cell needs a box, not the
- * `—` placeholder, which would read as a column of missing data. Unticked stays
- * faint so a long column is quiet; ticking brings it forward in the accent.
- */
 .layer-grid-checkbox {
 	display: flex;
 	align-items: center;
@@ -469,13 +330,7 @@ body.layer-grid-resizing.is-row-resize * {
 	height: 14px;
 }
 
-/*
- * The long-text editor: a box that opens over the cell rather than inside it.
- *
- * Taken out of flow, with the cell unclipped while it is open, so it can be
- * several lines tall without pushing the grid. The stacking order keeps the rows
- * below from painting over it.
- */
+/* The long-text editor overlays the cell instead of pushing the grid taller. */
 .layer-grid-td.is-editing.is-longtext {
 	position: relative;
 	overflow: visible;
@@ -486,10 +341,8 @@ body.layer-grid-resizing.is-row-resize * {
 	position: absolute;
 	top: 0;
 	left: 0;
-	/* The width is the cell's, so the border has to sit inside it. */
 	box-sizing: border-box;
 	width: 100%;
-	/* About four lines tall, and draggable from there. */
 	min-height: 6em;
 	max-height: 40vh;
 	resize: vertical;
@@ -511,7 +364,6 @@ body.layer-grid-resizing.is-row-resize * {
 
 .layer-grid-empty-cell {
 	text-align: center;
-	/* A placeholder takes no drag, so it is not a crosshair. */
 	cursor: default;
 }
 
@@ -541,15 +393,8 @@ body.layer-grid-resizing.is-row-resize * {
 /* ---------- Board shell: action row ---------- */
 
 .layer-shell-toolbar {
-	/* One height for every control in the action row, so a button with a label
-	 * and one with only an icon still read as a pair.
-	 *
-	 * The radius is past what Obsidian's scale offers — `--radius-l` is 12px and
-	 * the next step up is a full pill — so it is set literally here and kept in
-	 * one place rather than repeated per rule. */
 	--shell-control-height: var(--size-4-8);
 	--shell-control-radius: 8px;
-
 	flex: 0 0 auto;
 	display: flex;
 	align-items: center;
@@ -583,7 +428,6 @@ body.layer-grid-resizing.is-row-resize * {
 	cursor: pointer;
 	font-size: var(--font-ui-smaller);
 	white-space: nowrap;
-	/* Scoped like the toolbar buttons: a tab is not a full-width button. */
 	width: auto;
 }
 
@@ -621,14 +465,7 @@ body.layer-grid-resizing.is-row-resize * {
 	flex: 1 1 auto;
 }
 
-/*
- * Scoped to the container that holds the board, not written as a bare class.
- *
- * Obsidian styles every button with `button:not(.clickable-icon)`, which is
- * (0,1,1) — one class plus one type — and a bare `.layer-shell-button` is (0,1,0)
- * and loses its padding, background and width to it. Naming the container puts
- * these rules at (0,2,0) and keeps them winning.
- */
+/* Scoped to the container to outrank Obsidian's `button:not(.clickable-icon)`. */
 .layer-base-container .layer-shell-button {
 	display: inline-flex;
 	align-items: center;
@@ -641,16 +478,7 @@ body.layer-grid-resizing.is-row-resize * {
 	color: var(--text-normal);
 	cursor: pointer;
 	font-size: var(--font-ui-smaller);
-	/*
-	 * The app makes every button `width: 100%`, which a toolbar chip has to refuse:
-	 * these are as wide as their label, not as wide as the row.
-	 */
 	width: auto;
-	/*
-	 * A fixed height, because a label and a bare icon do not settle on the same
-	 * one from padding alone — the icon button came out shorter, and two controls
-	 * meant to read as one control should not disagree on their height.
-	 */
 	height: var(--shell-control-height);
 	box-sizing: border-box;
 }
@@ -669,18 +497,11 @@ body.layer-grid-resizing.is-row-resize * {
 	background: var(--interactive-accent-hover);
 }
 
-/* A label button and its menu trigger, joined into one control. */
 .layer-shell-split {
 	display: inline-flex;
 	align-items: stretch;
 }
 
-/* Square off the touching corners and overlap the borders between them, so the
- * pair reads as one button that happens to have two parts.
- *
- * The trigger also carries less horizontal padding: it holds only an arrow, and
- * the label button's padding would leave it looking like a second action rather
- * than part of the same one. */
 .layer-base-container .layer-shell-split > .layer-shell-button:first-child {
 	border-top-right-radius: 0;
 	border-bottom-right-radius: 0;
@@ -693,13 +514,6 @@ body.layer-grid-resizing.is-row-resize * {
 	border-bottom-left-radius: 0;
 }
 
-/*
- * The squared corners have to be restated on hover, because the rule above is
- * keyed to the element's position and hover does not change that position —
- * only which element matches. Stating it for "any hovered child" would clear
- * the outer corners too, so the button would square up while the pointer is on
- * it and round again when it leaves.
- */
 .layer-base-container .layer-shell-split > .layer-shell-button:first-child:hover {
 	border-top-right-radius: 0;
 	border-bottom-right-radius: 0;
@@ -731,11 +545,6 @@ body.layer-grid-resizing.is-row-resize * {
 
 /* ---------- Row number column ---------- */
 
-/*
- * The leftmost column: a positional marker rather than a field. Its width
- * comes from the `<col>` the renderer declares, so there are no width rules
- * here.
- */
 .layer-grid-rownum {
 	padding: 0;
 	color: var(--text-faint);
@@ -743,9 +552,7 @@ body.layer-grid-resizing.is-row-resize * {
 	font-variant-numeric: tabular-nums;
 	user-select: none;
 	background: var(--background-secondary);
-	/* Anchors the row's resize handle to the cell's bottom edge. */
 	position: relative;
-	/* Selects the row rather than opening an editor, so it points, not crosses. */
 	cursor: pointer;
 }
 
@@ -757,7 +564,6 @@ body.layer-grid-resizing.is-row-resize * {
 	color: var(--text-muted);
 }
 
-/* The row number itself. No fixed height, so the row's explicit height wins. */
 .layer-grid-rownum-label {
 	display: flex;
 	align-items: center;
@@ -767,10 +573,7 @@ body.layer-grid-resizing.is-row-resize * {
 
 /* ---------- Selection ---------- */
 
-/* What gets highlighted is decided in `SelectionTracker.resolve`. */
 
-/* The selected column's header takes the same tint in the header block above,
- * where it is drawn over the header's own colour instead of replacing it. */
 .layer-grid-row.is-sel-row > .layer-grid-td,
 .layer-grid-td.is-sel-col {
 	background: var(--background-modifier-active-hover);
@@ -788,29 +591,14 @@ body.layer-grid-resizing.is-row-resize * {
 	background: var(--background-modifier-active-hover);
 }
 
-/*
- * One overlay draws the border for the whole rectangle, rather than each cell
- * drawing its own four sides, which would put internal borders inside the run.
- *
- * Sits above the cells, so `pointer-events: none` keeps it from swallowing their
- * clicks.
- */
+/* One overlay for the whole range; pointer-events none keeps it from eating clicks. */
 .layer-grid-marquee {
 	position: absolute;
 	z-index: 3;
 	pointer-events: none;
-	/* Hidden until it has a rectangle, so it cannot flash at the origin. */
 	display: none;
 	border: 2px solid var(--interactive-accent);
-	/*
-	 * The renderer sizes this from the cells' own rectangles, so the border must
-	 * be INSIDE that size. Without this the default `content-box` adds the 2px
-	 * border on top of the width, and the band hangs outside the selection on the
-	 * right and bottom only. With it, the band rings the outermost 2px of the
-	 * selection on all four sides — the same band a cell's own outline draws, so
-	 * the selection ring and a required-empty warning coincide instead of
-	 * stepping against each other.
-	 */
+/* The border sits inside the measured rect, so it rings the same 2px as a cell outline. */
 	box-sizing: border-box;
 }
 
@@ -818,10 +606,6 @@ body.layer-grid-resizing.is-row-resize * {
 	display: block;
 }
 
-/*
- * Keep the crosshair for the whole rectangle drag, including once the pointer
- * has left the cell it started on.
- */
 body.layer-grid-dragging-range,
 body.layer-grid-dragging-range * {
 	cursor: cell !important;
@@ -836,16 +620,10 @@ body.layer-grid-dragging-range * {
 	color: var(--text-normal);
 }
 
-/*
- * The corner cell. It keeps the row-number column's muted background, so the
- * button is laid out from `position: relative` rather than the absolute box the
- * add-column cell uses.
- */
 .layer-grid-corner {
 	position: relative;
 }
 
-/* Fills the corner, so the whole cell is the hit target. */
 .layer-base-container .layer-grid-select-all {
 	position: absolute;
 	top: 0;
@@ -885,24 +663,15 @@ body.layer-grid-dragging-range * {
 	height: 14px;
 }
 
-/* Trailing add-column cell: square with the header row, never a data cell. */
 .layer-grid-add-field {
-	/* Restated from the header rule: being positioned is what makes this cell the
-	 * containing block for the button below. */
 	position: sticky;
 	padding: 0;
 	text-align: center;
 	vertical-align: middle;
 	border-right: none;
-	/* The button fills this cell, so clipping here would cut the button. */
 	overflow: visible;
 }
 
-/*
- * All four offsets at zero rather than `width/height: 100%`: a percentage
- * height needs a definite containing-block height, and a cell's height comes
- * from its row.
- */
 .layer-base-container .layer-grid-add-field-button {
 	position: absolute;
 	top: 0;
@@ -921,7 +690,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 	cursor: pointer;
 	line-height: 1;
-	/* Sized by its insets, not by the app's `width: 100%` on every button. */
 	width: auto;
 }
 
@@ -930,17 +698,12 @@ body.layer-grid-dragging-range * {
 	background: var(--background-modifier-hover);
 }
 
-/* `flex: none` keeps the icon from shrinking in a narrow cell. */
 .layer-base-container .layer-grid-add-field-button svg {
 	flex: none;
 	width: 16px;
 	height: 16px;
 }
 
-/*
- * The empty-state row selects nothing, so it must not pick up the row hover
- * tint that marks a selectable row.
- */
 .layer-grid-row.is-empty,
 .layer-grid-row.is-empty:hover {
 	background: transparent;
@@ -948,19 +711,8 @@ body.layer-grid-dragging-range * {
 
 /* ---------- Select option pill ---------- */
 
-/*
- * One chip, used twice: as the value in a select cell and as the label of an
- * option row in the dropdown. It carries no margin and no fill of its own, so
- * the two places that host it only have to align it.
- */
 .layer-select-pill {
-	/*
-	 * Declared here so `has-color` below has something to fall back to, and so
-	 * the checker can see that this name is the plugin's own rather than
-	 * Obsidian's. The colouring rule overrides it inline per option.
-	 */
 	--layer-pill-color: var(--text-muted);
-
 	display: inline-flex;
 	align-items: center;
 	max-width: 100%;
@@ -974,19 +726,10 @@ body.layer-grid-dragging-range * {
 	font-weight: 500;
 	line-height: 1;
 	white-space: nowrap;
-	/* Clips the label to the rounded border; the ellipsis belongs to the child. */
 	overflow: hidden;
 }
 
-/*
- * The label is the box that owns the text, and so the only box that can signal
- * truncation. The pill above is a flex container, which wraps bare text in an
- * anonymous flex item that inherits neither `overflow` nor `text-overflow`; a
- * declaration on the pill therefore never reached the name, which was just cut
- * off at the edge. As a real flex item this span can shrink — `min-width: 0`
- * because the automatic minimum size of a flex item is its content width — and
- * its own overflow then trims the name with an ellipsis.
- */
+/* The span owns overflow: bare text in a flex container would not clip. */
 .layer-select-pill-label {
 	min-width: 0;
 	overflow: hidden;
@@ -994,19 +737,12 @@ body.layer-grid-dragging-range * {
 	white-space: nowrap;
 }
 
-/*
- * Tinted from the option's own colour rather than filled with it, so a light
- * colour on a light theme (and a dark one on a dark theme) still leaves the
- * label readable. `color-mix` keeps the accent relationship for any colour the
- * user has picked, including ones pulled from the theme.
- */
 .layer-select-pill.has-color {
 	border-color: color-mix(in srgb, var(--layer-pill-color) 28%, transparent);
 	background: color-mix(in srgb, var(--layer-pill-color) 15%, transparent);
 	color: color-mix(in srgb, var(--layer-pill-color) 72%, var(--text-normal));
 }
 
-/* As an inline-flex box inside a cell it is baseline-aligned unless told otherwise. */
 .layer-grid-td .layer-select-pill {
 	vertical-align: middle;
 }
@@ -1026,20 +762,11 @@ body.layer-grid-dragging-range * {
 	box-sizing: border-box;
 }
 
-/* The container underneath catches the outside click; the dimming reads as a dialog. */
 .modal-container.layer-popover-host > .modal-bg {
 	background: transparent;
 	backdrop-filter: none;
 }
 
-/*
- * Hung off the button that opens it; parented to the container so `.modal`
- * cannot clip it.
- *
- * The type picker and the option dropdown are the same panel with different
- * rows, so every shared part below carries both selectors rather than a second
- * copy of the same geometry. Only the rows differ, further down.
- */
 .layer-type-dropdown,
 .layer-option-dropdown {
 	position: fixed;
@@ -1061,7 +788,6 @@ body.layer-grid-dragging-range * {
 	display: flex;
 }
 
-/* Laid out off-screen, so its height can be measured without a flash. */
 .layer-type-dropdown.is-measuring,
 .layer-option-dropdown.is-measuring {
 	top: -100vh;
@@ -1095,7 +821,6 @@ body.layer-grid-dragging-range * {
 
 /* ---------- Option dropdown rows ---------- */
 
-/* One option: an icon slot, then its pill — or, for create and clear, plain text. */
 .layer-option-dropdown-row {
 	display: flex;
 	align-items: center;
@@ -1112,15 +837,10 @@ body.layer-grid-dragging-range * {
 	background: var(--background-modifier-hover);
 }
 
-/* The current value, tinted rather than filled, so the pill inside still reads. */
 .layer-option-dropdown-row.is-selected {
 	background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
 }
 
-/*
- * A fixed slot, so rows whose command has no icon still line up with the ones
- * that do; the icon is drawn smaller than the slot to leave it breathing room.
- */
 .layer-option-dropdown-row-icon {
 	flex: 0 0 16px;
 	display: flex;
@@ -1134,23 +854,19 @@ body.layer-grid-dragging-range * {
 	height: 14px;
 }
 
-/* The tick on the current value is the accent's, not the muted command grey. */
 .layer-option-dropdown-row.is-selected .layer-option-dropdown-row-icon {
 	color: var(--interactive-accent);
 }
 
-/* Takes the room the icon slot left, and is the part that may shrink. */
 .layer-option-dropdown-row-label {
 	flex: 1 1 auto;
 	min-width: 0;
 }
 
-/* The pill is the row's decoration: clicks have to reach the row underneath. */
 .layer-option-dropdown-row .layer-select-pill {
 	pointer-events: none;
 }
 
-/* Neither of these is an option, so neither wears an option's emphasis. */
 .layer-option-dropdown-row.is-create .layer-option-dropdown-row-label,
 .layer-option-dropdown-row.is-clear .layer-option-dropdown-row-label {
 	color: var(--text-muted);
@@ -1159,10 +875,6 @@ body.layer-grid-dragging-range * {
 
 /* ---------- Field editor ---------- */
 
-/*
- * The panel's own heading. Sized between the modal's usual title and a form
- * label: it names what the panel is for without competing with the controls.
- */
 .layer-field-editor-title {
 	margin-bottom: var(--size-4-2);
 	font-size: var(--font-ui-medium);
@@ -1170,17 +882,12 @@ body.layer-grid-dragging-range * {
 	color: var(--text-normal);
 }
 
-/* One column: the label sits above its field rather than in a gutter. */
 .layer-field-grid {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	gap: var(--size-4-1);
 }
 
-/*
- * The required toggle: the checkbox and its label on one line, with the
- * explanation tucked underneath so the two read as one control.
- */
 .layer-field-required {
 	margin-top: var(--size-4-3);
 }
@@ -1192,7 +899,6 @@ body.layer-grid-dragging-range * {
 	cursor: pointer;
 }
 
-/* Not the UA default: it centres against the label text rather than riding high. */
 .layer-field-required-box {
 	margin: 0;
 	flex: 0 0 auto;
@@ -1200,7 +906,6 @@ body.layer-grid-dragging-range * {
 
 .layer-field-required-hint {
 	margin-top: var(--size-4-1);
-	/* Indented to the label text, clear of the checkbox column. */
 	margin-left: calc(1em + var(--size-4-2));
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
@@ -1216,7 +921,6 @@ body.layer-grid-dragging-range * {
 	min-width: 0;
 }
 
-/* The type control: shows the chosen type, opens the picker. */
 .modal .layer-field-type {
 	display: flex;
 	align-items: center;
@@ -1254,7 +958,6 @@ body.layer-grid-dragging-range * {
 	border-top: 5px solid var(--text-faint);
 }
 
-/* Rows of the type dropdown: the type's name, then what it stores. */
 .layer-field-type-option {
 	display: flex;
 	align-items: center;
@@ -1264,7 +967,6 @@ body.layer-grid-dragging-range * {
 	cursor: pointer;
 }
 
-/* The cursor row, applied by the picker to exactly one row at a time. */
 .layer-field-type-option.is-active {
 	background: var(--background-modifier-hover);
 }
@@ -1295,20 +997,17 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 }
 
-/* The box is present for every type, so spacing on it would leave a gap when empty. */
 .layer-field-options {
 	display: flex;
 	flex-direction: column;
 }
 
-/* A second field label, not a document heading, so it is spaced like one. */
 .layer-field-editor h3 {
 	margin: var(--size-4-3) 0 var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 }
 
-/* Format, precision and bounds: only a number field has them. */
 .layer-field-number-input,
 .layer-field-number-format {
 	width: 100%;
@@ -1321,10 +1020,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 }
 
-/*
- * Whether the formula can run, shown as it is typed. `#error` in every cell is a
- * bad way to learn about a missing brace, so the answer appears here first.
- */
 .layer-field-formula-status {
 	margin-top: var(--size-4-1);
 	font-size: var(--font-ui-smaller);
@@ -1339,7 +1034,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-success);
 }
 
-/* The button that opens the formula panel: shows the expression it holds. */
 .layer-field-formula-open {
 	display: flex;
 	align-items: center;
@@ -1352,12 +1046,6 @@ body.layer-grid-dragging-range * {
 	font-size: var(--font-ui-smaller);
 }
 
-/*
- * The expression stays on one line whatever its length. A formula is mostly
- * runes with no spaces to break at, and a flex child will not shrink below its
- * content unless told to, so without this the text ran straight out of the button
- * and over the panel. Cut with an ellipsis; the whole of it is on the tooltip.
- */
 .layer-field-formula-open-text {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -1372,7 +1060,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 }
 
-/* The formula panel itself: a wide, centred editor with its own reference lists. */
 .modal.layer-formula-modal {
 	width: min(52rem, 90vw);
 	max-width: min(52rem, 90vw);
@@ -1382,10 +1069,6 @@ body.layer-grid-dragging-range * {
 	margin: 0 0 var(--size-4-3);
 }
 
-/*
- * The expression box is the largest thing in the panel, because it is what the
- * panel is for; three rows is enough to see a nested call without scrolling.
- */
 .layer-formula-input {
 	width: 100%;
 	min-height: 7rem;
@@ -1395,7 +1078,6 @@ body.layer-grid-dragging-range * {
 	line-height: 1.5;
 }
 
-/* The result-type row: a label and its picker, sitting right under the box. */
 .layer-formula-type {
 	display: flex;
 	align-items: center;
@@ -1420,7 +1102,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 }
 
-/* A quiet strip that says what the formula currently reads. */
 .layer-formula-preview {
 	margin-top: var(--size-4-2);
 	padding: var(--size-4-1) var(--size-4-2);
@@ -1430,7 +1111,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-muted);
 }
 
-/* Only on screen when there is something wrong, so it does not add noise. */
 .layer-formula-error {
 	display: none;
 	margin-top: var(--size-4-1);
@@ -1448,14 +1128,12 @@ body.layer-grid-dragging-range * {
 	color: var(--text-muted);
 }
 
-/* The name of a group of functions, quieter than the heading above it. */
 .layer-formula-group {
 	margin: var(--size-4-2) 0 var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
 
-/* The buttons wrap, so a table with many columns still fits the panel. */
 .layer-formula-chips {
 	display: flex;
 	flex-wrap: wrap;
@@ -1476,11 +1154,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-faint);
 }
 
-/*
- * A symbol chip holds the character itself, so it is set in the same monospace as
- * the expression and given a little more room a symbol does not need but a pair
- * like `>=` does.
- */
 .layer-formula-chip.is-symbol {
 	min-width: 2.6em;
 	justify-content: center;
@@ -1500,21 +1173,12 @@ body.layer-grid-dragging-range * {
 	margin-top: var(--size-4-4);
 }
 
-/*
- * The rows live in their own box, so that appending a dragged row lands after the
- * last row and not after whatever else the panel puts below it — the button that
- * adds an option, which is a sibling of this box.
- */
 .layer-field-option-list {
 	display: flex;
 	flex-direction: column;
 }
 
-/*
- * Its own order, dragged by the handle rather than set per view: the board draws
- * its columns in this order and a choice column sorts by it, so there is one
- * place it can be changed and one meaning wherever it is read.
- */
+/* Option order is the field's only order: board columns and choice sorting read it. */
 .layer-field-option-row {
 	display: flex;
 	align-items: center;
@@ -1522,12 +1186,7 @@ body.layer-grid-dragging-range * {
 	margin-bottom: var(--size-4-1);
 }
 
-/*
- * A handle, not a button: a click does nothing, and `touch-action: none` is what
- * stops a drag on a touch screen from scrolling the panel instead of moving the
- * row. It is a real button so the arrow keys reach it and a screen reader has
- * something to name.
- */
+/* `touch-action: none` stops a drag from scrolling the panel on a touch screen. */
 .modal .layer-field-option-handle {
 	flex: 0 0 auto;
 	display: flex;
@@ -1548,20 +1207,12 @@ body.layer-grid-dragging-range * {
 	color: var(--text-muted);
 }
 
-/* The row being dragged keeps its place and only says which one is moving. */
 .layer-field-option-row.is-dragging {
 	background-color: var(--background-modifier-hover);
 	border-radius: var(--radius-s);
 }
 
-/*
- * The row is this input plus two fixed controls, so the input takes whatever is
- * left over instead of asking for its own preferred width first: a text input's
- * default `size` claims some 150px whatever it holds, which on a phone-width
- * panel is most of the row. The floor is the same `8ch` the grid inputs use —
- * enough to keep a name readable, small enough that it can never be what makes
- * the row overflow.
- */
+/* The input takes the leftover width; its default size would overflow a narrow panel. */
 .layer-field-option-input {
 	flex: 1 1 0;
 	min-width: 8ch;
@@ -1587,7 +1238,6 @@ body.layer-grid-dragging-range * {
 	color: var(--text-error);
 }
 
-/* Left-aligned and quiet: it adds a row to the list above it. */
 .layer-field-add-option {
 	align-self: flex-start;
 	margin-top: var(--size-4-1);
@@ -1633,32 +1283,15 @@ body.layer-grid-dragging-column * {
 	user-select: none;
 }
 
-/*
- * The resize strip's hover tint is suppressed for the duration of a reorder.
- * The pointer crosses the header to get there, so it always rests on some
- * handle — and that handle's highlight is the same accent colour as the drop
- * indicator, which reads as a second bar in a gap that already has one.
- */
 body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	background: transparent;
 }
 
-/* The column being moved stays visible but reads as lifted out. */
 .layer-grid-th.is-dragging-column {
 	opacity: 0.5;
 }
 
-/*
- * Where the drop would land: one bar on the leading edge of the column the
- * dragged one would be inserted before.
- *
- * Drawn as a pseudo-element rather than an inset shadow because the gap between
- * two columns already carries the front column's `border-right`, and an inset
- * shadow starts inside the padding box — beside that border rather than over
- * it, which reads as two marks in one gap. Starting at -1px sits on the border
- * itself, and the header is `position: sticky`, so it is already a containing
- * block here.
- */
+/* On the border, so it does not double up with the column's own border in the same gap. */
 .layer-grid-th.is-drop-before {
 	color: var(--text-normal);
 }
@@ -1672,11 +1305,9 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	width: 3px;
 	background: var(--interactive-accent);
 	pointer-events: none;
-	/* Above the resize strip, which is z-index 2 inside the same header. */
 	z-index: 3;
 }
 
-/* The add-column cell doubles as the "move to the end" target. */
 .layer-grid-th.layer-grid-add-field.is-drop-before {
 	color: var(--text-normal);
 }
@@ -1690,21 +1321,12 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 .layer-grid-td.is-editing {
 	padding: 0;
 	background: var(--background-primary);
-	/*
-	 * Same property and offset as the missing-required ring, so this declaration
-	 * REPLACES that warning rather than stacking on top of it: an empty required
-	 * cell being edited shows the accent ring only. Equal specificity, and this
-	 * rule comes later, so it wins. Margins are not a factor — the table is
-	 * `border-collapse: separate` and an outline is not part of the box model, so
-	 * nothing reflows when the warning appears or clears.
-	 */
+/* Same property and offset as the required ring, so editing replaces the warning. */
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: -2px;
-	/* The cell is being typed into, so it is no longer a drag handle. */
 	cursor: text;
 }
 
-/* The text input fills the cell so the editor does not shift the row height. */
 .layer-grid-input {
 	width: 100%;
 	min-width: 8ch;
@@ -1714,7 +1336,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	padding: var(--size-4-1) var(--size-4-3);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-normal);
-	/* Not `cell`: the cell behind it sets that. */
 	cursor: text;
 }
 
@@ -1723,12 +1344,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	outline: none;
 }
 
-/*
- * The date controls draw their own calendar button and padding, so they are
- * trimmed to sit in the cell like the text editor. `min-width: 0` lets the
- * control shrink with its column instead of pushing its own right-hand edge —
- * where the calendar button sits — out of the cell.
- */
 .layer-grid-td input[type='date'],
 .layer-grid-td input[type='datetime-local'] {
 	box-sizing: border-box;
@@ -1738,11 +1353,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	cursor: text;
 }
 
-/*
- * The calendar button itself. Obsidian styles these inputs but never hides the
- * button, so this only gives it a dependable size and keeps it clickable when
- * the column is narrow.
- */
 .layer-grid-td input[type='date']::-webkit-calendar-picker-indicator,
 .layer-grid-td input[type='datetime-local']::-webkit-calendar-picker-indicator {
 	display: block;
@@ -1755,13 +1365,11 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 
 /* ---------- Export dialog ---------- */
 
-/* Wide enough for a vault path to be read at a glance. */
 .modal.layer-export-modal {
 	width: min(34rem, 90vw);
 	max-width: min(34rem, 90vw);
 }
 
-/* A panel's title is a heading setting, not a row: no row padding, no divider. */
 .modal-content > .setting-item.setting-item-heading {
 	padding: 0;
 	border: none;
@@ -1775,7 +1383,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	margin-top: var(--size-4-2);
 }
 
-/* Only shown when the name cannot be used, so it does not add noise. */
 .layer-export-error {
 	display: none;
 	margin-top: var(--size-4-2);
@@ -1811,10 +1418,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-faint);
 }
 
-/*
- * One rule per line: a number, the column, the direction, and a way out. The
- * number is what says rule 2 only decides rows rule 1 left tied.
- */
 .layer-sort-rule {
 	display: flex;
 	align-items: center;
@@ -1865,15 +1468,11 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	display: inline-flex;
 }
 
-/* A toolbar button that is doing something reads as pressed, not as a label. */
 .layer-base-container .layer-shell-button.is-active {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 }
 
-/* A sorted column's header carries its direction, and its rank when there are
- * several rules, so the order can be read without opening the panel. The column's
- * own tint is a header state, so it lives with the other ones at the top. */
 .layer-grid-th-sort {
 	display: inline-flex;
 	align-items: center;
@@ -1887,7 +1486,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-faint);
 }
 
-/* What the current order is, told beside the sort button rather than in it. */
 .layer-shell-sort-summary {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -1915,7 +1513,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-faint);
 }
 
-/* The choice between requiring every condition and any of them. */
 .layer-filter-conjunction {
 	display: flex;
 	gap: var(--size-4-1);
@@ -1932,12 +1529,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-on-accent);
 }
 
-/*
- * A condition reads left to right as a sentence: this column, this comparison,
- * this value. The value shrinks first when the panel is narrow.
- *
- * Shared by the filter panel and the colour rules, hence the neutral name.
- */
 .layer-condition {
 	display: flex;
 	align-items: center;
@@ -1960,12 +1551,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	min-width: 0;
 }
 
-/*
- * The remove cross gets its own box rather than the icon's natural width: as a
- * flex item it was the first thing to collapse, and a squeezed icon reads as a
- * stray line instead of a button. Scoped under `.modal` to outmatch the app's
- * own button rule.
- */
 .modal .layer-condition-remove {
 	flex: 0 0 auto;
 	display: inline-flex;
@@ -1998,8 +1583,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 
 /* ---------- Board ---------- */
 
-/* The columns scroll sideways as a group, so a board wider than the pane can be
- * read by dragging rather than wrapping into rows of columns. */
 .layer-kanban {
 	display: flex;
 	flex-direction: column;
@@ -2018,10 +1601,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	padding: var(--size-4-3);
 }
 
-/*
- * A column is as tall as its cards, not as tall as the pane: a board with one card
- * in each of five columns should not draw five full-height empty boxes.
- */
 .layer-kanban-column {
 	display: flex;
 	flex-direction: column;
@@ -2054,7 +1633,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	white-space: nowrap;
 }
 
-/* A count, because an empty column and one the limit emptied look the same. */
 .layer-kanban-count {
 	flex: 0 0 auto;
 	padding: 0 var(--size-4-1);
@@ -2088,7 +1666,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	opacity: 0.5;
 }
 
-/* A card that cannot move says so by not offering the grab cursor. */
 .layer-kanban-card.is-fixed {
 	cursor: default;
 }
@@ -2104,7 +1681,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-faint);
 }
 
-/* What the column limit left out, said once under the board. */
 .layer-kanban-omitted {
 	padding: 0 var(--size-4-3) var(--size-4-2);
 	font-size: var(--font-ui-smaller);
@@ -2120,7 +1696,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* The strip above the columns: what it groups by, and how many columns it draws. */
 .layer-kanban-toolbar {
 	display: flex;
 	align-items: center;
@@ -2130,8 +1705,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* What the board groups by: a label, not a control. Changing it lives in the
- * board's fields panel, so this does not invite a click. */
 .layer-kanban-group {
 	display: inline-flex;
 	align-items: center;
@@ -2161,7 +1734,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	width: 4em;
 }
 
-/* A toggle in the board's strip, beside the column limit. */
 .layer-kanban-toggle {
 	display: inline-flex;
 	align-items: center;
@@ -2187,8 +1759,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* Scrolled rather than grown: a table of twenty columns would otherwise push the
- * panel past the bottom of the window. */
 .layer-board-fields-list {
 	display: flex;
 	flex-direction: column;
@@ -2219,7 +1789,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	white-space: nowrap;
 }
 
-/* The grouping column is already the board's structure, so it is marked. */
 .layer-board-fields-note {
 	flex: 0 0 auto;
 	font-size: var(--font-ui-smaller);
@@ -2233,7 +1802,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	margin-top: var(--size-4-4);
 }
 
-/* The button that opens the panel, in the board's own strip. */
 .layer-kanban-fields-button {
 	display: inline-flex;
 	align-items: center;
@@ -2241,7 +1809,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	font-size: var(--font-ui-smaller);
 }
 
-/* A field printed on a card: its name, then its value. */
 .layer-kanban-card-field {
 	display: flex;
 	gap: var(--size-4-1);
@@ -2250,8 +1817,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* The type icon, aligned in a column of its own so the field names on a card line
- * up whatever their glyphs are. */
 .layer-kanban-card-icon {
 	display: inline-flex;
 	flex: 0 0 auto;
@@ -2274,11 +1839,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	white-space: nowrap;
 }
 
-/*
- * A note line on a card is a way into the file it names, so it reads as a link. It
- * takes the same room as a value so the lines stay aligned, and keeps its click from
- * the card underneath, which reads one as "open this row".
- */
 .layer-kanban-card-link {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -2295,8 +1855,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	text-decoration: underline;
 }
 
-/* The add-view button at the end of the tab row: quiet, so it does not compete
- * with the views it sits after. */
 .layer-base-container .layer-shell-tab-add {
 	display: inline-flex;
 	align-items: center;
@@ -2315,8 +1873,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	background: var(--background-modifier-hover);
 }
 
-/* A tab being renamed: the field takes the label's place, sized to the row so the
- * other tabs do not jump while it is open. */
 .layer-shell-tab-input {
 	width: 8em;
 	max-width: 12em;
@@ -2326,11 +1882,7 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 
 /* ---------- Column totals ---------- */
 
-/*
- * The footer sits under the last row and sticks to the bottom of the pane, so a
- * total stays readable while the table scrolls — which is the only reason to have
- * one.
- */
+/* Sticky, so the totals stay readable while the table scrolls. */
 .layer-grid-foot-row {
 	position: sticky;
 	bottom: 0;
@@ -2347,8 +1899,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	white-space: nowrap;
 }
 
-/* What the totals are totals of, under the row numbers. */
-/* The footer cell is the control: pressing it chooses what the column reports. */
 .layer-grid-foot.is-clickable {
 	cursor: pointer;
 }
@@ -2382,8 +1932,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* Scrolled rather than grown: a table of twenty columns would push the panel past
- * the bottom of the window. */
 .layer-visibility-list {
 	display: flex;
 	flex-direction: column;
@@ -2437,12 +1985,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	gap: var(--size-4-1);
 }
 
-/*
- * Scoped under `.modal` on purpose: this app styles every button with
- * `button:not(.clickable-icon)`, which is one class more specific than a plain
- * class selector. A bare `.layer-row-height-option` therefore loses its own
- * background and padding to the app's button look.
- */
 .modal .layer-row-height-option {
 	display: flex;
 	align-items: center;
@@ -2476,7 +2018,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	white-space: nowrap;
 }
 
-/* One size whether or not a tick is drawn, so the list does not shift. */
 .layer-row-height-mark {
 	display: inline-flex;
 	flex: 0 0 auto;
@@ -2484,7 +2025,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	height: 1em;
 }
 
-/* Wrapping sits apart from the heights: it changes what fits, not how tall. */
 .layer-row-height-wrap {
 	display: flex;
 	align-items: center;
@@ -2513,7 +2053,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	color: var(--text-muted);
 }
 
-/* One card per rule: the condition on top, the colour under it. */
 .layer-color-rule {
 	display: flex;
 	flex-direction: column;
@@ -2530,7 +2069,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	gap: var(--size-4-2);
 }
 
-/* A short label in a fixed column, so the two lines of a rule line up. */
 .layer-color-label {
 	flex: 0 0 auto;
 	min-width: 3em;
@@ -2544,24 +2082,13 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	gap: var(--size-4-2);
 }
 
-/*
- * A colour is a dot, not a word: the dot is the thing being chosen.
- *
- * The button is only the target. Its own background is left alone, because this
- * app paints every button and a fill set here would be overruled — the colour
- * lives on the child span instead, which nothing else styles.
- */
+/* The colour lives on the child span; the app paints every button. */
 .modal .layer-color-swatch {
 	flex: 0 0 auto;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	/*
-	 * A square box, so the ring drawn around it is a circle. The app sizes every
-	 * button itself, so a width and height left to the content came out taller
-	 * than it was wide — and `border-radius: 50%` on a tall box draws an ellipse.
-	 * The box is also what gives the ring its gap: it is wider than the dot.
-	 */
+	/* A square box, so the ring drawn around it is a circle. */
 	width: 1.8em;
 	height: 1.8em;
 	min-width: 0;
@@ -2585,7 +2112,6 @@ body.layer-grid-dragging-column .layer-grid-resizer:hover {
 	transform: scale(1.15);
 }
 
-/* A ring set off from the dot, so the two do not merge into one blob. */
 .modal .layer-color-swatch.is-active {
 	box-shadow: 0 0 0 2px var(--text-accent);
 }

@@ -15,30 +15,19 @@ import {
 
 export interface FormulaModalOptions {
 	app: App;
-	/** The expression being edited, as it stood when the panel opened. */
 	formula: string;
-	/** How its result is presented, or null to follow whatever it computed. */
+	/** null follows whatever it computed. */
 	formulaType: FormulaResultType | null;
-	/** The columns a formula may refer to, in the order they are offered. */
 	fields: readonly Field[];
 	onSubmit: (result: FormulaModalResult) => void;
 }
 
-/** What the panel reports back: the expression and how to dress its result. */
 export interface FormulaModalResult {
 	formula: string;
 	formulaType: FormulaResultType | null;
 }
 
-/**
- * The formula editor: its own centred panel rather than a box inside the field
- * editor, because writing an expression is a different kind of work from naming
- * a column and wants the room.
- *
- * The text is kept in the textarea and only reported on submit; the live read
- * below it says whether what is typed can run, so a mistake is caught here rather
- * than as `#error` in every cell afterwards.
- */
+/** Only reported on submit; the live read catches a mistake here rather than as `#error` in every cell. */
 export class FormulaModal extends Modal {
 	private draft: string;
 	private formulaType: FormulaResultType | null;
@@ -81,10 +70,7 @@ export class FormulaModal extends Modal {
 			}
 		});
 
-		/*
-		 * How the result is presented, beside the expression it describes: a column
-		 * whose rows compute different kinds can be told to look like one kind.
-		 */
+		// A column whose rows compute different kinds can be told to look like one kind.
 		const typeRow = contentEl.createDiv({ cls: 'layer-formula-type' });
 		typeRow.createSpan({
 			cls: 'layer-formula-type-label',
@@ -141,7 +127,6 @@ export class FormulaModal extends Modal {
 		window.setTimeout(() => this.input?.focus(), 0);
 	}
 
-	/** Inserts text at the caret, replacing what is selected, as typing would. */
 	private insert(text: string): void {
 		const input = this.input;
 		if (!input) {
@@ -174,11 +159,7 @@ export class FormulaModal extends Modal {
 		}
 	}
 
-	/**
-	 * The symbols, offered before the functions because they are the simpler half of
-	 * the language: someone who does not know the syntax can build `{数量} * {单价}`
-	 * by pressing the buttons in order.
-	 */
+	/** Before the functions: the simpler half of the language, enough to build `{a} * {b}`. */
 	private renderSymbolButtons(host: HTMLElement): void {
 		host.createDiv({ cls: 'layer-formula-heading', text: t().formulaSymbols });
 		for (const group of FORMULA_SYMBOL_GROUPS) {
@@ -192,7 +173,6 @@ export class FormulaModal extends Modal {
 					cls: 'layer-formula-chip is-symbol',
 				});
 				button.setText(entry.symbol);
-				// The character says it exists; the tooltip says what it is for.
 				const help = formulaSymbolHelp(entry.symbol);
 				if (help !== '') {
 					setTooltip(button, help);
@@ -203,12 +183,7 @@ export class FormulaModal extends Modal {
 		}
 	}
 
-	/**
-	 * The functions, offered as buttons that insert a call and put the caret inside.
-	 *
-	 * Shown one group at a time, because a single run of every name gives the reader
-	 * nothing to search by.
-	 */
+	/** One group at a time; a single run of every name gives the reader nothing to search by. */
 	private renderFunctionButtons(host: HTMLElement): void {
 		host.createDiv({ cls: 'layer-formula-heading', text: t().formulaFunctions });
 		for (const group of FORMULA_FUNCTION_GROUPS) {
@@ -220,9 +195,7 @@ export class FormulaModal extends Modal {
 			for (const name of group.functions) {
 				const button = row.createEl('button', { cls: 'layer-formula-chip' });
 				button.setText(name);
-				// What the function does, so its name alone does not have to be
-				// guessed at. `setTooltip` is Obsidian's own tooltip; a `title`
-				// attribute as well would draw a second one on top of it.
+				// `setTooltip` is Obsidian's own; a `title` attribute as well would draw a second one over it.
 				const help = formulaFunctionHelp(name);
 				if (help !== '') {
 					setTooltip(button, help);
@@ -233,12 +206,10 @@ export class FormulaModal extends Modal {
 		}
 	}
 
-	/** The names this document has, for checking what the formula reads. */
 	private fieldNames(): string[] {
 		return this.config.fields.map((field) => field.name);
 	}
 
-	/** Updates the read of what is typed: whether it runs, and what it reads. */
 	private paint(): void {
 		const preview = this.previewEl;
 		const error = this.errorEl;

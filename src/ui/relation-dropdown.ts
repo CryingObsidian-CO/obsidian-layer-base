@@ -5,24 +5,15 @@ import { SearchableDropdown, type DropdownItem } from './searchable-dropdown';
 export interface RelationDropdownConfig {
 	anchor: HTMLElement;
 	candidates: readonly RelationCandidate[];
-	/** The rows the cell already points at. */
 	selectedIds: readonly string[];
-	/** The chosen set, after each toggle. */
 	onChange: (recordIds: string[]) => void;
-	/** The panel closed. Every change was already reported as it was made. */
+	/** Closed; every change was already reported as it was made. */
 	onCancel: () => void;
 }
 
 const CLEAR_KEY = '\u0000clear';
 
-/**
- * The picker for a relation cell: the rows of the source table that have a value
- * to offer, toggled as a set the way a multi-select is.
- *
- * It stays open while choices accumulate — the next click is another row, not a
- * dismissal — and reports the whole set after every change, so the cell behind
- * it keeps showing what it will hold.
- */
+/** Toggles accumulate and the panel stays open; the whole set is reported after every change. */
 export function openRelationDropdown(config: RelationDropdownConfig): {
 	close: () => void;
 } {
@@ -34,13 +25,8 @@ export function openRelationDropdown(config: RelationDropdownConfig): {
 			return;
 		}
 		settled = true;
-		/*
-		 * Reported whether or not anything was chosen. The toggles were committed as
-		 * they happened, so this is not an undo but the end of the panel — and it is
-		 * the only word the editor hears: staying quiet after a change left the cell
-		 * recorded as "being edited" for the rest of the session, and a repaint that
-		 * arrives while that is true is dropped.
-		 */
+		// Reported whether or not anything was chosen: it is the only word the editor hears
+		// that the cell is no longer being edited, and a repaint while that is true is dropped.
 		config.onCancel();
 	};
 

@@ -17,7 +17,7 @@ function board(cells?: CellValue): LayerDoc {
 	return doc;
 }
 
-/** A clock the test drives, so the merge window can be crossed on purpose. */
+/** The merge window is time-based, so the tests drive the clock. */
 function fakeClock(start = 1000): { now: () => number; tick: (by: number) => void } {
 	let at = start;
 	return {
@@ -104,10 +104,6 @@ describe('going forward again', () => {
 	});
 
 	it('is dropped by a new edit, which starts another branch', () => {
-		/*
-		 * After undoing, typing again makes what was undone unreachable: the reader has
-		 * taken the document somewhere else.
-		 */
 		const doc = board('one');
 		const history = new History();
 		history.record('cell', doc);
@@ -126,7 +122,6 @@ describe('a run of the same edit', () => {
 		const clock = fakeClock();
 		const history = new History(HISTORY_LIMIT, clock.now);
 
-		// Four keystrokes in quick succession.
 		for (const text of ['a', 'ab', 'abc', 'abcd']) {
 			history.record('cell', doc);
 			doc.records[0]!.cells.f_a = text;
@@ -134,7 +129,6 @@ describe('a run of the same edit', () => {
 		}
 
 		expect(history.depth).toBe(1);
-		// Undoing once goes back to before the first keystroke.
 		expect(history.undo(dataOf(doc))?.records[0]?.cells.f_a).toBe('');
 	});
 
@@ -162,7 +156,6 @@ describe('a run of the same edit', () => {
 	});
 
 	it('does not merge after an undo', () => {
-		// Undoing and then editing must leave two separate steps to walk.
 		const doc = board('one');
 		const clock = fakeClock();
 		const history = new History(HISTORY_LIMIT, clock.now);
@@ -210,10 +203,6 @@ describe('forgetting', () => {
 
 describe('what a snapshot does not carry', () => {
 	it('holds no views, so a redraw cannot roll the layout back', () => {
-		/*
-		 * The reason this matters: undoing a deleted row must put the row back without
-		 * also undoing a column the reader widened in the meantime.
-		 */
 		const doc = board('one');
 		const history = new History();
 		history.record('cell', doc);
@@ -230,7 +219,6 @@ describe('what a snapshot does not carry', () => {
 		const history = new History();
 		history.record('cell', doc);
 
-		// Mutating the live document must not change what was recorded.
 		doc.records[0]!.cells.f_a = 'changed';
 		doc.fields[0]!.name = 'renamed';
 
@@ -241,11 +229,6 @@ describe('what a snapshot does not carry', () => {
 });
 
 describe('the copy is taken before the edit', () => {
-	/*
-	 * The defect this pins: the step used to be recorded *after* the change, so a
-	 * snapshot already held the new value and undoing it put that same value back —
-	 * every operation appeared to do nothing.
-	 */
 	it('holds the old value, not the new one', () => {
 		const doc = board('one');
 		const history = new History();
@@ -259,11 +242,9 @@ describe('the copy is taken before the edit', () => {
 	});
 
 	it('can be dropped when the edit changed nothing', () => {
-		// A delete that matched no rows takes no step.
 		const doc = board('one');
 		const history = new History();
 		history.snapshot(doc);
-		// Nothing happened, so push is never called.
 		expect(history.canUndo).toBe(false);
 	});
 

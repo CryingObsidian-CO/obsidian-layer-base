@@ -1,33 +1,21 @@
-// Checks that every Obsidian CSS variable used in styles.css actually exists
-// in the installed Obsidian build, by reading app.css out of obsidian.asar.
-//
-// Usage: node scripts/verify-css-vars.mjs [path-to-obsidian.asar]
-//
-// With no Obsidian install and no path, that comparison cannot be made: the check
-// says so and exits 0, because a CI runner has no Obsidian. The stylesheet is still
-// read and parsed, so a styles.css that cannot be read is still a failure.
+// Checks that every Obsidian CSS variable used in styles.css exists in the installed
+// build, by reading app.css out of obsidian.asar. Usage: node scripts/verify-css-vars.mjs
+// [path-to-obsidian.asar]. With no Obsidian install, the comparison is skipped with a message.
 
 import { existsSync, openSync, readSync, closeSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
-/*
- * The header of an asar archive is a directory listing, a few hundred kilobytes in
- * practice. This bound exists so four arbitrary bytes in a file that is not an
- * archive cannot ask for a multi-gigabyte zero-filled allocation.
- */
+/* The header is a directory listing of a few hundred KB; this bound stops four arbitrary
+ * bytes asking for a multi-gigabyte zero-filled allocation. */
 const MAX_HEADER_BYTES = 64 * 1024 * 1024;
 
 /** Reads a file out of an .asar archive without needing the asar package. */
 function readFromAsar(asarPath, wanted) {
 	const fd = openSync(asarPath, 'r');
 	try {
-		/*
-		 * Every value below comes from the file, so none of them is trusted: a read
-		 * can come up short, the header length is four arbitrary bytes, and the
-		 * header may not be JSON at all. Each is checked before it is used, so a file
-		 * that is not an archive says so — rather than surfacing later as a JSON
-		 * error about a file that never held any JSON.
-		 */
+/* Every value below comes from the file and is untrusted: short reads, a length of four
+ * arbitrary bytes, a header that may not be JSON. Checking each makes a non-archive fail
+ * as one rather than later as a confusing JSON error. */
 		const prefix = Buffer.alloc(16);
 		if (readSync(fd, prefix, 0, 16, 0) !== 16) {
 			throw new Error('too small to be an asar archive (no 16-byte prefix)');
@@ -50,13 +38,8 @@ function readFromAsar(asarPath, wanted) {
 		} catch (cause) {
 			throw new Error('asar header is not JSON', { cause });
 		}
-		/*
-		 * The JSON header is padded so the data section starts on a 4-byte
-		 * boundary, and the offsets in it count from there. Skipping the padding
-		 * does not fail loudly: it shifts every file by a few bytes, so the text
-		 * still almost reads (this archive's app.css came out with three NUL bytes
-		 * in front and its last three missing).
-		 */
+/* The JSON header is padded to a 4-byte boundary and offsets count from there. Skipping the
+ * padding does not fail loudly: every file shifts a few bytes and still almost reads. */
 		const headerEnd = 16 + headerSize;
 		const base = headerEnd + ((4 - (headerEnd % 4)) % 4);
 
@@ -97,7 +80,6 @@ function findObsidianAsar() {
 	return candidates.find((p) => existsSync(p)) ?? null;
 }
 
-// Variables actually referenced by the plugin's stylesheet.
 const STYLESHEET = 'styles.css';
 let sheet;
 try {
@@ -106,26 +88,16 @@ try {
 	console.error(`Cannot read ${STYLESHEET}; run this from the plugin root.`);
 	process.exit(1);
 }
-/*
- * Both scans below read the stylesheet with its comments removed: a `var()` in a
- * comment is prose, and a declaration in a comment declares nothing. Reading
- * either as code made the check talk about text the browser never sees.
- */
+/* Comments are stripped first: a `var()` in a comment is prose, and a declaration in one
+ * declares nothing. */
 const code = sheet.replace(/\/\*[\s\S]*?\*\//g, '');
 
-/*
- * `[\w-]` and not `[a-z0-9-]`: a custom property is case-sensitive and may hold
- * uppercase letters and underscores. A narrower class did not just miss such a
- * name, it cut it short — `var(--obsidian_local)` was read as `--obsidian` and
- * then reported as missing.
- */
+/* `[\w-]`, not `[a-z0-9-]`: a custom property is case-sensitive and may hold uppercase and
+ * underscores; a narrower class cut `var(--obsidian_local)` down to `--obsidian`. */
 const referenced = [
 	...new Set([...code.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1])),
 ].sort();
 
-/**
- * Variables the plugin declares itself.
- */
 const declaredLocally = new Set(
 	[...code.matchAll(/^\s*(--[\w-]+)\s*:/gm)].map((m) => m[1]),
 );
@@ -134,13 +106,8 @@ const local = referenced.filter((v) => declaredLocally.has(v));
 
 const asarPath = findObsidianAsar();
 if (!asarPath) {
-	/*
-	 * The second half of this check compares those variables against a real Obsidian
-	 * build, and a CI runner has none: Obsidian is installed on the machine of
-	 * whoever runs the plugin, not on a Linux box. Reporting nothing would read as a
-	 * pass, so the skip says so. A path that was named and is missing is still a
-	 * failure below — that is a typo, not an absence.
-	 */
+/* A CI runner has no Obsidian, so the comparison is skipped loudly rather than reported as a
+ * pass; a path that was named and is missing is still a failure below. */
 	console.log(
 		'SKIPPED: no Obsidian install found, so the used variables were not',
 	);
@@ -170,14 +137,9 @@ console.log(`Checked against ${asarPath} (${basename(asarPath)}, app.css ${css.l
 
 let bad = 0;
 for (const v of used) {
-	/*
-	 * A declaration is always inside a block, so the character before it is `{` or
-	 * `;` — that is what finds it, whether the app ships this stylesheet folded
-	 * onto one line or laid out one declaration per line. `^` with the `m` flag
-	 * covers a declaration that begins a line, the one case the other two miss.
-	 * `v` comes from `var(--[a-z0-9-]+)`, so it holds no character the pattern
-	 * would read as syntax.
-	 */
+/* A declaration is inside a block, so `{` or `;` precedes it; `^` with `m` catches one that
+ * begins a line. `v` is matched from `--[\w-]+`, so it holds no character the pattern reads
+ * as syntax. */
 	const pattern = '(?:^|[;{])\\s*' + v + '\\s*:';
 	const hits = [...css.matchAll(new RegExp(pattern, 'gm'))].length;
 	if (hits === 0) {

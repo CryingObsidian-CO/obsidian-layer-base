@@ -1289,7 +1289,6 @@ export function seedLabels(): SeedLabels {
 	};
 }
 
-/** Current catalogue for the app language. */
 export function t(): Strings {
 	return active;
 }

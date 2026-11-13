@@ -6,26 +6,14 @@ import {
 } from './filter';
 import { optionColorHex } from './select-options';
 
-/**
- * How much of the row's colour a tint shows.
- *
- * Low enough that the text stays the reader's own colour in either theme: a
- * stronger wash turns a coloured row into a coloured table.
- */
+/** Low enough that text keeps the theme's own colour; a stronger wash turns a row into a coloured table. */
 const TINT_ALPHA = 0.14;
 
-/** The rules a view colours its rows by, in the order they are tried. */
 export function colorRulesOf(view: GridView): readonly ColorRule[] {
 	return view.colorRules ?? [];
 }
 
-/**
- * The colour a row wears, or null when no rule matches.
- *
- * Only the first match counts. A row is one colour, so a later rule must not be
- * able to paint over an earlier one: the order of the list then means exactly
- * "which rule wins", and nothing else.
- */
+/** The colour the first matching rule gives, or null. A row is one colour, so list order is the priority. */
 export function rowColorOf(
 	view: GridView,
 	record: LayerRecord,
@@ -46,7 +34,6 @@ export function rowColorOf(
 	return null;
 }
 
-/** Stores the rules, dropping the key when none are left. */
 export function setColorRules(
 	view: GridView,
 	rules: readonly ColorRule[],
@@ -58,7 +45,6 @@ export function setColorRules(
 	view.colorRules = rules.map((rule) => ({ ...rule }));
 }
 
-/** A palette colour as a see-through wash, for a row's background. */
 export function rowTint(color: string): string {
 	const hex = optionColorHex(color);
 	const red = Number.parseInt(hex.slice(1, 3), 16);

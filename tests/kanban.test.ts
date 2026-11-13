@@ -39,12 +39,10 @@ const tags: Field = {
 const formula: Field = { id: 'f_calc', name: 'Calc', type: 'formula' };
 const box: Field = { id: 'f_box', name: 'Box', type: 'checkbox' };
 
-/** The titles of the columns a board draws, in order. */
 function titles(columns: readonly KanbanColumn[]): string[] {
 	return columns.map((column) => column.title);
 }
 
-/** The ids in one column, by its title. */
 function idsIn(columns: readonly KanbanColumn[], title: string): string[] {
 	return columns.find((column) => column.title === title)?.recordIds ?? [];
 }
@@ -93,11 +91,6 @@ describe('the ungrouped column', () => {
 	});
 
 	it('is left out when no row needs it', () => {
-		/*
-		 * An empty "no value" column is a column nobody has filled, so it follows the
-		 * same rule as every other unused one instead of sitting in front of the board
-		 * where the first real value belongs.
-		 */
 		const rows = [row('a', { f_text: 'x' })];
 		expect(titles(groupRecords(rows, text, 50))).toEqual(['x']);
 	});
@@ -111,10 +104,6 @@ describe('the ungrouped column', () => {
 	});
 
 	it('accepts a drop, which clears the column', () => {
-		/*
-		 * Dragging a card out of a status should be able to leave it with none, so
-		 * the ungrouped column takes a drop like any other.
-		 */
 		const columns = groupRecords([row('a', {})], text, 50);
 		expect(columns[columns.length - 1]?.droppable).toBe(true);
 	});
@@ -156,10 +145,7 @@ describe('grouping by other columns', () => {
 
 describe('grouping a multiple-value column', () => {
 	it('treats the whole selection as one column, not one per choice', () => {
-		/*
-		 * The reason a row is never in two columns: `A, B` is the title of a column,
-		 * so a row reading that belongs to exactly that one.
-		 */
+		// `A, B` is one column title, so a row belongs to exactly that column.
 		const rows = [
 			row('a', { f_tags: ['t_a', 't_b'] }),
 			row('b', { f_tags: ['t_a'] }),
@@ -181,7 +167,6 @@ describe('grouping a multiple-value column', () => {
 
 describe('columns that cannot be written', () => {
 	it('marks a computed column as not droppable', () => {
-		// The view computes its text, and there is no value to write back.
 		const rows = [row('a', {})];
 		const resolve = (): string => 'computed';
 		const columns = groupRecords(rows, formula, 50, resolve);
@@ -191,8 +176,7 @@ describe('columns that cannot be written', () => {
 });
 
 describe('what a drop writes', () => {
-	// A board only draws the columns its rows actually use, so the data has to
-	// contain a row in each column the test asks for.
+	// A board draws only the columns its rows use, so the data needs a row in each column asked for.
 	const columns = groupRecords(
 		[row('a', { f_status: 's_todo' }), row('b', { f_status: 's_done' })],
 		status,
@@ -216,8 +200,6 @@ describe('what a drop writes', () => {
 	});
 
 	it('replaces a multiple selection rather than adding to it', () => {
-		// Otherwise a card dropped on `A` would keep its `B` and belong to a column
-		// that reads `A, B` — not the one it was dropped on.
 		const tagColumn: KanbanColumn = {
 			value: 'A',
 			title: 'A',
@@ -243,7 +225,6 @@ describe('what a drop writes', () => {
 describe('a board grouped by a relation', () => {
 	const link: Field = { id: 'f_link', name: 'Link', type: 'relation' };
 	const NAMES: Record<string, string> = { r_ann: 'Ann', r_bob: 'Bob' };
-	/** What the grid shows: the names of the rows a cell links. */
 	const show = (record: LayerRecord): string =>
 		relationIds(record.cells.f_link ?? '')
 			.map((id) => NAMES[id] ?? id)
@@ -271,8 +252,6 @@ describe('a board grouped by a relation', () => {
 	});
 
 	it('links those rows on a drop instead of clearing them', () => {
-		// The defect this pins: this used to answer `[]`, so dragging a card into a
-		// relation column quietly unlinked the row — a drop could only ever unlink.
 		expect(valueForColumn(link, annAndBob)).toEqual(['r_ann', 'r_bob']);
 	});
 
@@ -307,7 +286,6 @@ describe('the column limit', () => {
 		const rows = Array.from({ length: 20 }, (_, index) =>
 			row(`r${index}`, { f_num: index }),
 		);
-		// A distinct value per row, and nothing ungrouped: the limit is what is drawn.
 		expect(groupRecords(rows, number, 5)).toHaveLength(5);
 	});
 
@@ -319,11 +297,6 @@ describe('the column limit', () => {
 		];
 		const drawn = groupRecords(rows, text, 2);
 
-		/*
-		 * Two named columns would fill the limit and drop the card with no value —
-		 * and the board can only say how many *columns* it left out, not that a card
-		 * went with one of them.
-		 */
 		expect(titles(drawn)).toEqual(['apple', '']);
 		expect(drawn[1]?.recordIds).toEqual(['c']);
 	});
@@ -343,11 +316,6 @@ describe('the column limit', () => {
 });
 
 describe('showing the columns a column could hold', () => {
-	/*
-	 * A board of choices used to draw only the values some row already had, so the
-	 * one thing a board is for — dragging a card into a value nobody had chosen —
-	 * was impossible.
-	 */
 	const rows = [row('a', { f_status: 's_todo' })];
 
 	it('draws only the values in use by default', () => {
@@ -383,7 +351,6 @@ describe('showing the columns a column could hold', () => {
 	});
 
 	it('invents nothing for a column with no fixed set of values', () => {
-		// A text column holds whatever the rows say; there is no list to complete.
 		const rows2 = [row('a', { f_text: 'x' })];
 		expect(titles(groupRecords(rows2, text, 50, undefined, true))).toEqual([
 			'x',
@@ -392,11 +359,6 @@ describe('showing the columns a column could hold', () => {
 	});
 
 	it('counts the unused columns against the limit, keeping a slot for the no-value one', () => {
-		/*
-		 * The limit is about what is drawn, and the no-value column holds the cards
-		 * that have nowhere else to be, so it keeps a slot — the unused named columns
-		 * are what the board leaves out.
-		 */
 		const drawn = groupRecords(rows, status, 3, undefined, true);
 
 		expect(drawn).toHaveLength(3);
@@ -406,12 +368,6 @@ describe('showing the columns a column could hold', () => {
 
 describe('clearing a card by dropping it on the ungrouped column', () => {
 	it('writes the empty value the column expects', () => {
-		/*
-		 * Not `''` for everything: a multi-select stores a list and a checkbox stores
-		 * a boolean, so writing a blank string would be a value of the wrong shape.
-		 * A second row with nothing in it keeps the ungrouped column on the board —
-		 * it is drawn only when there is something for it to hold.
-		 */
 		const columns = groupRecords(
 			[row('a', { f_tags: ['t_a'] }), row('b', {})],
 			tags,
@@ -435,17 +391,8 @@ describe('clearing a card by dropping it on the ungrouped column', () => {
 	});
 });
 describe('dropping a card back onto the ungrouped column', () => {
-	/*
-	 * The defect this pins: the column was made droppable in the model but the view
-	 * still refused any drop whose column had no value, so a card could be dragged
-	 * out of a status but never back to none.
-	 */
 	const rows = [row('a', { f_status: 's_todo' }), row('b', {})];
 
-	/*
-	 * The ungrouped column is drawn last: its cards have no other column to be in, so
-	 * it keeps a slot behind the named ones rather than ahead of them.
-	 */
 	function ungroupedOf(columns: readonly KanbanColumn[]): KanbanColumn {
 		const column = columns[columns.length - 1];
 		if (!column) {
@@ -466,8 +413,7 @@ describe('dropping a card back onto the ungrouped column', () => {
 	});
 
 	it('also works for a checkbox board', () => {
-		// One unticked row, so the "no value" column exists for the ticked card to be
-		// dragged into: a column nothing would land in is not drawn at all.
+		// One unticked row, so the "no value" column exists for the ticked card to be dragged into.
 		const rows = [row('a', { f_box: true }), row('b', { f_box: false })];
 		const ungrouped = ungroupedOf(groupRecords(rows, box, 50));
 		expect(ungrouped.droppable).toBe(true);
@@ -475,17 +421,11 @@ describe('dropping a card back onto the ungrouped column', () => {
 	});
 
 	it('refuses only when the grouping column cannot be written at all', () => {
-		// A computed column has nothing to write, so its columns stay fixed.
 		const columns = groupRecords([row('a', {})], formula, 50, () => 'computed');
 		expect(columns[0]?.droppable).toBe(false);
 	});
 });
 describe('the columns a card prints', () => {
-	/*
-	 * The board's own settings decide this: which column titles a card, and which
-	 * ones are printed under it. `cardFieldIds` existed in the file from the first
-	 * version but nothing read it, so a card only ever showed a title.
-	 */
 	const fields = [status, text, number];
 	const primaryField: Field = { ...text, primary: true };
 
@@ -509,7 +449,6 @@ describe('the columns a card prints', () => {
 	});
 
 	it('falls back to the table primary column when the board names none', () => {
-		// What a board that was never configured does.
 		const columns = cardColumnsFor(
 			[status, primaryField, number],
 			boardView(),
@@ -531,7 +470,6 @@ describe('the columns a card prints', () => {
 	});
 
 	it('never repeats the grouping column on a card', () => {
-		// It is already the board's structure; printing it adds nothing.
 		const columns = cardColumnsFor(
 			fields,
 			boardView({ cardFieldIds: [status.id, text.id] }),
@@ -554,11 +492,6 @@ describe('a board grouped by a percentage', () => {
 	const rows = [row('a', { f_rate: 0.1 }), row('b', { f_rate: 0.02 })];
 
 	it('orders its columns by the number behind the title', () => {
-		/*
-		 * `Number("10%")` is NaN for every column, and a comparator that answers NaN
-		 * leaves the order to whatever `sort` feels like — here, the order the rows
-		 * arrived in.
-		 */
 		expect(groupRecords(rows, rate, 10).map((column) => column.title)).toEqual([
 			'2%',
 			'10%',
@@ -569,7 +502,6 @@ describe('a board grouped by a percentage', () => {
 		const columns = groupRecords(rows, rate, 10);
 		const ten = columns.find((column) => column.title === '10%') as KanbanColumn;
 
-		// The column carries "10%", and the cell it writes into holds 0.1.
 		expect(valueForColumn(rate, ten)).toBe(0.1);
 	});
 });

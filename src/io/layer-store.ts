@@ -27,12 +27,8 @@ export class LayerStore {
 				? normalizePath(`${folder.path}/${name}.${LAYER_EXTENSION}`)
 				: normalizePath(`${name}.${LAYER_EXTENSION}`);
 
-			/*
-			 * A name already in use is the only reason to try another. Everything
-			 * else `vault.create` can fail with — a character the vault refuses, a
-			 * read-only vault, a full disk — is the answer rather than a collision,
-			 * and trying it fifty times only buries it.
-			 */
+			/* A name already in use is the only reason to try another. Everything else `vault.create`
+			 * can fail with — a refused character, a read-only vault, a full disk — is the answer. */
 			if (this.app.vault.getAbstractFileByPath(path) !== null) {
 				continue;
 			}
@@ -43,11 +39,8 @@ export class LayerStore {
 					serializeLayerDoc(createEmptyDoc(name, seed)),
 				);
 			} catch (error) {
-				/*
-				 * Somebody else took the name between the check and the write: a sync
-				 * pull, or a second board asked for at the same moment. That is still
-				 * a collision; anything else is the failure to report.
-				 */
+				/* Somebody else took the name between the check and the write — a sync pull, a second
+				 * board created at the same moment. That is still a collision; anything else is the error. */
 				if (this.app.vault.getAbstractFileByPath(path) !== null) {
 					continue;
 				}
@@ -65,13 +58,8 @@ export class LayerStore {
 		return parseLayerDoc(text);
 	}
 
-	/**
-	 * Writes an export beside the board it came from.
-	 *
-	 * Next to the file rather than into a fixed folder, because that is where the
-	 * reader will look for it. A name already in use gets a suffix instead of being
-	 * overwritten: an export is a copy, and a copy must not destroy a file.
-	 */
+	/** Writes an export beside its board. A name in use gets a suffix: an export is a copy,
+	 * and a copy must not overwrite a file. */
 	async writeExport(
 		folder: TFolder,
 		name: string,
@@ -102,13 +90,8 @@ export class LayerStore {
 		);
 	}
 
-	/**
-	 * Keeps a view's unsaved document beside its table when an outside write wins.
-	 *
-	 * The copy is a real `.layer` file, so the reader can open it and move what
-	 * they need back into the table. It deliberately never overwrites an existing
-	 * file: losing one conflict copy to make room for another is still a loss.
-	 */
+	/** Keeps a view's unsaved document in a real `.layer` file beside its table. It never
+	 * overwrites an existing file: losing one conflict copy to make room for another is still a loss. */
 	async writeConflictCopy(file: TFile, text: string): Promise<TFile> {
 		const folder = file.parent;
 		if (folder === null) {
@@ -123,7 +106,6 @@ export class LayerStore {
 	}
 }
 
-/** True when the file is one this plugin can open. */
 export function isLayerFile(file: unknown): file is TFile {
 	return file instanceof TFile && file.extension === LAYER_EXTENSION;
 }

@@ -1,22 +1,13 @@
-/**
- * The small YAML subset a note property needs.
- *
- * Obsidian's metadata cache is not available to the MCP server, which runs as a
- * separate Node process. A note property normally points at one top-level key,
- * so this reads that key from a frontmatter block without pretending to be a
- * general YAML parser: scalars, quoted strings, inline arrays and simple block
- * arrays work; a nested mapping reads as empty, and the caller tells the reader
- * that this column only carries simple values.
- */
+/* The frontmatter subset a note property needs: no metadata cache is available to
+ * the MCP server, so this reads one top-level key without being a general YAML
+ * parser. A nested mapping reads as `null`, which the caller reports as unreadable. */
 
-/** The text between the two `---` fences, or null when the note has none. */
 function frontmatterBlock(text: string): string | null {
 	const withoutBom = text.startsWith('\uFEFF') ? text.slice(1) : text;
 	const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(withoutBom);
 	return match?.[1] ?? null;
 }
 
-/** A key as YAML readers write it: plain, or wrapped in quotes. */
 function keyOf(line: string): { key: string; value: string } | null {
 	const match = /^([^\s:#][^:]*?)\s*:\s*(.*)$/.exec(line);
 	if (!match) {
@@ -32,7 +23,6 @@ function keyOf(line: string): { key: string; value: string } | null {
 	return { key, value: match[2] ?? '' };
 }
 
-/** A scalar as a person reads it, with quotes and simple escapes removed. */
 function scalar(text: string): string {
 	let value = text.trim();
 	if (value === '' || value === '~' || value.toLowerCase() === 'null') {
@@ -40,11 +30,8 @@ function scalar(text: string): string {
 	}
 	const quote = value[0];
 	if (quote === '"' || quote === "'") {
-		/*
-		 * A comment often follows the closing quote — `status: "done" # note`. The
-		 * value then no longer ends with its quote, and the unquoted path below
-		 * would hand the quotes themselves through as content.
-		 */
+		// A comment may follow the closing quote (`status: "done" # note`); trim it,
+		// or the value no longer ends in its quote.
 		const comment = value.search(/\s#/);
 		if (comment !== -1 && value[comment - 1] === quote) {
 			value = value.slice(0, comment).trim();
@@ -52,11 +39,8 @@ function scalar(text: string): string {
 		if (value.endsWith(quote)) {
 			value = value.slice(1, -1);
 			if (quote === '"') {
-				/*
-				 * One pass, left to right, so each backslash is read exactly once.
-				 * Decoding `\n` before `\\` made the second backslash of `C:\\new` a line
-				 * break, leaving `C:\` and a newline where the path had `\new`.
-				 */
+				// One pass left to right, each backslash read once: matching `\n` before
+				// `\\` turns the second backslash of `C:\\new` into a line break.
 				value = value.replace(/\\(["\\n])/g, (_match: string, char: string) =>
 					char === 'n' ? '\n' : char,
 				);
@@ -66,8 +50,7 @@ function scalar(text: string): string {
 			return value;
 		}
 	}
-	// A trailing comment starts at a # preceded by whitespace; a # inside a
-	// quoted string was handled above.
+	// A trailing comment starts at whitespace followed by #.
 	const comment = value.search(/\s#/);
 	if (comment !== -1) {
 		value = value.slice(0, comment).trim();
@@ -75,7 +58,6 @@ function scalar(text: string): string {
 	return value;
 }
 
-/** An inline list, split on commas that are not inside quotes. */
 function inlineList(text: string): string[] {
 	const body = text.trim().replace(/^\[/, '').replace(/\]$/, '');
 	const parts: string[] = [];
@@ -110,12 +92,8 @@ function inlineList(text: string): string[] {
 }
 
 /**
- * The value of one top-level frontmatter key.
- *
- * A missing note, a missing key and an empty value all answer `''`. `null` means
- * the key exists but its value is a nested mapping or another shape this subset
- * cannot read, so the caller can say that the cell is unreadable rather than
- * passing it off as genuinely empty.
+ * A missing note, key or value answers `''`; `null` means the key exists but reads as
+ * a nested mapping, which the caller must report as unreadable rather than empty.
  */
 export function frontmatterValue(text: string, key: string): string | null {
 	const block = frontmatterBlock(text);
@@ -134,8 +112,8 @@ export function frontmatterValue(text: string, key: string): string | null {
 		}
 		let value = entry.value.trim();
 		if (value === '') {
-			// A value on the following indented lines is either a block list or a
-			// nested mapping. Lists become comma-separated text; mappings stay empty.
+			// An indented value is a block list or a nested mapping: lists become
+			// comma-separated text, mappings stay empty.
 			const items: string[] = [];
 			let nestedMapping = false;
 			for (let next = index + 1; next < lines.length; next += 1) {

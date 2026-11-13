@@ -26,7 +26,6 @@ function docWith(fields: Field[]): LayerDoc {
 describe('a formula field', () => {
 	it('is a derived type', () => {
 		expect(isDerived('formula')).toBe(true);
-		// And therefore never reported as a missing required value.
 		expect(isMissingRequired({ ...formulaField, required: true }, '')).toBe(false);
 	});
 
@@ -81,7 +80,6 @@ describe('the declared result type', () => {
 		const raw = JSON.parse(serializeLayerDoc(doc)) as {
 			fields: Record<string, unknown>[];
 		};
-		// Absent means "follow the result", which is not worth writing down.
 		expect('formulaType' in (raw.fields[0] ?? {})).toBe(false);
 	});
 
@@ -105,11 +103,6 @@ describe('the declared result type', () => {
 	});
 
 	it('never changes what the formula computed', () => {
-		/*
-		 * The declared type only dresses the result. A column told to present text
-		 * still reports the number it actually computed, so nothing a reader can
-		 * see is quietly rewritten.
-		 */
 		const doc = docWith([
 			{ id: 'f_n', name: 'n', type: 'number' },
 			{
@@ -125,18 +118,12 @@ describe('the declared result type', () => {
 		record.cells.f_n = 41;
 		const result = computeFormula(doc, record, doc.fields[1]!);
 		expect(result.ok && result.text).toBe('42');
-		// The computed kind is a number; only the column's dressing says text.
 		expect(result.ok && result.kind).toBe('number');
 	});
 });
 
 describe('a column with no expression yet', () => {
 	it('is reported by the engine as empty, not as a crash', () => {
-		/*
-		 * The engine has nothing to compute and says so with `empty`. The view reads
-		 * that as "not set up yet" — a brand-new field greeted by an error in every
-		 * row is not a useful thing to show.
-		 */
 		const doc = docWith([
 			{ id: 'f_blank', name: 'Blank', type: 'formula', primary: true },
 		]);

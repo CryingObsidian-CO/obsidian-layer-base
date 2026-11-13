@@ -9,7 +9,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileText, readFileText, writeFileText } from '../mcp/table-file';
 
-/** A temporary folder for one case, removed after it. */
 const folders: string[] = [];
 function tempFolder(): string {
 	const folder = mkdtempSync(join(tmpdir(), 'layer-base-table-file-'));

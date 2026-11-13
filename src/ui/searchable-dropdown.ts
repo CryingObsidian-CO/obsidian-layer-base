@@ -3,7 +3,6 @@ import { generateId } from '../utils/id';
 import { placeAtAnchor } from './anchor-placement';
 import { renderOptionPill } from './option-pill';
 
-/** One row of the list: what it shows, and the key that tells two rows apart. */
 export interface DropdownItem {
 	key: string;
 	label: string;
@@ -13,78 +12,41 @@ export interface DropdownItem {
 	modifier?: string;
 }
 
-/**
- * The state the core owns and puts on the row element. A consumer that draws
- * its own row is told about it, so it never has to re-derive it from the key.
- */
+/** What the core already put on the row, handed to a consumer's `renderRow`. */
 export interface DropdownRowState {
 	active: boolean;
 	selected: boolean;
 }
 
-/** Everything a consumer hands over for the core to run a dropdown. */
 export interface SearchableDropdownConfig {
-	/** The element the panel hangs off; its width and position are borrowed. */
 	anchor: HTMLElement;
-	/**
-	 * Where the panel is parented. Inside a modal this has to be a sibling of
-	 * `.modal`, whose scrolling box would otherwise clip the list.
-	 */
+	/** Inside a modal this must be a sibling of `.modal`, whose scrolling box would clip the list. */
 	host?: HTMLElement;
-	/** Container class; the input, list, empty element and icon slot derive from it. */
 	bodyClass: string;
 	rowClass: string;
 	placeholder: string;
-	/** Shown instead of the rows when `items()` returns nothing. */
 	emptyText: string;
-	/** The rows for a query. Filtering is the consumer's own business. */
 	items: (query: string) => readonly DropdownItem[];
-	/** The key of the row the cursor starts on; the top row when it is gone. */
 	selectedKey?: () => string | null;
-	/** Every key currently chosen, for a list that can hold more than one. */
 	selectedKeys?: () => readonly string[];
-	/** Draws a row's contents; without it the core draws the icon slot plus the label. */
 	renderRow?: (
 		row: HTMLElement,
 		item: DropdownItem,
 		state: DropdownRowState,
 	) => void;
-	/**
-	 * A row was chosen. The query comes along, for consumers that create.
-	 *
-	 * Returning `'keep-open'` leaves the panel up, for a list that collects
-	 * several choices; anything else closes it, which is the default behaviour.
-	 */
+	/** `'keep-open'` leaves the panel up, for a list that collects several choices. */
 	onPick: (item: DropdownItem, query: string) => void | 'keep-open';
 	/** The panel went away, however it went away. Called at most once. */
 	onClose?: () => void;
 }
 
-/**
- * A key that only ends an IME composition is not a command: the user is still
- * typing Chinese, and the Enter that commits a candidate must neither pick a
- * row nor close the list.
- *
- * Two signals, both current: the flag the browser raises while a composition
- * runs, and `Process` — the key value Chromium reports for a key the IME has
- * taken over, which is what the old numeric 229 meant.
- */
+/** An IME composition's Enter commits a candidate, so it is no command; `Process` is Chromium's key for one taken. */
 function isComposing(event: KeyboardEvent): boolean {
 	return event.isComposing || event.key === 'Process';
 }
 
-/**
- * The mechanics behind every dropdown in the plugin: a search box over a list
- * of rows, anchored under whatever opened it.
- *
- * The core owns the geometry, the listeners and the keyboard, and knows nothing
- * about what a row means. A consumer supplies `items()` — its own filtering
- * included — and optionally `renderRow()`, and is told about a pick or a close.
- * The core never moves the focus back to the anchor: a close caused by a click
- * elsewhere has to leave the focus where that click put it.
- */
+/** Geometry, listeners and keyboard; a row's meaning is the consumer's business, and focus never returns to the anchor. */
 export class SearchableDropdown {
-	/** The panel, already parented: hidden until it has been measured. */
 	readonly el: HTMLElement;
 
 	private readonly config: SearchableDropdownConfig;
@@ -112,13 +74,8 @@ export class SearchableDropdown {
 		});
 		this.listEl = this.el.createDiv({ cls: `${config.bodyClass}-list` });
 
-		/*
-		 * The listbox pattern, completed rather than half-declared. A list with
-		 * `role="listbox"` and no `role="option"` rows is announced as an EMPTY
-		 * list, which is worse than declaring no ARIA at all: it promises a
-		 * structure that is not there. Obsidian's own listboxes pair the two
-		 * roles and name the active row, so this mirrors that.
-		 */
+		// A listbox with no `option` rows is announced as an empty list, which is worse than
+		// no ARIA at all; Obsidian's own listboxes pair the two roles, so this mirrors that.
 		this.listEl.id = this.listId;
 		this.listEl.setAttribute('role', 'listbox');
 		this.inputEl.setAttribute('role', 'combobox');
@@ -133,8 +90,8 @@ export class SearchableDropdown {
 
 		this.refresh();
 
-		// Displayed first: a hidden element measures as zero and would always be
-		// placed below. Off-screen while measuring, so it cannot flash.
+		// Displayed first: a hidden element measures as zero and would always be placed below.
+		// Off-screen while measuring, so it cannot flash.
 		this.el.addClass('is-measuring');
 		window.setTimeout(() => {
 			if (this.closed) {
@@ -146,8 +103,7 @@ export class SearchableDropdown {
 			this.el.removeClass('is-measuring');
 			this.el.addClass('is-open');
 			this.inputEl.focus();
-			// The caret belongs after whatever is already typed, so a list that
-			// opens with a query can be typed into rather than typed over.
+			// The caret belongs after whatever is already typed, so a query can be typed into.
 			const end = this.inputEl.value.length;
 			this.inputEl.setSelectionRange(end, end);
 		}, 0);
@@ -173,12 +129,10 @@ export class SearchableDropdown {
 		this.close();
 	};
 
-	/** Re-reads the items and repaints, for a consumer whose data has changed. */
 	refresh(): void {
 		this.render(this.inputEl.value);
 	}
 
-	/** Every key currently marked as chosen, for either shape of the config. */
 	private selectedKeys(): readonly string[] {
 		if (this.config.selectedKeys) {
 			return this.config.selectedKeys();
@@ -190,12 +144,8 @@ export class SearchableDropdown {
 	private render(query: string): void {
 		const marked = this.selectedKeys();
 		this.rows = [...this.config.items(query)];
-		/*
-		 * The cursor is seated on a chosen row on every render, including when the
-		 * query changed: with nothing chosen, or with all of it filtered out, that
-		 * falls back to the top row. A stray Enter then re-picks something already
-		 * chosen instead of moving the value along.
-		 */
+		// Seated on a chosen row on every render, falling back to the top: a stray Enter then
+		// re-picks what is already chosen instead of moving the value along.
 		const found = this.rows.findIndex((item) => marked.includes(item.key));
 		this.active = found < 0 ? 0 : found;
 
@@ -203,15 +153,12 @@ export class SearchableDropdown {
 		this.emptyEl?.remove();
 		this.emptyEl = null;
 		if (this.rows.length === 0) {
-			// A sibling of the list rather than a child, so rows and this never
-			// share a scrolling box. It is left out entirely while rows exist,
-			// since it would otherwise still take up its own padding.
+			// A sibling of the list, never a child: otherwise rows and this share one scrolling box.
 			this.emptyEl = this.el.createDiv({
 				cls: `${this.config.bodyClass}-empty`,
 				text: this.config.emptyText,
 			});
-			// Still repainted: the list was just emptied, so this is what clears
-			// `aria-activedescendant` instead of letting it name a row that is gone.
+			// Still repainted: the list was just emptied, so this clears `aria-activedescendant`.
 			this.paintActive();
 			return;
 		}
@@ -229,11 +176,8 @@ export class SearchableDropdown {
 		if (selected) {
 			row.addClass('is-selected');
 		}
-		/*
-		 * `aria-selected` reports whether this row is the CURRENT VALUE, not
-		 * whether it is merely highlighted: the cursor row is carried by
-		 * `aria-activedescendant` instead, so the two never contradict each other.
-		 */
+		// `aria-selected` is the CURRENT VALUE, not the highlight: the cursor row is carried by
+		// `aria-activedescendant`, so the two never contradict each other.
 		row.id = `${this.listId}-${index}`;
 		row.setAttribute('role', 'option');
 		row.setAttribute('aria-selected', String(selected));
@@ -242,17 +186,13 @@ export class SearchableDropdown {
 		} else {
 			this.drawRow(row, item);
 		}
-		// The pointer moves the cursor row rather than lighting one of its own,
-		// so Enter chooses what is highlighted. Only classes are toggled.
+		// The pointer moves the cursor row, so Enter chooses what is highlighted; only classes toggle.
 		row.addEventListener('mousemove', () => this.setActive(index));
 		row.addEventListener('mousedown', (event) => {
 			// Keeps the caret in the search box instead of moving it to the row.
 			event.preventDefault();
-			/*
-			 * The gesture is taken on mousedown and the click belonging to it is
-			 * dropped. A pick may rebuild the rows, so that click can land on a
-			 * row that shifted under the pointer — a different choice entirely.
-			 */
+			// The gesture is taken on mousedown and the click belonging to it is dropped: a
+			// pick may rebuild the rows, so that click can land on one that shifted under it.
 			this.gestureTaken = true;
 			this.pick(item);
 		});
@@ -267,14 +207,11 @@ export class SearchableDropdown {
 
 	/** The row a consumer gets when it does not draw its own. */
 	private drawRow(row: HTMLElement, item: DropdownItem): void {
-		// The icon slot is drawn even when it stays empty: it is a fixed-width
-		// gutter, so a row with no icon still lines up with the rows that have one.
+		// Drawn even when empty: a fixed-width gutter, so rows with and without an icon line up.
 		const slot = row.createSpan({ cls: `${this.config.bodyClass}-row-icon` });
 		if (item.icon) {
 			setIcon(slot, item.icon);
 		}
-		// `hint` is for consumers that draw their own row; the shared row is the
-		// icon slot and the label, nothing else.
 		const label = row.createSpan({ cls: `${this.config.bodyClass}-row-label` });
 		if (item.pillColor !== undefined) {
 			renderOptionPill(label, item.label, item.pillColor);
@@ -298,11 +235,8 @@ export class SearchableDropdown {
 		Array.from(this.listEl.children).forEach((row, index) => {
 			row.toggleClass('is-active', index === this.active);
 		});
-		/*
-		 * Cleared rather than left pointing at a row that no longer exists: the
-		 * attribute must never name an id that is absent from the document, so an
-		 * empty list publishes no active row at all.
-		 */
+		// Cleared, never left naming a row that is gone: the attribute must not point at an
+		// absent id, so an empty list publishes no active row.
 		if (active instanceof HTMLElement) {
 			this.inputEl.setAttribute('aria-activedescendant', active.id);
 		} else {
@@ -342,18 +276,15 @@ export class SearchableDropdown {
 		}
 	}
 
-	/**
-	 * Reports the pick, then closes — unless the consumer asks to keep the panel
-	 * up, which a list collecting several choices does.
-	 */
+	/** Reports the pick, then closes unless the consumer asks to keep the panel up. */
 	private pick(item: DropdownItem): void {
 		if (this.closed) {
 			return;
 		}
 		const keep = this.config.onPick(item, this.inputEl.value) === 'keep-open';
 		if (keep) {
-			// The chosen set just changed, so the rows are rebuilt; the search box
-			// is cleared so the next press starts from the whole list.
+			// The chosen set just changed, so the rows are rebuilt; the box is cleared so the
+			// next press starts from the whole list.
 			this.inputEl.value = '';
 			this.refresh();
 			this.inputEl.focus();
@@ -362,15 +293,11 @@ export class SearchableDropdown {
 		this.close();
 	}
 
-	/** Whether the panel is currently on screen. */
 	isOpen(): boolean {
 		return this.el.isConnected;
 	}
 
-	/**
-	 * Takes the panel down: the listeners go first, then the element, then the
-	 * consumer is told once. Calling it again does nothing.
-	 */
+	/** Listeners first, then the element, then the consumer told once. */
 	close(): void {
 		if (this.closed) {
 			return;

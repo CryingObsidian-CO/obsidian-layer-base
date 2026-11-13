@@ -1,12 +1,7 @@
 import type { SummaryKind } from '../model/summary';
 import { t } from '../i18n';
 
-/**
- * How a summary reads in the menu and in the footer tooltip.
- *
- * The mapping lives beside the UI rather than in the model because the engine keeps
- * to data and takes no dependency on translations.
- */
+/** Lives here rather than in the model, which takes no dependency on translations. */
 export function summaryLabel(kind: SummaryKind): string {
 	switch (kind) {
 		case 'none':

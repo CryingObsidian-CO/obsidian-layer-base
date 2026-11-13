@@ -42,7 +42,6 @@ export interface NumberSettings {
 export interface RelationSettings {
 	/** The `.layer` file, or `''` for this table. */
 	path: string;
-	/** The column of that table whose values the cell shows. */
 	fieldId: string;
 }
 
@@ -65,12 +64,6 @@ export interface RollupSettings {
 	aggregate: RollupAggregate;
 }
 
-/**
- * A lookup's two settings.
- *
- * The same pair a rollup has, minus the reduction: this one shows every value it
- * finds instead of turning them into one number.
- */
 export interface LookupSettings {
 	/** The relation column in this table whose rows are read; `''` for none. */
 	sourceFieldId: string;
@@ -85,18 +78,12 @@ export interface FieldEditorResult {
 	required: boolean;
 	number: NumberSettings;
 	relation: RelationSettings;
-	/** The reverse relation's source, when the type is `relationBack`. */
 	back: BackSettings;
-	/** The expression, when the type is `formula`. */
 	formula: string;
 	autoNumber: AutoNumberSettings;
-	/** How a rollup gathers and reduces, when the type is `rollup`. */
 	rollup: RollupSettings;
-	/** Which values a lookup shows, when the type is `lookup`. */
 	lookup: LookupSettings;
-	/** Which note column a `noteProp` reads, and which key it reads there. */
 	noteProp: { sourceFieldId: string; key: string };
-	/** How that result is presented; null to follow whatever it computed. */
 	formulaType: FormulaResultType | null;
 	typeChanged: boolean;
 }
@@ -106,7 +93,6 @@ export interface FieldEditorOptions {
 	field: Field | null;
 	/** What the panel opens next to; null centres it. */
 	anchor?: Anchor | null;
-	/** The tables a relation may point at; also loads their columns. */
 	tables: TableIndex;
 	/** This document's own columns, so a self-reference needs no read. */
 	selfFields: readonly Field[];
@@ -115,13 +101,10 @@ export interface FieldEditorOptions {
 	onSubmit: (result: FieldEditorResult) => void;
 }
 
-/** How wide the panel is; `AnchoredPopover` applies it inline, since a modal's own width can only be moved with `!important`. */
+/** Applied inline by `AnchoredPopover`: a modal's own width only moves with `!important`. */
 const FIELD_EDITOR_WIDTH = '17rem';
 
-/*
- * The name of each type on the button that opens the picker, read lazily so a
- * language change is picked up rather than frozen at module load.
- */
+/** Read lazily, so a language change is picked up rather than frozen at load. */
 const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	text: () => t().typeText,
 	longtext: () => t().typeLongText,
@@ -141,7 +124,6 @@ const FIELD_TYPE_LABELS: Record<FieldType, () => string> = {
 	noteProp: () => t().typeNoteProp,
 };
 
-/** Whether a column's text form can stand in for a row's name. */
 function canNameARow(field: Field): boolean {
 	return capabilityOf(field.type).namesARow;
 }
@@ -175,11 +157,7 @@ export class FieldEditorModal extends AnchoredPopover {
 	private readonly isEditing: boolean;
 
 	private optionsEl: HTMLElement | null = null;
-	/*
-	 * The rows' own box, so that "the end of the list" is a place and not simply
-	 * "after everything else in the panel": the button that adds an option comes
-	 * after the rows, and appending to the panel put a dragged row below it.
-	 */
+	// The rows' own box: "the end of the list" is before the add button, not the panel's end.
 	private optionListEl: HTMLElement | null = null;
 	private numberEl: HTMLElement | null = null;
 	private relationEl: HTMLElement | null = null;
@@ -256,8 +234,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			cls: 'layer-field-type',
 		});
 		this.typeButton.type = 'button';
-		// Kept from taking focus: a click would otherwise claim it after the
-		// dropdown has put the caret in its search box.
+		// Kept from taking focus: the click would claim it after the dropdown put the caret in its box.
 		this.typeButton.addEventListener('mousedown', (event) => {
 			event.preventDefault();
 		});
@@ -309,12 +286,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		}, 0);
 	}
 
-	/**
-	 * The panel's own heading. Rendered here rather than through `Modal.setTitle`
-	 * because `AnchoredPopover` hides the modal's title element: this panel is
-	 * anchored to a control, so a centred title bar above it would be detached
-	 * from what it is about.
-	 */
+	/** Its own heading: `AnchoredPopover` hides the modal title, which would hang above an anchored panel. */
 	private renderTitle(): void {
 		this.contentEl.createDiv({
 			cls: 'layer-field-editor-title',
@@ -344,7 +316,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
-	/** Shows the chosen type on the button that opens the picker. */
 	private paintTypeButton(): void {
 		const button = this.typeButton;
 		if (!button) {
@@ -362,7 +333,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		button.createSpan({ cls: 'layer-field-type-chevron' });
 	}
 
-	/** Options only apply to a type that stores them. */
 	private renderOptions(): void {
 		const host = this.optionsEl;
 		if (!host) {
@@ -384,11 +354,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			const row = list.createDiv({ cls: 'layer-field-option-row' });
 			row.dataset.optionId = option.id;
 
-			/*
-			 * The order of this list is the order the field has: the board draws
-			 * its columns in it and the table sorts by it, so it is dragged here
-			 * rather than sorted somewhere per view.
-			 */
+			// This order is the field's: the board draws its columns in it and the table sorts by it.
 			const handle = row.createEl('button', {
 				cls: 'layer-field-option-handle',
 			});
@@ -398,14 +364,6 @@ export class FieldEditorModal extends AnchoredPopover {
 			setIcon(handle, 'grip-vertical');
 			this.attachOptionDrag(handle, row, option.id);
 
-			/*
-			 * The row is the name and the colour it wears. A pill preview used
-			 * to sit between them, showing how the option would look in a cell
-			 * — but its width came out of the name's, and the name is the one
-			 * thing here that has to stay readable. The pill in the table is a
-			 * short trip away, and the swatch beside the name already says
-			 * which colour it will be.
-			 */
 			const input = row.createEl('input', {
 				cls: 'layer-field-option-input',
 				type: 'text',
@@ -443,12 +401,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			text: t().fieldAddOption,
 		});
 		add.addEventListener('click', () => {
-			/*
-			 * The same colour the cell dropdown would hand the option, so an
-			 * option looks the same however it was created. A draft with no
-			 * colour of its own previews as the faint neutral pill, which is
-			 * what a cell would show too — but only ever by accident here.
-			 */
+			// The colour the cell dropdown would hand it, so an option looks the same however it was made.
 			this.draftOptions.push({
 				id: generateId('o'),
 				name: '',
@@ -459,12 +412,8 @@ export class FieldEditorModal extends AnchoredPopover {
 	}
 
 	/**
-	 * Reorders one option by dragging its handle, or with the arrow keys.
-	 *
-	 * The document is listened to rather than the handle, because the row itself
-	 * moves underneath the pointer: rows are shifted in the DOM as the pointer
-	 * crosses them and the draft list follows, which leaves the text inputs and
-	 * their carets alone. A re-render per crossing would take the focus with it.
+	 * Listens on the document, not the handle: the row moves under the pointer, and a re-render
+	 * per crossing would take the focus and the carets with it.
 	 */
 	private attachOptionDrag(
 		handle: HTMLElement,
@@ -498,11 +447,7 @@ export class FieldEditorModal extends AnchoredPopover {
 					row.addClass('is-dragging');
 				}
 				const others = rows().filter((other) => other !== row);
-				/*
-				 * Where the pointer says it should land, counted over the rows it
-				 * is not one of — which is also the index it takes in the moved
-				 * list, because taking it out shifts nothing that follows it.
-				 */
+				// Counted over the other rows, which is also the index it takes once taken out.
 				let target = others.length;
 				for (const [index, other] of others.entries()) {
 					const box = other.getBoundingClientRect();
@@ -545,10 +490,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			}
 			this.draftOptions = next;
 			this.renderOptions();
-			/*
-			 * The list is rebuilt, so the handle that was pressed has to be found
-			 * again; without this a keyboard user loses their place on every step.
-			 */
+			// The list is rebuilt, so the handle must be found again or a keyboard user loses their place.
 			this.optionListEl
 				?.querySelector<HTMLElement>(
 					`.layer-field-option-row[data-option-id="${optionId}"] .layer-field-option-handle`,
@@ -557,15 +499,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
-	/**
-	 * The source table and the column behind a relation, in either direction.
-	 *
-	 * A forward relation names the column whose values it shows; a reverse one
-	 * names the `relation` column that points here, so only those are offered.
-	 * The column list belongs to another file, so it is filled in once that file
-	 * has been read — the table itself is only a list of paths, which is cheap.
-	 */
-	/** Which note a `noteProp` reads, and which key of its frontmatter it reads. */
 	private renderNotePropSettings(): void {
 		const host = this.notePropEl;
 		if (!host) {
@@ -614,6 +547,10 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
+	/**
+	 * A forward relation names the column whose values it shows; a reverse one names the
+	 * `relation` column pointing here, so only those are offered.
+	 */
 	private renderRelationSettings(): void {
 		const host = this.relationEl;
 		if (!host) {
@@ -641,8 +578,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 		thisTable.value = '';
 		for (const path of this.config.tables.listTables()) {
-			// The file being edited is offered as "this table" already, so listing
-			// it again would put the same choice in the menu twice.
+			// Offered as "this table" already; listing it again would put the same choice in twice.
 			if (path === this.config.selfPath) {
 				continue;
 			}
@@ -684,8 +620,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			empty.value = '';
 			column.disabled = true;
 		} else {
-			// Nothing chosen reads as row numbers, which is a real choice rather
-			// than an unconfigured state, so it is offered next to the columns.
+			// Nothing chosen reads as row numbers, a real choice, so it is offered next to the columns.
 			const numbers = column.createEl('option', { text: t().fieldRowNumber });
 			numbers.value = '';
 			for (const field of offered) {
@@ -708,11 +643,8 @@ export class FieldEditorModal extends AnchoredPopover {
 	}
 
 	/**
-	 * Which column a pointing row is named by, when the reverse column shows its
-	 * rows. Nothing chosen reads as the row number.
-	 *
-	 * Columns whose text form is not a name are left out: a relation column's text
-	 * is the ids it holds, which would put identifiers where names belong.
+	 * Only a column whose text form is a name is offered: a relation's text is the ids it
+	 * holds, which would put identifiers where names belong.
 	 */
 	private renderBackTitle(grid: HTMLElement): void {
 		grid.createDiv({
@@ -735,11 +667,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
-	/**
-	 * The columns of the chosen source, or null while that file is still being
-	 * read. This table's own columns are already in hand, which is what makes a
-	 * self-reference configurable without reading anything.
-	 */
+	/** This table's own columns need no read; `null` means that file is still being read. */
 	private relationColumns(path: string): readonly Field[] | null {
 		if (path === '') {
 			return this.config.selfFields;
@@ -748,17 +676,9 @@ export class FieldEditorModal extends AnchoredPopover {
 		if (doc) {
 			return doc.fields;
 		}
-		/*
-		 * Every section that reads a linked table is repainted when it lands, not just
-		 * the relation one: a rollup and a lookup read their columns through this same
-		 * call, so a repaint of one section left the others' column lists empty until
-		 * something else happened to redraw them.
-		 *
-		 * A read can also land long after the panel closed, or after the type changed
-		 * away and back, so nothing is painted into a panel that is no longer on
-		 * screen. Each section already refuses to draw for a type it does not belong
-		 * to, so the three calls cannot paint the wrong one.
-		 */
+		// Every section that reads a linked table repaints when it lands, not just the relation
+		// one: a rollup and a lookup read theirs through this same call, and a read can land
+		// after the panel closed, so nothing is painted into a panel no longer on screen.
 		this.config.tables.ensure(path, () => {
 			if (!this.contentEl.isConnected) {
 				return;
@@ -770,7 +690,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		return null;
 	}
 
-	/** How a rollup gathers its rows and reduces them. */
 	private renderRollupSettings(): void {
 		const host = this.rollupEl;
 		if (!host) {
@@ -835,8 +754,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		noColumn.value = '';
 		for (const field of columns ?? []) {
 			if (isDerived(field.type)) {
-				// A computed column cannot be gathered: it would mean running every
-				// formula of every linked row, and could chain back into this one.
+				// A computed column cannot be gathered: it would run every linked row's formula.
 				continue;
 			}
 			const option = fieldSelect.createEl('option', { text: field.name });
@@ -881,13 +799,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		host.createDiv({ cls: 'layer-field-number-hint', text: t().fieldRollupHint });
 	}
 
-	/**
-	 * Which values a lookup shows: a link column in this table, and a column of the
-	 * table that link points at.
-	 *
-	 * The same two choices a rollup makes, minus "how to combine" — nothing here
-	 * is combined, so nothing has to be chosen about it.
-	 */
+	/** A link column here, and a column of the table it points at: a rollup's pair minus the reduction. */
 	private renderLookupSettings(): void {
 		const host = this.lookupEl;
 		if (!host) {
@@ -921,12 +833,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		sourceSelect.value = this.lookupSourceFieldId;
 		sourceSelect.addEventListener('change', () => {
 			this.lookupSourceFieldId = sourceSelect.value;
-			/*
-			 * Starts from the column the link column already shows: both name a
-			 * column of the same other table, so the reader has usually made this
-			 * choice once already. It is a starting point, not a rule — any other
-			 * column can still be picked below.
-			 */
+			// Starts from the column the link column already shows: a starting point, not a rule.
 			const chosen = links.find((field) => field.id === sourceSelect.value);
 			this.lookupFieldId = chosen ? this.defaultLinkColumn(chosen) : '';
 			this.renderLookupSettings();
@@ -955,8 +862,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		noColumn.value = '';
 		for (const field of columns ?? []) {
 			if (isDerived(field.type)) {
-				// A computed column cannot be read from here: it would mean running
-				// every formula of every linked row, and could chain back into this one.
 				continue;
 			}
 			const option = fieldSelect.createEl('option', { text: field.name });
@@ -971,14 +876,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		host.createDiv({ cls: 'layer-field-number-hint', text: t().fieldLookupHint });
 	}
 
-	/**
-	 * The column a lookup shows by default: the one its link column already shows.
-	 *
-	 * A `relation` names it in `linkFieldId`, a `relationBack` in
-	 * `backTitleFieldId`; both are columns of the same other table, and both are
-	 * what that column's own cells read as. Only a column that is still there and
-	 * can be read from here is offered.
-	 */
+	/** A `relation` names it in `linkFieldId`, a `relationBack` in `backTitleFieldId`; a derived or missing column answers `''`. */
 	private defaultLinkColumn(sourceField: Field): string {
 		const wanted =
 			sourceField.type === 'relation'
@@ -992,7 +890,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		return column && !isDerived(column.type) ? column.id : '';
 	}
 
-	/** What one aggregate is called in the reader's language. */
 	private aggregateLabel(how: RollupAggregate): string {
 		switch (how) {
 			case 'sum':
@@ -1010,10 +907,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		}
 	}
 
-	/**
-	 * Two settings only: any prefix is left to a formula, so this column stays a
-	 * number rather than an identifier it cannot sort.
-	 */
+	/** No prefix: it would stop the column being a number, and a formula can build one. */
 	private renderAutoNumberSettings(): void {
 		const host = this.autoNumberEl;
 		if (!host) {
@@ -1096,7 +990,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		}
 	}
 
-	/** The columns a lookup or a rollup may read, from the table its source points at. */
 	private linkedColumns(sourceField: Field): readonly Field[] | null {
 		const path =
 			sourceField.type === 'relation'
@@ -1105,12 +998,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		return this.relationColumns(path);
 	}
 
-	/**
-	 * The formula of a `formula` column, shown as the expression it holds.
-	 *
-	 * Writing one wants room and its own reference lists, so it opens a centred
-	 * panel; what is kept here is only what that panel reports.
-	 */
+	/** Writing one wants room and its own reference lists, so it opens a centred panel; this keeps what it reports. */
 	private renderFormulaSettings(): void {
 		const host = this.formulaEl;
 		if (!host) {
@@ -1131,8 +1019,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		setIcon(icon, 'sigma');
 		const shown = this.formula.trim() === '' ? t().formulaOpenEmpty : this.formula;
 		button.createSpan({ cls: 'layer-field-formula-open-text', text: shown });
-		// The expression is held to one line so it cannot run out of the button, so
-		// the whole of it is kept reachable on the hover instead.
+		// Held to one line so it cannot run out of the button, so the hover carries the whole of it.
 		setTooltip(button, shown);
 		button.addEventListener('click', () => this.openFormulaEditor());
 
@@ -1140,7 +1027,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		this.paintFormulaStatus(status);
 	}
 
-	/** Opens the formula panel, and keeps whatever it reports. */
 	private openFormulaEditor(): void {
 		new FormulaModal({
 			app: this.app,
@@ -1159,7 +1045,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		}).open();
 	}
 
-	/** The read shown under the button: whether the stored formula can run. */
 	private paintFormulaStatus(status: HTMLElement): void {
 		status.empty();
 		status.removeClass('is-error', 'is-ok');
@@ -1187,15 +1072,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		status.setText(t().fieldFormulaOk);
 	}
 
-	/**
-	 * The required toggle, as a checkbox plus its explanation: "required" alone
-	 * does not say what it constrains, and the consequence is invisible until a
-	 * cell is left empty.
-	 *
-	 * A column the table fills in itself has no cell for the reader to fill, so
-	 * the toggle is not offered for it — and the flag is cleared, so one is never
-	 * saved onto it.
-	 */
+	/** Not offered for a column the table fills in itself, and the flag is cleared so one is never saved. */
 	private renderRequiredToggle(): void {
 		const host = this.requiredEl;
 		if (!host) {
@@ -1227,12 +1104,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
-	/**
-	 * Format, precision and bounds, which only a `number` field has.
-	 *
-	 * Every bound is optional, and an empty box means "no bound" rather than
-	 * zero — so a field with a minimum but no maximum is expressible.
-	 */
+	/** Every bound is optional: an empty box means "no bound", not zero. */
 	private renderNumberSettings(): void {
 		const host = this.numberEl;
 		if (!host) {
@@ -1264,12 +1136,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		format.value = this.numberFormat;
 		format.addEventListener('change', () => {
 			this.numberFormat = format.value === 'percent' ? 'percent' : 'plain';
-			/*
-			 * The bounds are stored as proportions, and the boxes showing them count in
-			 * whatever units the chosen format reads, so switching formats has to redraw
-			 * them — otherwise "100" would keep meaning a hundred or one depending on
-			 * when it was typed.
-			 */
+			// Bounds are stored as proportions, so a format switch must redraw the boxes in new units.
 			this.renderNumberSettings();
 		});
 
@@ -1300,7 +1167,6 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 	}
 
-	/** One optional bound, written into the draft as it is typed. */
 	private renderBoundInput(
 		grid: HTMLElement,
 		label: string,
@@ -1313,8 +1179,7 @@ export class FieldEditorModal extends AnchoredPopover {
 		});
 		input.placeholder = t().fieldNumberUnbounded;
 		const current = bound === 'min' ? this.min : this.max;
-		// Stored as a proportion, shown in the units the cells use: a percent field's
-		// maximum of 100 is one — the whole of it.
+		// Stored as a proportion, shown in the units the cells use: a percent maximum of 100 is one.
 		input.value = current === null ? '' : String(shownNumber(current, this.numberFormat));
 		input.addEventListener('input', () => {
 			const parsed = parseOptionalNumber(input.value);
@@ -1333,8 +1198,7 @@ export class FieldEditorModal extends AnchoredPopover {
 			this.errorEl?.setText(t().fieldNameRequired);
 			return;
 		}
-		// A range that excludes everything would only produce clamped values, so it
-		// is refused while it can still be corrected.
+		// A range that excludes everything would only produce clamped values, so it is refused here.
 		if (
 			this.type === 'number' &&
 			this.min !== null &&

@@ -92,7 +92,6 @@ describe('which aggregates a column may be given', () => {
 	});
 
 	it('offers a date the comparisons but not a total', () => {
-		// Adding two dates is not a quantity, so a sum is not offered for them.
 		for (const type of ['date', 'datetime'] as const) {
 			expect(aggregatesFor(type)).toEqual(['min', 'max', 'count', 'countAll']);
 		}

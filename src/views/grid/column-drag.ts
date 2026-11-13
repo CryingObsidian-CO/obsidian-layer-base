@@ -18,12 +18,8 @@ export function attachColumnDrag(
 		if (event.button !== 0) {
 			return;
 		}
-		/*
-		 * A gesture whose mouseup never arrived — released outside the window, focus
-		 * taken by another pane — is still listening. Left alone it would answer the
-		 * moves of this new gesture as well, so it is ended here first, the way a drag
-		 * that is called off ends.
-		 */
+		// A gesture that never saw its mouseup — released outside the window, focus taken by
+		// another pane — is still listening and would answer this gesture's moves as well.
 		stopActiveDrag?.();
 
 		const startX = event.clientX;
@@ -38,11 +34,7 @@ export function attachColumnDrag(
 			stopActiveDrag = null;
 		};
 
-		/**
-		 * Ends the gesture where it stands rather than where the pointer is: a drag
-		 * that started before being abandoned also started its preview, which the view
-		 * has to be told to put away.
-		 */
+		/** Ends without a position, so the view puts its preview away instead of dropping. */
 		const abandon = () => {
 			const wasDragging = dragging;
 			stopListening();

@@ -107,7 +107,6 @@ describe('naming the file', () => {
 	});
 
 	it('falls back when the name is nothing but dots', () => {
-		// Both would start the file name with the dot that hides it on macOS.
 		expect(csvFileName('..')).toBe('export.csv');
 		expect(csvFileName('.')).toBe('export.csv');
 	});
@@ -125,7 +124,6 @@ describe('naming the file', () => {
 	});
 
 	it('never cuts a character in half', () => {
-		// Four bytes each, so the budget lands exactly on fifty of them.
 		expect(csvFileName('🎉'.repeat(100))).toBe(`${'🎉'.repeat(50)}.csv`);
 	});
 });

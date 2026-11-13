@@ -32,13 +32,7 @@ export function cellFromEvent(
 	return { recordId, fieldId };
 }
 
-/**
- * Whether a pointer sits on a scrollbar of the given width.
- *
- * Pure, so the rule is testable without a layout engine. A gutter of 0 means the
- * cell does not scroll, so no part of it is a scrollbar; both edges are checked
- * so a point outside the cell is never one either.
- */
+/** A gutter of 0 means the cell does not scroll, so no part of it is a scrollbar. */
 export function isOnScrollbarStrip(
 	clientX: number,
 	right: number,
@@ -50,14 +44,9 @@ export function isOnScrollbarStrip(
 	return clientX >= right - gutter && clientX <= right;
 }
 
-/**
- * Whether a press landed on the scrollbar of a cell that scrolls on its own.
- *
- * A scrolling cell's scrollbar belongs to the element and is painted by it, so a
- * press on the bar arrives as a press on the element: dragging it would scroll
- * the cell AND start a range. `offsetWidth` counts the scrollbar and `clientWidth`
- * leaves it out, so the difference is the room it takes.
- */
+// A scrolling cell paints its own scrollbar, so a press on the bar arrives as a press on the
+// element: dragging would scroll and start a range. `offsetWidth` counts the bar, `clientWidth`
+// leaves it out, so the difference is the room it takes.
 function onScrollbar(event: MouseEvent, target: HTMLElement): boolean {
 	const scroller = target.closest<HTMLElement>(
 		'.layer-grid-value.is-longtext',
@@ -135,16 +124,9 @@ export function attachRangeDrag(
 			}
 		};
 
-		/**
-		 * Escape only has a range to cancel once one has begun.
-		 *
-		 * The listener sits on the document from the first press, so before the
-		 * threshold there is no gesture of ours to end: calling `onEnd` then would
-		 * pair it with no `onStart`, and swallowing the key's default action would
-		 * take an Escape press that belonged to something else. The release after a
-		 * real cancel still sends a click, but it is the cancelled press' own, not a
-		 * new choice of cell, so it is marked stale and left for `consumeStaleClick`.
-		 */
+		// The listener is on the document from the first press, so before the threshold there is no
+		// gesture to end: `onEnd` then would pair with no `onStart` and eat a key belonging to
+		// something else. The click after a cancel is the cancelled press' own, so mark it stale.
 		const onKey = (key: KeyboardEvent) => {
 			if (key.key !== 'Escape' || !dragging) {
 				return;

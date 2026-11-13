@@ -125,8 +125,6 @@ describe('required on a column the table fills in itself', () => {
 			doc.fields.push({ id: 'f_a', name: 'Col', type, required: true });
 			const { doc: parsed } = parseLayerDoc(serializeLayerDoc(doc));
 			const kept = parsed.fields.find((field) => field.id === 'f_a');
-			// The column itself must survive, or the next assertion would pass on
-			// a file that dropped the whole field.
 			expect(kept?.type).toBe(type);
 			expect(kept?.required).toBeUndefined();
 		}

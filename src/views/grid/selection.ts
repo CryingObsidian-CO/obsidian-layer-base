@@ -55,13 +55,7 @@ export function rangeSize(bounds: RangeBounds): RangeSize {
 	};
 }
 
-/**
- * The range spanning every rendered row and column, ready to select.
- *
- * Returns null for an empty grid: with no rows or no fields there is no cell
- * for the range to start from, and inventing one would anchor the selection to
- * something that is not rendered.
- */
+/** Null for an empty grid: with no rendered cell there is nothing to anchor to. */
 export function wholeTableCorners(
 	rowIds: readonly string[],
 	fieldIds: readonly string[],
