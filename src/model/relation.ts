@@ -114,11 +114,6 @@ export function relationText(
 	return { texts, broken };
 }
 
-/** Whether a table can be the target of a relation: it must have columns. */
-export function canLinkTo(target: LayerDoc): boolean {
-	return target.fields.length > 0;
-}
-
 /**
  * The values a lookup shows, one chip per value gathered from a linked row.
  *

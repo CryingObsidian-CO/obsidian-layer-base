@@ -30,7 +30,6 @@ type ParseResult =
 	| { ok: true; node: FormulaNode }
 	| { ok: false; error: FormulaError };
 
-const COMPARISONS = new Set(['==', '=', '!=', '<', '>', '<=', '>=']);
 /** Lowest first: a later entry binds more tightly. */
 const PRECEDENCE: readonly (readonly string[])[] = [
 	['==', '=', '!=', '<', '>', '<=', '>='],
@@ -238,5 +237,3 @@ export function fieldsUsed(node: FormulaNode, into = new Set<string>()): Set<str
 	}
 	return into;
 }
-
-export { COMPARISONS };

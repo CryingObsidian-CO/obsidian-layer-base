@@ -280,19 +280,6 @@ function compareTitles(field: Field, a: string, b: string): number {
 	return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-/** How many rows a board shows, counting what the limit left out. */
-export function hiddenByLimit(
-	columns: readonly KanbanColumn[],
-	totalColumns: number,
-): number {
-	return Math.max(0, totalColumns - columns.length);
-}
-
-/** The rows of a relation cell, as ids — used when a board groups by relation. */
-export function relationCellIds(value: CellValue): readonly string[] {
-	return relationIds(value);
-}
-
 /** Which column titles a card, and which ones are printed under it. */
 export interface CardColumns {
 	title: Field | undefined;

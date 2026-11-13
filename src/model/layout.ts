@@ -7,7 +7,8 @@ export const MAX_COLUMN_WIDTH = 1600;
 export const ROW_NUMBER_COLUMN_WIDTH = 30;
 
 export const HEADER_HEIGHT = 32;
-export const TAIL_COLUMN_WIDTH = HEADER_HEIGHT;
+/* The right-end column: it holds the button that adds a field, so its width is its own. */
+export const TAIL_COLUMN_WIDTH = 32;
 
 /*
  * A row's default height is what a table drawn before anyone chose a height uses,

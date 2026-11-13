@@ -141,16 +141,6 @@ export class TableIndex {
 		}
 	}
 
-	/** Drops a cached table, so the next paint reads it again. */
-	forget(path: string): void {
-		// A file that changed or came back is worth trying again.
-		this.invalidate(path);
-		this.unavailable.delete(path);
-		if (this.cache.delete(path)) {
-			this.emit();
-		}
-	}
-
 	/** Told whenever a cached table is replaced or dropped. */
 	onChange(listener: () => void): () => void {
 		this.listeners.add(listener);

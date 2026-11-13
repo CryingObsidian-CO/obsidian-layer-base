@@ -1273,7 +1273,7 @@ function resolveLocale(): Locale {
 	return 'en';
 }
 
-let active: Strings = catalogues[resolveLocale()];
+const active: Strings = catalogues[resolveLocale()];
 
 /** Default field, option and view names for a newly created board. */
 export function seedLabels(): SeedLabels {
@@ -1292,9 +1292,4 @@ export function seedLabels(): SeedLabels {
 /** Current catalogue for the app language. */
 export function t(): Strings {
 	return active;
-}
-
-/** Re-reads the app language. Call when a settings change may alter it. */
-export function refreshLocale(): void {
-	active = catalogues[resolveLocale()];
 }

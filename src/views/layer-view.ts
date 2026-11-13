@@ -787,10 +787,6 @@ export class LayerView extends TextFileView {
 		this.render();
 	}
 
-	getDocument(): LayerDoc | null {
-		return this.doc;
-	}
-
 	/**
 	 * Opens the note a value names, making the file when the vault has none.
 	 *
