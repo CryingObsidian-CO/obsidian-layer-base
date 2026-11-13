@@ -2444,7 +2444,7 @@ function handle(request: Request): void {
 						: '2024-11-05',
 				capabilities: { tools: {} },
 				// `check-version` keeps this equal to manifest.json, so a release cannot leave it behind.
-				serverInfo: { name: 'layer-base', version: '0.1.2' },
+				serverInfo: { name: 'layer-base', version: '0.2.0' },
 			});
 			return;
 		case 'notifications/initialized':
