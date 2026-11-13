@@ -20,6 +20,7 @@ function hostFor(
 			return path ? (tables[path] ?? null) : from;
 		},
 		noteProperty: (path, key) => notes[`${path}\u0000${key}`] ?? '',
+		notePropertyHint: () => 'This value is nested and cannot be read.',
 		formulaError: (error) => ({ text: `#${error.code}`, hint: error.code }),
 	};
 }
@@ -148,6 +149,7 @@ describe('computed cell readings', () => {
 		});
 		const reading = reader.notePropReading(table, prop, 'r1');
 		expect(reading.text).toBe('');
-		expect(reading.hint).toContain('nested');
+		// The sentence comes from the host, which is what keeps it in the reader's language.
+		expect(reading.hint).toBe('This value is nested and cannot be read.');
 	});
 });

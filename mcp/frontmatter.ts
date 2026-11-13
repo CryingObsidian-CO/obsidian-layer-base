@@ -39,17 +39,32 @@ function scalar(text: string): string {
 		return '';
 	}
 	const quote = value[0];
-	if ((quote === '"' || quote === "'") && value.endsWith(quote)) {
-		value = value.slice(1, -1);
-		if (quote === '"') {
-			value = value
-				.replace(/\\n/g, '\n')
-				.replace(/\\"/g, '"')
-				.replace(/\\\\/g, '\\');
-		} else {
-			value = value.replace(/''/g, "'");
+	if (quote === '"' || quote === "'") {
+		/*
+		 * A comment often follows the closing quote — `status: "done" # note`. The
+		 * value then no longer ends with its quote, and the unquoted path below
+		 * would hand the quotes themselves through as content.
+		 */
+		const comment = value.search(/\s#/);
+		if (comment !== -1 && value[comment - 1] === quote) {
+			value = value.slice(0, comment).trim();
 		}
-		return value;
+		if (value.endsWith(quote)) {
+			value = value.slice(1, -1);
+			if (quote === '"') {
+				/*
+				 * One pass, left to right, so each backslash is read exactly once.
+				 * Decoding `\n` before `\\` made the second backslash of `C:\\new` a line
+				 * break, leaving `C:\` and a newline where the path had `\new`.
+				 */
+				value = value.replace(/\\(["\\n])/g, (_match: string, char: string) =>
+					char === 'n' ? '\n' : char,
+				);
+			} else {
+				value = value.replace(/''/g, "'");
+			}
+			return value;
+		}
 	}
 	// A trailing comment starts at a # preceded by whitespace; a # inside a
 	// quoted string was handled above.
@@ -145,6 +160,11 @@ export function frontmatterValue(text: string, key: string): string | null {
 			const collected: string[] = [];
 			for (let next = index + 1; next < lines.length; next += 1) {
 				const following = lines[next] ?? '';
+				if (following.trim() === '') {
+					// A blank line inside the block is a paragraph break, not its end.
+					collected.push('');
+					continue;
+				}
 				if (!following.startsWith(' ') && !following.startsWith('\t')) {
 					break;
 				}

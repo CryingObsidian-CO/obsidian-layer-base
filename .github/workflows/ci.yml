@@ -55,6 +55,16 @@ jobs:
             -   name: Tests
                 run: npm test
 
+            # The MCP server is a process with no unit tests; this drives it over stdio
+            # and checks the files it leaves behind. It runs here, on every branch, and
+            # not in the build job: a test is what a branch being written needs on every
+            # push, while packaging is what waits until there is something to release.
+            -   name: Bundle the MCP server
+                run: npm run build:mcp
+
+            -   name: MCP server smoke test
+                run: npm run test:mcp
+
     build:
         name: Build
         runs-on: ubuntu-latest
@@ -89,11 +99,6 @@ jobs:
                       fi
                     done
                     echo "main.js is $(wc -c < main.js) bytes"
-
-            # The MCP server is a process with no unit tests; this drives it over stdio
-            # and checks the files it leaves behind.
-            -   name: MCP server smoke test
-                run: npm run test:mcp
 
             -   name: Keep the build for inspection
                 uses: actions/upload-artifact@v7

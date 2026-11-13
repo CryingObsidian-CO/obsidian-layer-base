@@ -46,7 +46,6 @@ import {
 	relationIds,
 	usesOptions,
 } from '../model/fields';
-import type { FormulaValue } from '../model/formula';
 import {noteLabel} from '../model/note-path';
 import {csvFileName, toCsv} from '../model/csv';
 import {sortRecords} from '../model/sort';
@@ -118,6 +117,9 @@ import {ColorRulesPopover} from '../ui/color-rules-popover';
 import {redrawOnce} from './redraw-guard';
 import {scopeLedger} from './scope-ledger';
 
+/** How long a failed conflict copy waits before its one automatic retry. */
+const CONFLICT_RETRY_DELAY_MS = 30_000;
+
 export class LayerView extends TextFileView {
 	private doc: LayerDoc | null = null;
 	/** The format version of a file this build refuses to read, if this is one. */
@@ -132,6 +134,19 @@ export class LayerView extends TextFileView {
 	private unsaved = false;
 	/** Text that arrived from outside while `unsaved` was true. */
 	private pendingExternal: string | null = null;
+	/** A delayed retry of a failed conflict copy, if one is scheduled. */
+	private conflictRetryTimer: number | null = null;
+	/** Automatic retries made for the current outside change: one is enough. */
+	private conflictRetries = 0;
+	/**
+	 * How many documents this view has taken on.
+	 *
+	 * A read cannot be cancelled: switching files, or two outside writes in a row,
+	 * can leave an older answer arriving after a newer one. A read carries the
+	 * number it started with, and an answer whose number has moved is dropped
+	 * rather than handed to `setViewData`.
+	 */
+	private loadSeq = 0;
 	private activeViewId: string | null = null;
 	private selection: GridSelection | null = null;
 	private rangeSize: RangeSize | null = null;
@@ -156,6 +171,7 @@ export class LayerView extends TextFileView {
 					? this.sourceDoc(field, from)
 					: this.targetDoc(field, from),
 			noteProperty: (path, key) => this.notePropertyValue(path, key),
+			notePropertyHint: () => t().notePropUnreadable,
 			formulaError: (error) => ({
 				text: formulaErrorShort(error),
 				hint: formulaErrorMessage(error),
@@ -180,6 +196,9 @@ export class LayerView extends TextFileView {
 	}
 
 	async onLoadFile(file: TFile): Promise<void> {
+		this.loadSeq++;
+		this.cancelConflictRetry();
+		this.conflictRetries = 0;
 		this.lastSaved = '';
 		this.lastDisk = '';
 		this.unsaved = false;
@@ -274,6 +293,7 @@ export class LayerView extends TextFileView {
 	 */
 	async onUnloadFile(file: TFile): Promise<void> {
 		this.commitOpenEdit();
+		this.cancelConflictRetry();
 		await super.onUnloadFile(file);
 	}
 
@@ -313,13 +333,21 @@ export class LayerView extends TextFileView {
 		if (file === null) {
 			return;
 		}
+		const seq = ++this.loadSeq;
 		let text: string;
 		try {
 			text = await this.app.vault.read(file);
 		} catch {
 			return;
 		}
-		if (text === this.lastDisk) {
+		/*
+		 * The read may have outlived what it was reading: another file may have
+		 * opened in this leaf, or a later write may have started its own read and
+		 * landed first. Applying this text then would put the previous file's
+		 * document — or an older version of this one — in place of what is shown,
+		 * and the next save would write it over the file that is open now.
+		 */
+		if (this.file !== file || seq !== this.loadSeq || text === this.lastDisk) {
 			return;
 		}
 		this.setViewData(text, false);
@@ -336,14 +364,9 @@ export class LayerView extends TextFileView {
 	 */
 	async save(clear = false): Promise<void> {
 		const file = this.file;
-		const local =
-			this.doc === null
-				? this.unsupported !== null
-					? this.unsupportedText
-					: ''
-				: serializeLayerDoc(this.doc);
-		if (file !== null && local !== '' && this.lastDisk !== '') {
-			let disk: string | null = null;
+		const entryText = this.localText();
+		if (file !== null && entryText !== '' && this.lastDisk !== '') {
+			let disk: string | null;
 			try {
 				disk = await this.app.vault.read(file);
 			} catch {
@@ -351,7 +374,10 @@ export class LayerView extends TextFileView {
 				// save reports the failure instead of inventing a conflict.
 				disk = null;
 			}
-			if (disk !== null && disk !== this.lastDisk && disk !== local) {
+			// A cell edit can commit while the file is being read; what the view holds
+			// now, not what it held on entry, is what the conflict is about.
+			const current = this.localText();
+			if (disk !== null && disk !== this.lastDisk && disk !== current) {
 				this.pendingExternal = disk;
 				this.unsaved = true;
 			}
@@ -359,16 +385,30 @@ export class LayerView extends TextFileView {
 
 		const incoming = this.pendingExternal;
 		if (incoming !== null) {
-			if (local !== '' && file !== null) {
+			// A cell editor holds text the document does not have yet; the copy has to
+			// include it before the outside version replaces the view.
+			this.commitOpenEdit();
+			const copyText = this.localText();
+			if (copyText !== '' && file !== null) {
 				try {
-					const copy = await this.plugin.store.writeConflictCopy(file, local);
+					const copy = await this.plugin.store.writeConflictCopy(file, copyText);
 					new Notice(t().noticeConflictSaved(copy.path));
 				} catch (error) {
 					console.error('[layer-base] Could not save a conflict copy:', error);
 					new Notice(t().noticeConflictFailed);
+					this.scheduleConflictRetry();
+					return;
+				}
+				if (this.localText() !== copyText) {
+					// The document changed while the copy was being written. Adopting the
+					// outside version now would drop that edit; keep it on screen and let
+					// its own save write another copy of the newer state.
+					this.requestSave();
 					return;
 				}
 			}
+			this.cancelConflictRetry();
+			this.conflictRetries = 0;
 			this.pendingExternal = null;
 			this.unsaved = false;
 			// The outside version is the one that stays on disk; show it now.
@@ -376,10 +416,52 @@ export class LayerView extends TextFileView {
 			return;
 		}
 
+		// Taken right before the write, so this is what the file should hold; the
+		// document may still change while the write is in flight.
+		const written = this.localText();
 		await super.save(clear);
 		if (!clear) {
-			this.lastDisk = local;
-			this.unsaved = false;
+			this.lastDisk = written;
+			// Only an unchanged document means the dirty flag describes what was saved.
+			if (this.localText() === written) {
+				this.unsaved = false;
+			}
+		}
+	}
+
+	/** The text this view would write for the document it holds now. */
+	private localText(): string {
+		if (this.doc === null) {
+			return this.unsupported !== null ? this.unsupportedText : '';
+		}
+		return serializeLayerDoc(this.doc);
+	}
+
+	/**
+	 * Tries a failed conflict copy once more after a pause.
+	 *
+	 * The usual cause is another program holding the file for a moment — a sync
+	 * client, a scanner — so trying again at once would meet the same lock. One
+	 * automatic attempt per outside change is enough to let a passing lock clear;
+	 * a lasting failure stays with the reader, whom the notice already told to copy
+	 * the work out of the view.
+	 */
+	private scheduleConflictRetry(): void {
+		if (this.conflictRetryTimer !== null || this.conflictRetries > 0) {
+			return;
+		}
+		this.conflictRetries = 1;
+		this.conflictRetryTimer = window.setTimeout(() => {
+			this.conflictRetryTimer = null;
+			this.requestSave();
+		}, CONFLICT_RETRY_DELAY_MS);
+	}
+
+	/** Drops a retry that is no longer needed, so it cannot fire on another document. */
+	private cancelConflictRetry(): void {
+		if (this.conflictRetryTimer !== null) {
+			window.clearTimeout(this.conflictRetryTimer);
+			this.conflictRetryTimer = null;
 		}
 	}
 
@@ -427,10 +509,17 @@ export class LayerView extends TextFileView {
 		 * An outside write arrived while this view holds an edit the file has not
 		 * taken yet. Keep the local document on screen; save() will copy it aside
 		 * and adopt the outside version, so neither side is lost.
+		 *
+		 * An empty file counts: a sync client can leave a truncated file behind, and
+		 * `parseLayerDoc` would repair it to an empty board, which must not be allowed
+		 * to replace edits that were never copied anywhere. `doc === null` is what
+		 * tells a first load apart from an outside write.
 		 */
-		if (data !== '' && this.doc !== null && this.unsaved) {
+		if (this.doc !== null && this.unsaved) {
 			if (this.pendingExternal === null) {
 				new Notice(t().noticeExternalChangePending);
+				// A different outside change gets its own single retry.
+				this.conflictRetries = 0;
 			}
 			this.pendingExternal = data;
 			return;
@@ -474,6 +563,9 @@ export class LayerView extends TextFileView {
 	}
 
 	clear(): void {
+		this.loadSeq++;
+		this.cancelConflictRetry();
+		this.conflictRetries = 0;
 		this.doc = null;
 		this.unsupported = null;
 		this.unsupportedText = '';
@@ -2243,7 +2335,7 @@ export class LayerView extends TextFileView {
 	}
 
 	/** One frontmatter value, for the reader's note-property case. */
-	private notePropertyValue(path: string, key: string): string {
+	private notePropertyValue(path: string, key: string): string | null {
 		const file = this.resolveNote(path);
 		if (!file) {
 			return '';
@@ -2313,16 +2405,6 @@ export class LayerView extends TextFileView {
 		return doc === null
 			? {text: '', broken: 0}
 			: this.formulaTextIn(doc, field, recordId);
-	}
-
-	/** What one column hands a formula. */
-	private formulaCellValueIn(
-		doc: LayerDoc,
-		field: Field,
-		record: LayerRecord,
-		recordId: string,
-	): FormulaValue | undefined {
-		return this.reader.formulaCellValueIn(doc, field, record, recordId);
 	}
 
 	/**
@@ -2848,23 +2930,31 @@ function noteTarget(path: string): string {
 /**
  * How a frontmatter value reads in a cell.
  *
- * Lists join with commas, scalars print as they are, and a nested object is left out:
- * a cell has room for one line, and its JSON would be noise rather than a value.
+ * Lists join with commas, scalars print as they are, and a nested object answers
+ * null: a cell has room for one line, and saying the value cannot be read is
+ * better than showing an empty cell that looks like a value nobody wrote.
  */
-function frontmatterText(raw: unknown): string {
+function frontmatterText(raw: unknown): string | null {
 	if (raw === null || raw === undefined) {
 		return '';
 	}
 	if (Array.isArray(raw)) {
-		return raw
-			.map((item) => frontmatterText(item))
-			.filter((text) => text !== '')
-			.join(', ');
+		const parts: string[] = [];
+		for (const item of raw) {
+			const text = frontmatterText(item);
+			if (text === null) {
+				return null;
+			}
+			if (text !== '') {
+				parts.push(text);
+			}
+		}
+		return parts.join(', ');
 	}
 	if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean') {
 		return String(raw);
 	}
-	return '';
+	return null;
 }
 
 function isTextEntry(target: EventTarget | null): boolean {

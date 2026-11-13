@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -597,6 +597,116 @@ if (computedDoc !== null) {
 		'a note property says what can be read and that it cannot be written',
 	);
 }
+
+/*
+ * A link stores the path it was given, and moving the table it points at leaves that
+ * path stale. The app still reads the table by its file name, so everything this
+ * server reports and writes through a link has to resolve the same way — otherwise a
+ * cell shows its value while the column is described as unconfigured, a relation
+ * loses its row labels, and writing a row by name fails. Its table has a name of its
+ * own on purpose: a file name two tables share resolves to neither.
+ */
+mkdirSync(join(vault, 'stale', '深'), { recursive: true });
+const staleRun = await drive([
+	call(1, 'create_table', { path: 'stale/远端.layer', name: '远端' }),
+	call(2, 'add_field', { path: 'stale/远端.layer', name: '名称', type: 'text' }),
+	call(3, 'add_field', { path: 'stale/远端.layer', name: '金额', type: 'number' }),
+	call(4, 'add_records', { path: 'stale/远端.layer', records: [{ 名称: '甲', 金额: '2' }] }),
+	call(5, 'create_table', { path: 'stale/主表.layer', name: '主表' }),
+	call(6, 'add_field', { path: 'stale/主表.layer', name: '标题', type: 'text' }),
+	call(7, 'add_field', {
+		path: 'stale/主表.layer',
+		name: '条目',
+		type: 'relation',
+		targetTable: 'stale/远端.layer',
+		linkField: '名称',
+	}),
+	call(8, 'add_records', {
+		path: 'stale/主表.layer',
+		records: [{ 标题: '订单一', 条目: ['甲'] }],
+	}),
+	call(9, 'add_field', {
+		path: 'stale/主表.layer',
+		name: '查找金额',
+		type: 'lookup',
+		lookupSource: '条目',
+		lookupField: '金额',
+	}),
+]).catch((error) => stop(error.message));
+const staleById = new Map(staleRun.messages.map((message) => [message.id, message]));
+check(
+	[1, 2, 3, 4, 5, 6, 7, 8, 9].every((id) => staleById.get(id)?.result?.isError !== true),
+	'the stale-link fixture was built',
+);
+
+renameSync(join(vault, 'stale', '远端.layer'), join(vault, 'stale', '深', '远端.layer'));
+
+const staleRead = await drive([
+	call(1, 'read_table', { path: 'stale/主表.layer' }),
+]).catch((error) => stop(error.message));
+const staleText = staleRead.messages[0]?.result?.content?.[0]?.text ?? '';
+let staleDoc = null;
+try {
+	staleDoc = JSON.parse(staleText);
+} catch (error) {
+	failures.push(`the stale-link read did not return JSON: ${String(error)}`);
+}
+let staleRecordId = '';
+if (staleDoc !== null) {
+	const cells = staleDoc.records?.[0]?.cells ?? {};
+	check(cells['查找金额'] === '2', `a lookup reads through a stale link: ${cells['查找金额']}`);
+	const lookupField = (staleDoc.fields ?? []).find((field) => field.name === '查找金额');
+	check(
+		lookupField?.computedFrom?.table === 'stale/深/远端.layer' &&
+			lookupField?.computedFrom?.column === '金额' &&
+			lookupField?.computedFrom?.tableName === '远端',
+		`a lookup names the table it really reads: ${JSON.stringify(lookupField?.computedFrom)}`,
+	);
+	const relationField = (staleDoc.fields ?? []).find((field) => field.name === '条目');
+	check(
+		relationField?.computedFrom?.column === '名称' &&
+			relationField?.config?.shows === '名称' &&
+			relationField?.config?.targetTable === 'stale/深/远端.layer',
+		`a relation names the column it shows: ${JSON.stringify(relationField?.config)}`,
+	);
+	staleRecordId = staleDoc.records?.[0]?.id ?? '';
+	const label = (staleDoc.rowLabels ?? {})[
+		Array.isArray(cells['条目']) ? cells['条目'][0] : ''
+	];
+	check(label === '甲', `a relation still labels its row: ${label}`);
+}
+
+const staleWrite = await drive([
+	call(1, 'update_cells', {
+		path: 'stale/主表.layer',
+		updates: [{ recordId: staleRecordId, field: '条目', value: ['甲'] }],
+	}),
+	call(2, 'update_field', {
+		path: 'stale/主表.layer',
+		field: '查找金额',
+		lookupField: '名称',
+	}),
+]).catch((error) => stop(error.message));
+check(
+	staleWrite.messages[0]?.result?.isError !== true,
+	`a relation is written by row name through a stale link: ${staleWrite.messages[0]?.result?.content?.[0]?.text?.slice(0, 160) ?? ''}`,
+);
+check(
+	staleWrite.messages[1]?.result?.isError !== true,
+	`a lookup column is re-pointed through a stale link: ${staleWrite.messages[1]?.result?.content?.[0]?.text?.slice(0, 160) ?? ''}`,
+);
+
+let staleFile = null;
+try {
+	staleFile = JSON.parse(readFileSync(join(vault, 'stale', '主表.layer'), 'utf8'));
+} catch (error) {
+	failures.push(`the stale-link table could not be read back: ${String(error)}`);
+}
+const storedLink = (staleFile?.fields ?? []).find((field) => field.name === '条目');
+check(
+	storedLink?.linkPath === 'stale/远端.layer',
+	'a resolved link is read, not rewritten on disk',
+);
 
 rmSync(vault, { recursive: true, force: true });
 

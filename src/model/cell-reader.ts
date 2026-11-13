@@ -44,6 +44,8 @@ export interface CellReaderHost {
 	table(field: Field, from: LayerDoc, direction: 'link' | 'back'): LayerDoc | null;
 	/** The text of one frontmatter key in the note at `notePath`; null when the value is too complex to read. */
 	noteProperty(notePath: string, key: string): string | null;
+	/** Why a note property cannot be read, in the caller's language; a cell shows it on hover. */
+	notePropertyHint(): string;
 	/** How a formula error reads in the caller's language, for the cell and its hover. */
 	formulaError(error: FormulaError): { text: string; hint: string };
 }
@@ -144,7 +146,7 @@ export class CellReader {
 			return {
 				text: '',
 				broken: 0,
-				hint: 'This frontmatter value is nested or otherwise too complex to read; only top-level scalar values and simple arrays can be read.',
+				hint: this.host.notePropertyHint(),
 			};
 		}
 		return { text, broken: 0 };

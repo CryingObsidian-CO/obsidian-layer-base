@@ -210,18 +210,85 @@ function resolveNoteFile(notePath: string): string | null {
 	return null;
 }
 
-/** The table a stored link path should read, or null when it cannot be found. */
+/** Whether a stored link path still names a file in the vault. */
+function isFileInVault(path: string): boolean {
+	try {
+		return existsSync(vaultFile(path));
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The table a stored link path should read, or null when it cannot be found.
+ *
+ * The vault is listed only when the stored path is gone: resolving directly is the
+ * common case, and walking the whole vault to answer a question already answered
+ * would cost more than the cell is worth.
+ */
 function tablePathForRead(
 	storedPath: string,
-	tables: readonly string[] = tableFiles(),
+	tables?: readonly string[],
 ): string | null {
-	return pickTablePath(storedPath, tables, (path) => {
-		try {
-			return existsSync(vaultFile(path));
-		} catch {
-			return false;
-		}
-	});
+	return pickTablePath(
+		storedPath,
+		tables ?? (isFileInVault(storedPath) ? [] : tableFiles()),
+		isFileInVault,
+	);
+}
+
+/**
+ * The table a link points at, or null when nothing answers to it.
+ *
+ * A link stores the path it was given, and a rename or a move leaves that path
+ * pointing at nothing. Resolving it the way the cell reader does — directly, then by
+ * the one table that still carries that file name — keeps what this server reports
+ * and writes through a link in step with the value the cell shows. `loaded` holds the
+ * documents read so far, so one request reads each table once.
+ */
+function tableAt(
+	doc: LayerDoc,
+	path: string | undefined,
+	loaded: Map<string, LayerDoc>,
+): LayerDoc | null {
+	if (!path) {
+		return doc;
+	}
+	const cached = loaded.get(path);
+	if (cached) {
+		return cached;
+	}
+	const resolved = tablePathForRead(path);
+	if (!resolved) {
+		return null;
+	}
+	try {
+		const other = loadTable(resolved).doc;
+		loaded.set(path, other);
+		loaded.set(resolved, other);
+		return other;
+	} catch {
+		return null;
+	}
+}
+
+/** The name of one column in a table, or null when either is missing. */
+function nameIn(table: LayerDoc | null, id?: string): string | null {
+	if (!table || !id) {
+		return null;
+	}
+	return table.fields.find((one) => one.id === id)?.name ?? null;
+}
+
+/**
+ * The path a link really reads.
+ *
+ * A stored link can name a table that has since moved, so an answer that echoed it
+ * would hand back a path that opens nothing. The stored path is kept only when no
+ * table answers to it, where naming it is what explains the failure.
+ */
+function linkPathForRead(path: string | undefined): string | undefined {
+	return path ? (tablePathForRead(path) ?? path) : undefined;
 }
 
 function fieldOf(doc: LayerDoc, nameOrId: unknown): Field {
@@ -424,41 +491,20 @@ function fieldConfig(
 	field: Field,
 	others: Map<string, LayerDoc>,
 ): Record<string, unknown> {
-	const tableFor = (path?: string): LayerDoc | null => {
-		if (!path) {
-			return doc;
-		}
-		const cached = others.get(path);
-		if (cached) {
-			return cached;
-		}
-		try {
-			const loaded = loadTable(path).doc;
-			others.set(path, loaded);
-			return loaded;
-		} catch {
-			return null;
-		}
-	};
-	const nameIn = (table: LayerDoc | null, id?: string): string | null => {
-		if (!table || !id) {
-			return null;
-		}
-		return table.fields.find((one) => one.id === id)?.name ?? null;
-	};
+	const tableFor = (path?: string): LayerDoc | null => tableAt(doc, path, others);
 
 	switch (field.type) {
 		case 'relation': {
 			const other = tableFor(field.linkPath);
 			return {
-				targetTable: field.linkPath ?? '(this table)',
+				targetTable: linkPathForRead(field.linkPath) ?? '(this table)',
 				shows: nameIn(other, field.linkFieldId),
 			};
 		}
 		case 'relationBack': {
 			const other = tableFor(field.backPath);
 			return {
-				fromTable: field.backPath ?? '(this table)',
+				fromTable: linkPathForRead(field.backPath) ?? '(this table)',
 				viaRelation: nameIn(other, field.backFieldId),
 				titledBy: nameIn(other, field.backTitleFieldId),
 			};
@@ -579,39 +625,18 @@ function computedFrom(
 	field: Field,
 	others: Map<string, LayerDoc>,
 ): Record<string, unknown> | null {
-	const tableFor = (path?: string): LayerDoc | null => {
-		if (!path) {
-			return doc;
-		}
-		const cached = others.get(path);
-		if (cached) {
-			return cached;
-		}
-		try {
-			const loaded = loadTable(path).doc;
-			others.set(path, loaded);
-			return loaded;
-		} catch {
-			return null;
-		}
-	};
-	const nameIn = (table: LayerDoc | null, id?: string): string | null => {
-		if (!table || !id) {
-			return null;
-		}
-		return table.fields.find((one) => one.id === id)?.name ?? null;
-	};
+	const tableFor = (path?: string): LayerDoc | null => tableAt(doc, path, others);
 	const sourceOf = (
 		sourceField: Field | undefined,
 	): { path?: string; table: LayerDoc | null } => {
 		if (!sourceField) {
 			return { table: null };
 		}
-		const path =
+		const stored =
 			sourceField.type === 'relationBack'
 				? sourceField.backPath
 				: sourceField.linkPath;
-		return { path, table: tableFor(path) };
+		return { path: linkPathForRead(stored), table: tableFor(stored) };
 	};
 	const described = (
 		kind: string,
@@ -689,7 +714,7 @@ function computedFrom(
 			return described(
 				'relation',
 				other,
-				field.linkPath,
+				linkPathForRead(field.linkPath),
 				column,
 				null,
 				{},
@@ -704,7 +729,7 @@ function computedFrom(
 			return described(
 				'relationBack',
 				other,
-				field.backPath,
+				linkPathForRead(field.backPath),
 				column,
 				field.backFieldId ? nameIn(other, field.backFieldId) : null,
 				{},
@@ -767,8 +792,14 @@ function relationCell(
 	doc: LayerDoc,
 	field: Field,
 	raw: unknown,
+	others: Map<string, LayerDoc>,
 ): { ids: string[]; unknown: string[] } {
-	const target = field.linkPath ? loadTable(field.linkPath).doc : doc;
+	const target = tableAt(doc, field.linkPath, others);
+	if (!target) {
+		throw new Error(
+			`The relation column "${field.name}" points at "${field.linkPath ?? ''}", which is not a table in this vault.`,
+		);
+	}
 	const items = Array.isArray(raw)
 		? raw
 		: asText(raw)
@@ -815,6 +846,7 @@ function writeCell(
 	recordId: string,
 	field: Field,
 	raw: unknown,
+	others: Map<string, LayerDoc>,
 ): { ok: boolean; unknown: string[] } {
 	/*
 	 * Nothing to write is a clear, not a refusal. `null` says so outright, and an
@@ -829,7 +861,7 @@ function writeCell(
 		};
 	}
 	if (field.type === 'relation') {
-		const { ids, unknown } = relationCell(doc, field, raw);
+		const { ids, unknown } = relationCell(doc, field, raw, others);
 		if (unknown.length > 0) {
 			return { ok: false, unknown };
 		}
@@ -909,18 +941,31 @@ function given(args: Record<string, unknown>, key: string): boolean {
 }
 
 /** The table a relation, backlink or nothing of the sort points at. */
-function linkedTable(doc: LayerDoc, sourceFieldId: string | undefined): LayerDoc {
+function linkedTable(
+	doc: LayerDoc,
+	sourceFieldId: string | undefined,
+	others: Map<string, LayerDoc>,
+): LayerDoc {
 	const source = doc.fields.find((one) => one.id === sourceFieldId);
 	if (!source) {
 		return doc;
 	}
-	if (source.type === 'relation' && source.linkPath) {
-		return loadTable(source.linkPath).doc;
+	const path =
+		source.type === 'relation'
+			? source.linkPath
+			: source.type === 'relationBack'
+				? source.backPath
+				: undefined;
+	if (!path) {
+		return doc;
 	}
-	if (source.type === 'relationBack' && source.backPath) {
-		return loadTable(source.backPath).doc;
+	const table = tableAt(doc, path, others);
+	if (!table) {
+		throw new Error(
+			`The column "${source.name}" points at "${path}", which is not a table in this vault.`,
+		);
 	}
-	return doc;
+	return table;
 }
 
 /**
@@ -941,6 +986,7 @@ function applyFieldSettings(
 	args: Record<string, unknown>,
 	file: string,
 	requireSettings: boolean,
+	others: Map<string, LayerDoc>,
 ): string[] {
 	const changed: string[] = [];
 	const type = field.type;
@@ -981,8 +1027,13 @@ function applyFieldSettings(
 				delete field.backTitleFieldId;
 			} else {
 				const source = field.backPath
-					? loadTable(field.backPath).doc
+					? tableAt(doc, field.backPath, others)
 					: doc;
+				if (!source) {
+					throw new Error(
+						`This backlink column points at "${field.backPath}", which is not a table in this vault.`,
+					);
+				}
 				field.backTitleFieldId = fieldOf(source, titleName).id;
 			}
 			changed.push('backTitleField');
@@ -1057,7 +1108,7 @@ function applyFieldSettings(
 			}
 		} else {
 			field.rollupFieldId = fieldOf(
-				linkedTable(doc, field.rollupSourceFieldId),
+				linkedTable(doc, field.rollupSourceFieldId, others),
 				readName,
 			).id;
 			changed.push('rollupField');
@@ -1089,7 +1140,7 @@ function applyFieldSettings(
 			}
 		} else {
 			field.lookupFieldId = fieldOf(
-				linkedTable(doc, field.lookupSourceFieldId),
+				linkedTable(doc, field.lookupSourceFieldId, others),
 				readName,
 			).id;
 			changed.push('lookupField');
@@ -1917,6 +1968,30 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			// Loaded at most once per table, however many columns point at it.
 			const otherTables = new Map<string, LayerDoc>();
 			const tablePaths = tableFiles();
+			/*
+			 * A note property asks for its note once per row, so rows pointing at the same
+			 * note would read that file again for every cell. The cache lasts for this
+			 * call only: the server outlives the note, and text kept longer would be what
+			 * the note held when it was first read.
+			 */
+			const noteTexts = new Map<string, string | null>();
+			const noteText = (notePath: string): string | null => {
+				const cached = noteTexts.get(notePath);
+				if (cached !== undefined) {
+					return cached;
+				}
+				const file = resolveNoteFile(notePath);
+				let text: string | null = null;
+				if (file !== null) {
+					try {
+						text = readFileText(file);
+					} catch {
+						text = null;
+					}
+				}
+				noteTexts.set(notePath, text);
+				return text;
+			};
 			const reader = new CellReader({
 				table: (field, from, direction) => {
 					const path = direction === 'back' ? field.backPath : field.linkPath;
@@ -1927,23 +2002,26 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					if (!resolved) {
 						return null;
 					}
+					// The reader asks once per cell; the linked table is read and parsed
+					// once for the whole answer, and the same cache serves the metadata.
+					const cached = otherTables.get(resolved);
+					if (cached) {
+						return cached;
+					}
 					try {
-						return loadTable(resolved).doc;
+						const loaded = loadTable(resolved).doc;
+						otherTables.set(resolved, loaded);
+						return loaded;
 					} catch {
 						return null;
 					}
 				},
 				noteProperty: (notePath, key) => {
-					const file = resolveNoteFile(notePath);
-					if (!file) {
-						return '';
-					}
-					try {
-						return frontmatterValue(readFileText(file), key);
-					} catch {
-						return '';
-					}
+					const text = noteText(notePath);
+					return text === null ? '' : frontmatterValue(text, key);
 				},
+				notePropertyHint: () =>
+					'This frontmatter value is nested or otherwise too complex to read; only top-level scalar values and simple arrays can be read.',
 				formulaError: (error) => ({
 					text: `#${error.code}`,
 					hint: error.detail ?? error.code,
@@ -1959,18 +2037,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				if (field.type !== 'relation') {
 					continue;
 				}
-				const target = field.linkPath
-					? (otherTables.get(field.linkPath) ??
-						(() => {
-							try {
-								const loaded = loadTable(field.linkPath).doc;
-								otherTables.set(field.linkPath, loaded);
-								return loaded;
-							} catch {
-								return null;
-							}
-						})())
-					: doc;
+				const target = tableAt(doc, field.linkPath, otherTables);
 				if (!target) {
 					continue;
 				}
@@ -2031,6 +2098,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 
 		case 'add_records': {
 			const { doc, file, text } = loadTable(args.path);
+			const others = new Map<string, LayerDoc>();
 			const rows = Array.isArray(args.records) ? args.records : [];
 			const added: string[] = [];
 			const refused: Array<{ field: string; value: unknown }> = [];
@@ -2064,7 +2132,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					if (empty) {
 						continue;
 					}
-					const result = writeCell(doc, record.id, field, value);
+					const result = writeCell(doc, record.id, field, value, others);
 					if (!result.ok) {
 						refused.push({
 							field: column,
@@ -2083,6 +2151,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 
 		case 'update_cells': {
 			const { doc, file, text } = loadTable(args.path);
+			const others = new Map<string, LayerDoc>();
 			const updates = Array.isArray(args.updates) ? args.updates : [];
 			const refused: Array<{
 				recordId: string;
@@ -2107,7 +2176,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 					refused.push({ recordId, field: field.name, value: item.value, ...unwritable(field) });
 					continue;
 				}
-				const result = writeCell(doc, recordId, field, item.value);
+				const result = writeCell(doc, recordId, field, item.value, others);
 				if (result.ok) {
 					updated += 1;
 				} else {
@@ -2192,7 +2261,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 			}
 
 			// Everything the type carries, refused rather than stored half-built.
-			applyFieldSettings(doc, field, args, file, true);
+			applyFieldSettings(doc, field, args, file, true, new Map());
 
 			addField(doc, field);
 			saveTable(file, doc, text);
@@ -2336,7 +2405,7 @@ function runTool(name: string, args: Record<string, unknown>): unknown {
 				}
 			}
 
-			changed.push(...applyFieldSettings(doc, field, args, file, typeChanged));
+			changed.push(...applyFieldSettings(doc, field, args, file, typeChanged, new Map()));
 
 			if (changed.length === 0) {
 				return {
